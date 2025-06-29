@@ -438,7 +438,7 @@ const CurriculumMaker = () => {
             setSelectedYear(newValue + 1);
           }}>
             {[1, 2, 3, 4].map(year => (
-              <Tab key={year} label={`Year ${year}`} />
+              <Tab key={year} label={`${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year`} />
             ))}
           </Tabs>
         </Box>
@@ -447,7 +447,7 @@ const CurriculumMaker = () => {
           {[1, 2].map(semester => (
             <Box key={semester} mb={4}>
               <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold' }}>
-                Semester {semester}
+                {semester === 1 ? '1st' : '2nd'} Semester
               </Typography>
               
               <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 1 }}>
@@ -676,13 +676,9 @@ const CurriculumMaker = () => {
                     </TableRow>
                     
                     {getCoursesByYearAndSemester(selectedYear, semester).length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
-                          <Typography variant="body2" color="text.secondary">
-                            No courses in Year {selectedYear}, Semester {semester}
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
+                      <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 2 }}>
+                        No courses in {selectedYear === 1 ? '1st' : selectedYear === 2 ? '2nd' : selectedYear === 3 ? '3rd' : '4th'} Year, {semester === 1 ? '1st' : '2nd'} Semester
+                      </Typography>
                     )}
                   </TableBody>
                 </Table>
@@ -802,7 +798,7 @@ const CurriculumMaker = () => {
                   onChange={(e) => setSelectedYear(e.target.value)}
                 >
                   {[1, 2, 3, 4].map(year => (
-                    <MenuItem key={year} value={year}>Year {year}</MenuItem>
+                    <MenuItem key={year} value={year}>{year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year</MenuItem>
                   ))}
                 </Select>
               </FormControl>
@@ -815,7 +811,7 @@ const CurriculumMaker = () => {
                   onChange={(e) => setSelectedSemester(e.target.value)}
                 >
                   {[1, 2].map(sem => (
-                    <MenuItem key={sem} value={sem}>Semester {sem}</MenuItem>
+                    <MenuItem key={sem} value={sem}>{sem === 1 ? '1st' : '2nd'} Semester</MenuItem>
                   ))}
                 </Select>
               </FormControl>

@@ -49,7 +49,7 @@ const Dashboard = () => {
   // Render the main dashboard
   return (
     <Box minHeight="100vh" bgcolor="#f5f6fa">
-      <AppBar position="static" color="default" elevation={1}>
+      <AppBar position="static" sx={{ bgcolor: 'royalblue' }} elevation={1}>
         <Toolbar>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
             Dashboard
@@ -59,89 +59,105 @@ const Dashboard = () => {
           </Button>
         </Toolbar>
       </AppBar>
-      <Container maxWidth="lg" sx={{ py: 4 }}>
-        <Paper 
-          elevation={3} 
-          sx={{ 
-            p: 4, 
-            borderRadius: 2,
-            minHeight: '70vh',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center'
-          }}
-        >
-          <Typography variant="h5" fontWeight={600} mb={4} align="center">
-            Welcome, {currentUser?.displayName || currentUser?.email}!
-          </Typography>
+      
+      <Box sx={{ p: 4 }}>
+        <Typography variant="h3" fontWeight={700} mb={2} align="center" color="primary">
+          Welcome, {currentUser?.displayName || currentUser?.email}!
+        </Typography>
+        
+        <Typography variant="h6" color="text.secondary" mb={6} align="center" sx={{ maxWidth: 600, mx: 'auto' }}>
+          Select a system to manage your institution's curriculum and financial operations.
+        </Typography>
+        
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          gap: 4, 
+          flexWrap: 'wrap',
+          maxWidth: 1000,
+          mx: 'auto'
+        }}>
+          <Card 
+            elevation={0}
+            sx={{ 
+              width: 400,
+              height: 300,
+              cursor: 'pointer',
+              transition: 'all 0.3s ease',
+              border: '2px solid transparent',
+              bgcolor: 'white',
+              '&:hover': {
+                transform: 'translateY(-8px)',
+                boxShadow: '0 12px 24px rgba(0,0,0,0.15)',
+                border: '2px solid #1976d2',
+              }
+            }}
+            onClick={() => handleSystemSelect('Curriculum Checker')}
+          >
+            <CardContent sx={{ 
+              textAlign: 'center', 
+              py: 4,
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between'
+            }}>
+              <Box>
+                <SchoolIcon sx={{ fontSize: 70, color: '#1976d2', mb: 3 }} />
+                <Typography variant="h4" fontWeight={700} mb={2} color="primary">
+                  Curriculum Checker
+                </Typography>
+                <Typography variant="body1" color="text.secondary" lineHeight={1.6}>
+                  Review and validate curriculum requirements, course mappings, and academic compliance.
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="primary" fontWeight={600} sx={{ mt: 2 }}>
+                Click to access →
+              </Typography>
+            </CardContent>
+          </Card>
           
-          {/* System Selection Section */}
-          <Typography variant="h6" fontWeight={500} mb={4} align="center">
-            Select a System
-          </Typography>
-          <Grid container spacing={4} justifyContent="center">
-            <Grid item xs={12} sm={6} md={5}>
-              <Card 
-                elevation={2} 
-                sx={{ 
-                  height: '100%', 
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease',
-                  '&:hover': {
-                    elevation: 4,
-                    transform: 'translateY(-4px)',
-                    boxShadow: 4,
-                  }
-                }}
-                onClick={() => handleSystemSelect('Curriculum Checker')}
-              >
-                <CardContent sx={{ textAlign: 'center', py: 4 }}>
-                  <SchoolIcon sx={{ fontSize: 60, color: 'primary.main', mb: 2 }} />
-                  <Typography variant="h5" fontWeight={600} mb={2}>
-                    Curriculum Checker
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" mb={3}>
-                    Review and validate curriculum requirements, course mappings, and academic compliance.
-                  </Typography>
-                  <Typography variant="body2" color="primary.main" fontWeight={500}>
-                    Click to access →
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            
-            <Grid item xs={12} sm={6} md={5}>
-              <Card 
-                elevation={2} 
-                sx={{ 
-                  height: '100%', 
-                  cursor: 'pointer',
-                  transition: 'all 0.3s ease',
-                  '&:hover': {
-                    elevation: 4,
-                    transform: 'translateY(-4px)',
-                    boxShadow: 4,
-                  }
-                }}
-                onClick={() => handleSystemSelect('Payables System')}
-              >
-                <CardContent sx={{ textAlign: 'center', py: 4 }}>
-                  <PaymentIcon sx={{ fontSize: 60, color: 'success.main', mb: 2 }} />
-                  <Typography variant="h5" fontWeight={600} mb={2}>
-                    Payables System
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" mb={3}>
-                    Manage invoices, track payments, and handle financial transactions for the institution.
-                  </Typography>
-                  <Typography variant="body2" color="success.main" fontWeight={500}>
-                    Click to access →
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
-        </Paper>
-      </Container>
+          <Card 
+            elevation={0}
+            sx={{ 
+              width: 400,
+              height: 300,
+              cursor: 'pointer',
+              transition: 'all 0.3s ease',
+              border: '2px solid transparent',
+              bgcolor: 'white',
+              '&:hover': {
+                transform: 'translateY(-8px)',
+                boxShadow: '0 12px 24px rgba(0,0,0,0.15)',
+                border: '2px solid #2e7d32',
+              }
+            }}
+            onClick={() => handleSystemSelect('Payables System')}
+          >
+            <CardContent sx={{ 
+              textAlign: 'center', 
+              py: 4,
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between'
+            }}>
+              <Box>
+                <PaymentIcon sx={{ fontSize: 70, color: '#2e7d32', mb: 3 }} />
+                <Typography variant="h4" fontWeight={700} mb={2} color="success.main">
+                  Payables System
+                </Typography>
+                <Typography variant="body1" color="text.secondary" lineHeight={1.6}>
+                  Manage invoices, track payments, and handle financial transactions for the institution.
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="success.main" fontWeight={600} sx={{ mt: 2 }}>
+                Click to access →
+              </Typography>
+            </CardContent>
+          </Card>
+        </Box>
+      </Box>
     </Box>
   );
 };

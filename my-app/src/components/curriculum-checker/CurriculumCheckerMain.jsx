@@ -173,7 +173,7 @@ const CurriculumCheckerMain = () => {
                   {student.name}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Year {student.yearLevel}
+                  {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year
                 </Typography>
                 <Box mt={1}>
                   <Chip 
@@ -207,20 +207,20 @@ const CurriculumCheckerMain = () => {
           {student.name}'s Curriculum
         </Typography>
         <Typography variant="body1" color="text.secondary" gutterBottom>
-          Year {student.yearLevel} • {student.completedCourses?.length || 0} courses completed
+          {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year • {student.completedCourses?.length || 0} courses completed
         </Typography>
         
         <Box mt={3}>
           {[1, 2, 3, 4].map(year => (
             <Accordion key={year}>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography variant="h6">Year {year}</Typography>
+                <Typography variant="h6">{year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year</Typography>
               </AccordionSummary>
               <AccordionDetails>
                 {[1, 2].map(semester => (
                   <Box key={semester} mb={3}>
                     <Typography variant="subtitle1" gutterBottom>
-                      Semester {semester}
+                      {semester === 1 ? '1st' : '2nd'} Semester
                     </Typography>
                     <TableContainer>
                       <Table size="small">

@@ -26,7 +26,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
   return (
     <Box minHeight="100vh" bgcolor="#f5f6fa">
-      <AppBar position="static" color="success" elevation={1}>
+      <AppBar position="static" sx={{ bgcolor: 'royalblue' }} elevation={1}>
         <Toolbar>
           <IconButton 
             edge="start" 
