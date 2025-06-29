@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import {
   AppBar,
@@ -13,9 +14,12 @@ import {
 } from '@mui/material';
 import SchoolIcon from '@mui/icons-material/School';
 import PaymentIcon from '@mui/icons-material/Payment';
+import CurriculumChecker from './curriculum-checker/CurriculumChecker';
+import PayablesSystem from './payables-system/PayablesSystem';
 
 const Dashboard = () => {
   const { currentUser, signout } = useAuth();
+  const [selectedSystem, setSelectedSystem] = useState(null);
 
   const handleSignOut = async () => {
     try {
@@ -26,26 +30,47 @@ const Dashboard = () => {
   };
 
   const handleSystemSelect = (system) => {
-    // TODO: Implement navigation to specific system
-    console.log(`Selected system: ${system}`);
-    // You can implement routing here or pass this to a parent component
-    alert(`Navigating to ${system} system...`);
+    setSelectedSystem(system);
   };
 
+  const handleBackToDashboard = () => {
+    setSelectedSystem(null);
+  };
+
+  // Render the selected system
+  if (selectedSystem === 'Curriculum Checker') {
+    return <CurriculumChecker onBackToDashboard={handleBackToDashboard} />;
+  }
+
+  if (selectedSystem === 'Payables System') {
+    return <PayablesSystem onBackToDashboard={handleBackToDashboard} />;
+  }
+
+  // Render the main dashboard
   return (
     <Box minHeight="100vh" bgcolor="#f5f6fa">
       <AppBar position="static" color="default" elevation={1}>
         <Toolbar>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            CCS Faculty Portal
+            Dashboard
           </Typography>
           <Button color="primary" variant="contained" onClick={handleSignOut}>
             Sign Out
           </Button>
         </Toolbar>
       </AppBar>
-      <Container maxWidth="md" sx={{ py: 6 }}>
-        <Paper elevation={3} sx={{ p: 4, borderRadius: 2 }}>
+      <Container maxWidth="lg" sx={{ py: 4 }}>
+        <Paper 
+          elevation={3} 
+          sx={{ 
+            p: 4, 
+            borderRadius: 2,
+            minHeight: '70vh',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center'
+          }}
+        >
           <Typography variant="h5" fontWeight={600} mb={4} align="center">
             Welcome, {currentUser?.displayName || currentUser?.email}!
           </Typography>
@@ -54,8 +79,8 @@ const Dashboard = () => {
           <Typography variant="h6" fontWeight={500} mb={4} align="center">
             Select a System
           </Typography>
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
+          <Grid container spacing={4} justifyContent="center">
+            <Grid item xs={12} sm={6} md={5}>
               <Card 
                 elevation={2} 
                 sx={{ 
@@ -85,7 +110,7 @@ const Dashboard = () => {
               </Card>
             </Grid>
             
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} sm={6} md={5}>
               <Card 
                 elevation={2} 
                 sx={{ 
