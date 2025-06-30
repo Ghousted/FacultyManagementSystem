@@ -1,13 +1,10 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { 
-  createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
-  updateProfile,
-  GoogleAuthProvider,
-  signInWithPopup
+  updateProfile
 } from 'firebase/auth';
 import { auth } from '../firebase';
 
@@ -25,37 +22,10 @@ export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Sign up function
-  const signup = async (email, password, displayName = '') => {
-    try {
-      const result = await createUserWithEmailAndPassword(auth, email, password);
-      
-      // Update profile with display name if provided
-      if (displayName) {
-        await updateProfile(result.user, { displayName });
-      }
-      
-      return { success: true, user: result.user };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  };
-
   // Sign in function
   const signin = async (email, password) => {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
-      return { success: true, user: result.user };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  };
-
-  // Sign in with Google
-  const signInWithGoogle = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
       return { success: true, user: result.user };
     } catch (error) {
       return { success: false, error: error.message };
@@ -104,9 +74,7 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     currentUser,
-    signup,
     signin,
-    signInWithGoogle,
     signout,
     resetPassword,
     updateUserProfile,

@@ -173,6 +173,26 @@ export const getStudentCurriculumStatus = async (studentId) => {
     
     const studentData = studentDoc.data();
     const completedCourses = studentData.completedCourses || [];
+    const grades = studentData.grades || {};
+    
+    // Helper function to check if a course is failed (grade 5.0 or above)
+    const isCourseFailed = (courseCode) => {
+      const grade = grades[courseCode];
+      return grade && parseFloat(grade) >= 5.0;
+    };
+    
+    // Helper function to check if a course is incomplete
+    const isCourseIncomplete = (courseCode) => {
+      const grade = grades[courseCode];
+      return grade === 'INC';
+    };
+    
+    // Helper function to check if a course meets prerequisites (completed and not failed/incomplete)
+    const isPrerequisiteMet = (courseCode) => {
+      return completedCourses.includes(courseCode) && 
+             !isCourseFailed(courseCode) && 
+             !isCourseIncomplete(courseCode);
+    };
     
     // Get curriculum courses
     const coursesResult = await getCoursesByCurriculum(studentData.curriculumId);
@@ -185,13 +205,21 @@ export const getStudentCurriculumStatus = async (studentId) => {
     // Process each course to determine status
     const processedCourses = courses.map(course => {
       const isCompleted = completedCourses.includes(course.courseCode);
+      const isFailed = isCourseFailed(course.courseCode);
+      const isIncomplete = isCourseIncomplete(course.courseCode);
+      
+      // Check if prerequisites are met (only completed courses that are not failed/incomplete)
       const prerequisitesMet = course.prerequisites.every(prereq => 
-        completedCourses.includes(prereq)
+        isPrerequisiteMet(prereq)
       );
       
       let status = 'not-taken';
-      if (isCompleted) {
+      if (isCompleted && !isFailed && !isIncomplete) {
         status = 'completed';
+      } else if (isFailed) {
+        status = 'failed';
+      } else if (isIncomplete) {
+        status = 'incomplete';
       } else if (!prerequisitesMet && course.prerequisites.length > 0) {
         status = 'blocked';
       } else {
@@ -202,6 +230,8 @@ export const getStudentCurriculumStatus = async (studentId) => {
         ...course,
         status,
         isCompleted,
+        isFailed,
+        isIncomplete,
         prerequisitesMet
       };
     });

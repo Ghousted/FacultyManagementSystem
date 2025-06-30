@@ -7,17 +7,14 @@ import {
   Typography,
   Alert,
   Stack,
-  Divider,
-  IconButton,
 } from '@mui/material';
-import GoogleIcon from '@mui/icons-material/Google';
 
-const SignIn = ({ onSwitchToSignUp, onSwitchToResetPassword }) => {
+const SignIn = ({ onSwitchToResetPassword }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const { signin, signInWithGoogle } = useAuth();
+  const { signin } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -31,16 +28,6 @@ const SignIn = ({ onSwitchToSignUp, onSwitchToResetPassword }) => {
     }
 
     const result = await signin(email, password);
-    if (!result.success) {
-      setError(result.error);
-    }
-    setLoading(false);
-  };
-
-  const handleGoogleSignIn = async () => {
-    setError('');
-    setLoading(true);
-    const result = await signInWithGoogle();
     if (!result.success) {
       setError(result.error);
     }
@@ -91,23 +78,6 @@ const SignIn = ({ onSwitchToSignUp, onSwitchToResetPassword }) => {
             >
               {loading ? 'Signing in...' : 'Sign in'}
             </Button>
-            <Divider>or</Divider>
-            <Button
-              onClick={handleGoogleSignIn}
-              variant="outlined"
-              color="primary"
-              fullWidth
-              startIcon={<GoogleIcon />}
-              disabled={loading}
-            >
-              Sign in with Google
-            </Button>
-            <Typography align="center" variant="body2">
-              Don't have an account?{' '}
-              <Button onClick={onSwitchToSignUp} size="small" sx={{ textTransform: 'none' }}>
-                Sign up
-              </Button>
-            </Typography>
           </Stack>
         </form>
       </Box>

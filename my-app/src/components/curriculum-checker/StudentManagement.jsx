@@ -50,7 +50,7 @@ import {
   getCoursesByCurriculum 
 } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
 const StudentManagement = () => {
@@ -68,6 +68,8 @@ const StudentManagement = () => {
   // Student form state
   const [studentForm, setStudentForm] = useState({
     name: '',
+    email: '',
+    studentNumber: '',
     yearLevel: 1,
     curriculumId: ''
   });
@@ -87,6 +89,10 @@ const StudentManagement = () => {
     yearLevel: 1,
     curriculumId: ''
   });
+  
+  // Grade management state
+  const [studentGrades, setStudentGrades] = useState({});
+  const [editingGrades, setEditingGrades] = useState({});
 
   useEffect(() => {
     if (currentUser) {
@@ -98,6 +104,7 @@ const StudentManagement = () => {
   useEffect(() => {
     if (selectedStudent) {
       loadStudentCourses(selectedStudent.curriculumId);
+      loadStudentGrades(selectedStudent.id);
     }
   }, [selectedStudent]);
 
@@ -169,7 +176,7 @@ const StudentManagement = () => {
     const result = await addStudent(studentForm);
     if (result.success) {
       setSuccess('Student added successfully!');
-      setStudentForm({ name: '', yearLevel: 1, curriculumId: '' });
+      setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: 1, curriculumId: '' });
       setStudentDialogOpen(false);
       loadStudents();
     } else {
@@ -338,6 +345,105 @@ const StudentManagement = () => {
     return selectedStudent?.completedCourses?.includes(courseCode) || false;
   };
 
+  // Calculate Dean's Lister eligibility for a semester
+  const calculateDeansListerEligibility = (semester, year) => {
+    if (!selectedStudent || !studentGrades) return false;
+    
+    const semesterGrades = studentCourses
+      .filter(course => course.yearLevel === year && course.semester === semester)
+      .map(course => studentGrades[course.courseCode])
+      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC');
+    
+    if (semesterGrades.length === 0) return false;
+    
+    // Check if no grades are higher than 2.1 (excluding 5.0 and INC)
+    return semesterGrades.every(grade => {
+      const numGrade = parseFloat(grade);
+      return numGrade <= 2.1;
+    });
+  };
+
+  // Calculate Scholarship eligibility for both semesters
+  const calculateScholarshipEligibility = (year) => {
+    if (!selectedStudent || !studentGrades) return { eligible: false, percentage: 0 };
+    
+    const yearGrades = studentCourses
+      .filter(course => course.yearLevel === year)
+      .map(course => studentGrades[course.courseCode])
+      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC');
+    
+    if (yearGrades.length === 0) return { eligible: false, percentage: 0 };
+    
+    const maxGrade = Math.max(...yearGrades.map(grade => parseFloat(grade)));
+    
+    if (maxGrade <= 1.5) {
+      return { eligible: true, percentage: 100 };
+    } else if (maxGrade <= 1.7) {
+      return { eligible: true, percentage: 50 };
+    } else {
+      return { eligible: false, percentage: 0 };
+    }
+  };
+
+  // Check if a course is failed (grade 5.0 or above)
+  const isCourseFailed = (courseCode) => {
+    if (!selectedStudent || !studentGrades) return false;
+    const grade = studentGrades[courseCode];
+    return grade && parseFloat(grade) >= 5.0;
+  };
+
+  // Check if a course is incomplete
+  const isCourseIncomplete = (courseCode) => {
+    if (!selectedStudent || !studentGrades) return false;
+    const grade = studentGrades[courseCode];
+    return grade === 'INC';
+  };
+
+  // Handle grade input change
+  const handleGradeChange = (courseCode, grade) => {
+    setEditingGrades(prev => ({
+      ...prev,
+      [courseCode]: grade
+    }));
+  };
+
+  // Save grades for a student
+  const handleSaveGrades = async () => {
+    if (!selectedStudent) return;
+    
+    setLoading(true);
+    try {
+      const studentRef = doc(db, 'students', selectedStudent.id);
+      await updateDoc(studentRef, {
+        grades: editingGrades,
+        updatedAt: new Date()
+      });
+      
+      setStudentGrades(editingGrades);
+      setSuccess('Grades saved successfully!');
+    } catch (error) {
+      setError('Failed to save grades: ' + error.message);
+    }
+    setLoading(false);
+  };
+
+  // Load student grades
+  const loadStudentGrades = async (studentId) => {
+    if (!studentId) return;
+    
+    try {
+      const studentRef = doc(db, 'students', studentId);
+      const studentDoc = await getDoc(studentRef);
+      if (studentDoc.exists()) {
+        const grades = studentDoc.data().grades || {};
+        setStudentGrades(grades);
+        setEditingGrades(grades);
+      }
+    } catch (error) {
+      console.error('Error loading grades:', error);
+    }
+  };
+
   const getFilteredStudents = () => {
     if (selectedYearFilter === 'all') {
       return students;
@@ -392,6 +498,17 @@ const StudentManagement = () => {
         <Typography variant="h6">
           Students in {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year
         </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => {
+            setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: tabValue + 1, curriculumId: '' });
+            setStudentDialogOpen(true);
+          }}
+          size="small"
+        >
+          Add Student
+        </Button>
       </Box>
       
       <Box sx={{ maxHeight: 'calc(100vh - 300px)', overflowY: 'auto', overflowX: 'hidden' }}>
@@ -419,7 +536,10 @@ const StudentManagement = () => {
                   <Button
                     variant="contained"
                     startIcon={<AddIcon />}
-                    onClick={() => setStudentDialogOpen(true)}
+                    onClick={() => {
+                      setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: tabValue + 1, curriculumId: '' });
+                      setStudentDialogOpen(true);
+                    }}
                   >
                     Add Student
                   </Button>
@@ -572,72 +692,11 @@ const StudentManagement = () => {
                     );
                   })}
                   
-                  {/* New Student Row */}
-                  <TableRow sx={{ bgcolor: '#f0f8ff', '&:hover': { bgcolor: '#e6f3ff' } }}>
-                    <TableCell sx={{ width: '20%' }}>
-                      <TextField
-                        size="small"
-                        placeholder="Student Number"
-                        value={newStudentData.studentNumber}
-                        onChange={(e) => handleNewStudentInputChange('studentNumber', e.target.value)}
-                        fullWidth
-                      />
-                    </TableCell>
-                    <TableCell sx={{ width: '25%' }}>
-                      <TextField
-                        size="small"
-                        placeholder="Student Name"
-                        value={newStudentData.name}
-                        onChange={(e) => handleNewStudentInputChange('name', e.target.value)}
-                        fullWidth
-                      />
-                    </TableCell>
-                    <TableCell sx={{ width: '30%' }}>
-                      <TextField
-                        size="small"
-                        placeholder="Email"
-                        value={newStudentData.email}
-                        onChange={(e) => handleNewStudentInputChange('email', e.target.value)}
-                        fullWidth
-                      />
-                    </TableCell>
-                    <TableCell sx={{ width: '15%' }}>
-                      <FormControl size="small" fullWidth>
-                        <Select
-                          value={newStudentData.curriculumId}
-                          onChange={(e) => handleNewStudentInputChange('curriculumId', e.target.value)}
-                          displayEmpty
-                        >
-                          <MenuItem value="" disabled>
-                            Select Curriculum
-                          </MenuItem>
-                          {curriculums.map(curriculum => (
-                            <MenuItem key={curriculum.id} value={curriculum.id}>
-                              {curriculum.name}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
-                    </TableCell>
-                    <TableCell sx={{ width: '10%' }}>
-                      <Button
-                        variant="contained"
-                        size="small"
-                        color="success"
-                        onClick={handleAddNewStudent}
-                        disabled={loading || !newStudentData.name || !newStudentData.curriculumId || !newStudentData.studentNumber || !newStudentData.email}
-                        sx={{ minWidth: 60 }}
-                      >
-                        Add
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                  
                   {filteredStudents.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                         <Typography variant="body2" color="text.secondary">
-                          No students in {selectedYear === 1 ? '1st' : selectedYear === 2 ? '2nd' : selectedYear === 3 ? '3rd' : '4th'} Year
+                          No students in {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -654,13 +713,58 @@ const StudentManagement = () => {
   const renderCourseTables = () => {
     if (!selectedStudent) return null;
 
+    const currentYear = tabValue + 1;
+    const scholarshipEligibility = calculateScholarshipEligibility(currentYear);
+
     return (
-      <Box>
-        <Typography variant="h5" fontWeight="bold">
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Typography variant="h5" fontWeight="bold" sx={{ flexShrink: 0 }}>
           {selectedStudent.name} - Course Management
         </Typography>
 
-        <Box sx={{ mb: 2 }}>
+        {/* Eligibility Summary */}
+        <Box sx={{ mb: 3, p: 2, bgcolor: '#f8f9fa', borderRadius: 2, border: '1px solid #e0e0e0', flexShrink: 0 }}>
+          <Typography variant="h6" fontWeight={600} gutterBottom>
+            Academic Eligibility Summary - {currentYear === 1 ? '1st' : currentYear === 2 ? '2nd' : currentYear === 3 ? '3rd' : '4th'} Year
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            <Box>
+              <Typography variant="body2" fontWeight={500} color="text.secondary">
+                1st Semester Dean's Lister:
+              </Typography>
+              <Chip 
+                label={calculateDeansListerEligibility(1, currentYear) ? "Eligible" : "Not Eligible"}
+                color={calculateDeansListerEligibility(1, currentYear) ? "success" : "default"}
+                size="small"
+                variant="outlined"
+              />
+            </Box>
+            <Box>
+              <Typography variant="body2" fontWeight={500} color="text.secondary">
+                2nd Semester Dean's Lister:
+              </Typography>
+              <Chip 
+                label={calculateDeansListerEligibility(2, currentYear) ? "Eligible" : "Not Eligible"}
+                color={calculateDeansListerEligibility(2, currentYear) ? "success" : "default"}
+                size="small"
+                variant="outlined"
+              />
+            </Box>
+            <Box>
+              <Typography variant="body2" fontWeight={500} color="text.secondary">
+                Scholarship Eligibility:
+              </Typography>
+              <Chip 
+                label={scholarshipEligibility.eligible ? `${scholarshipEligibility.percentage}% Scholarship` : "Not Eligible"}
+                color={scholarshipEligibility.eligible ? "primary" : "default"}
+                size="small"
+                variant="outlined"
+              />
+            </Box>
+          </Box>
+        </Box>
+
+        <Box sx={{ mb: 2, flexShrink: 0 }}>
           <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
             {[1, 2, 3, 4].map(year => (
               <Tab key={year} label={`${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year`} />
@@ -668,22 +772,23 @@ const StudentManagement = () => {
           </Tabs>
         </Box>
 
-        <Box sx={{ maxHeight: 'calc(100vh - 300px)', overflowY: 'auto' }}>
+        <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {[1, 2].map(semester => (
-            <Box key={semester} mb={4}>
-              <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold' }}>
+            <Box key={semester} sx={{ flex: 1, display: 'flex', flexDirection: 'column', mb: 2 }}>
+              <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold', flexShrink: 0 }}>
                 {semester === 1 ? '1st' : '2nd'} Semester
               </Typography>
               
-              <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 1 }}>
-                <Table size="small">
+              <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 1, flex: 1 }}>
+                <Table size="small" sx={{ tableLayout: 'fixed' }}>
                   <TableHead>
                     <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-                      <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Course Code</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '40%' }}>Course Title</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '10%' }}>Units</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '12%' }}>Course Code</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Course Title</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '8%' }}>Units</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Prerequisites</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '10%' }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Status</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '10%' }}>Grade</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -691,13 +796,13 @@ const StudentManagement = () => {
                       .filter(course => course.yearLevel === (tabValue + 1) && course.semester === semester)
                       .map((course) => (
                         <TableRow key={course.id} sx={{ '&:hover': { bgcolor: '#f9f9f9' } }}>
-                          <TableCell>
-                            <Typography variant="body2" fontWeight="bold" color="primary">
+                          <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <Typography variant="body2" fontWeight="bold" color="primary" noWrap>
                               {course.courseCode}
                             </Typography>
                           </TableCell>
-                          <TableCell>
-                            <Typography variant="body2">
+                          <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <Typography variant="body2" noWrap>
                               {course.courseTitle}
                             </Typography>
                           </TableCell>
@@ -706,43 +811,108 @@ const StudentManagement = () => {
                               {course.units}
                             </Typography>
                           </TableCell>
-                          <TableCell>
+                          <TableCell sx={{ overflow: 'hidden' }}>
                             {course.prerequisites.length > 0 ? (
-                              <Box>
-                                {course.prerequisites.map(prereq => (
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                {course.prerequisites.slice(0, 2).map(prereq => (
                                   <Chip 
                                     key={prereq} 
                                     label={prereq} 
                                     size="small" 
                                     color={isCourseCompleted(prereq) ? 'success' : 'error'}
-                                    sx={{ mr: 0.5, mb: 0.5 }} 
+                                    sx={{ fontSize: '0.7rem', height: 20 }}
                                   />
                                 ))}
+                                {course.prerequisites.length > 2 && (
+                                  <Chip 
+                                    label={`+${course.prerequisites.length - 2}`}
+                                    size="small"
+                                    variant="outlined"
+                                    sx={{ fontSize: '0.7rem', height: 20 }}
+                                  />
+                                )}
                               </Box>
                             ) : (
-                              <Typography variant="body2" color="text.secondary">
+                              <Typography variant="body2" color="text.secondary" noWrap>
                                 None
                               </Typography>
                             )}
                           </TableCell>
                           <TableCell>
-                            <FormControl size="small" sx={{ minWidth: 120 }}>
+                            <FormControl size="small" sx={{ minWidth: 100, maxWidth: 120 }}>
                               <Select
                                 value={isCourseCompleted(course.courseCode) ? 'completed' : 'not-completed'}
                                 onChange={(e) => handleUpdateStudentCourse(course.courseCode, e.target.value === 'completed')}
                                 sx={{ 
-                                  bgcolor: isCourseCompleted(course.courseCode) ? '#e8f5e9' : '#fff3e0',
+                                  bgcolor: isCourseFailed(course.courseCode) ? '#ffebee' : 
+                                         isCourseCompleted(course.courseCode) ? '#e8f5e9' : '#fff3e0',
                                   '& .MuiSelect-select': {
-                                    color: isCourseCompleted(course.courseCode) ? '#2e7d32' : '#f57c00'
+                                    color: isCourseFailed(course.courseCode) ? '#d32f2f' : 
+                                          isCourseCompleted(course.courseCode) ? '#2e7d32' : '#f57c00',
+                                    fontSize: '0.8rem',
+                                    padding: '4px 8px'
                                   }
                                 }}
                               >
-                                <MenuItem value="completed" sx={{ color: '#2e7d32' }}>
+                                <MenuItem value="completed" sx={{ color: '#2e7d32', fontSize: '0.8rem' }}>
                                   Completed
                                 </MenuItem>
-                                <MenuItem value="not-completed" sx={{ color: '#f57c00' }}>
+                                <MenuItem value="not-completed" sx={{ color: '#f57c00', fontSize: '0.8rem' }}>
                                   Not Completed
                                 </MenuItem>
+                              </Select>
+                            </FormControl>
+                            {isCourseFailed(course.courseCode) && (
+                              <Typography variant="caption" color="error" display="block" sx={{ mt: 0.5 }}>
+                                Failed (Grade 5.0)
+                              </Typography>
+                            )}
+                            {isCourseIncomplete(course.courseCode) && (
+                              <Typography variant="caption" color="warning.main" display="block" sx={{ mt: 0.5 }}>
+                                Incomplete
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <FormControl size="small" sx={{ minWidth: 100, maxWidth: 120 }}>
+                              <Select
+                                value={editingGrades[course.courseCode] || ''}
+                                onChange={(e) => handleGradeChange(course.courseCode, e.target.value)}
+                                disabled={!isCourseCompleted(course.courseCode)}
+                                displayEmpty
+                                sx={{ 
+                                  '& .MuiSelect-select': {
+                                    fontSize: '0.8rem',
+                                    padding: '4px 8px'
+                                  }
+                                }}
+                              >
+                                <MenuItem value="" disabled>
+                                  Select Grade
+                                </MenuItem>
+                                <MenuItem value="1.0">1.0</MenuItem>
+                                <MenuItem value="1.1">1.1</MenuItem>
+                                <MenuItem value="1.2">1.2</MenuItem>
+                                <MenuItem value="1.3">1.3</MenuItem>
+                                <MenuItem value="1.4">1.4</MenuItem>
+                                <MenuItem value="1.5">1.5</MenuItem>
+                                <MenuItem value="1.6">1.6</MenuItem>
+                                <MenuItem value="1.7">1.7</MenuItem>
+                                <MenuItem value="1.8">1.8</MenuItem>
+                                <MenuItem value="1.9">1.9</MenuItem>
+                                <MenuItem value="2.0">2.0</MenuItem>
+                                <MenuItem value="2.1">2.1</MenuItem>
+                                <MenuItem value="2.2">2.2</MenuItem>
+                                <MenuItem value="2.3">2.3</MenuItem>
+                                <MenuItem value="2.4">2.4</MenuItem>
+                                <MenuItem value="2.5">2.5</MenuItem>
+                                <MenuItem value="2.6">2.6</MenuItem>
+                                <MenuItem value="2.7">2.7</MenuItem>
+                                <MenuItem value="2.8">2.8</MenuItem>
+                                <MenuItem value="2.9">2.9</MenuItem>
+                                <MenuItem value="3.0">3.0</MenuItem>
+                                <MenuItem value="5.0">5.0 (Failed)</MenuItem>
+                                <MenuItem value="INC">INC (Incomplete)</MenuItem>
                               </Select>
                             </FormControl>
                           </TableCell>
@@ -751,7 +921,7 @@ const StudentManagement = () => {
                     
                     {studentCourses.filter(course => course.yearLevel === (tabValue + 1) && course.semester === semester).length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
+                        <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
                           <Typography variant="body2" color="text.secondary">
                             No courses in Year {tabValue + 1}, Semester {semester}
                           </Typography>
@@ -764,8 +934,32 @@ const StudentManagement = () => {
             </Box>
           ))}
         </Box>
+
+        {/* Save Grades Button */}
+        <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleSaveGrades}
+            disabled={loading}
+            sx={{ minWidth: 120 }}
+          >
+            {loading ? 'Saving...' : 'Save Grades'}
+          </Button>
+        </Box>
       </Box>
     );
+  };
+
+  const handleOpenAddStudentDialog = () => {
+    setStudentForm({
+      name: '',
+      email: '',
+      studentNumber: '',
+      yearLevel: tabValue + 1,
+      curriculumId: ''
+    });
+    setStudentDialogOpen(true);
   };
 
   return (
@@ -794,8 +988,8 @@ const StudentManagement = () => {
             </Box>
           ) : (
             // Show full screen course tables when student is selected
-            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <Box sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa' }}>
+            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <Box sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa', flexShrink: 0 }}>
                 <Box display="flex" justifyContent="space-between" alignItems="center">
                   <Typography variant="h6">Selected Student</Typography>
                   <Button
@@ -816,7 +1010,7 @@ const StudentManagement = () => {
                 </Box>
               </Box>
               
-              <Box sx={{ flex: 1, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa', overflow: 'hidden' }}>
+              <Box sx={{ flex: 1, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {renderCourseTables()}
               </Box>
             </Box>
@@ -838,24 +1032,40 @@ const StudentManagement = () => {
         <DialogContent>
           <TextField
             fullWidth
+            label="Student Number"
+            value={studentForm.studentNumber || ''}
+            onChange={(e) => setStudentForm({ ...studentForm, studentNumber: e.target.value })}
+            margin="normal"
+            required
+          />
+          <TextField
+            fullWidth
             label="Student Name"
             value={studentForm.name}
             onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
             margin="normal"
+            required
           />
-          <Grid item xs={12} sm={6}>
-            <FormControl fullWidth margin="normal" size="small">
-              <InputLabel>Year Level</InputLabel>
-              <Select
-                value={studentForm.yearLevel}
-                onChange={(e) => setStudentForm({ ...studentForm, yearLevel: e.target.value })}
-              >
-                {[1, 2, 3, 4].map(year => (
-                  <MenuItem key={year} value={year}>{year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
+          <TextField
+            fullWidth
+            label="Email"
+            type="email"
+            value={studentForm.email || ''}
+            onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
+            margin="normal"
+            required
+          />
+          <FormControl fullWidth margin="normal">
+            <InputLabel>Year Level</InputLabel>
+            <Select
+              value={studentForm.yearLevel}
+              onChange={(e) => setStudentForm({ ...studentForm, yearLevel: e.target.value })}
+            >
+              {[1, 2, 3, 4].map(year => (
+                <MenuItem key={year} value={year}>{year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <FormControl fullWidth margin="normal">
             <InputLabel>Curriculum</InputLabel>
             <Select
@@ -872,7 +1082,11 @@ const StudentManagement = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setStudentDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleAddStudent} variant="contained" disabled={loading}>
+          <Button 
+            onClick={handleAddStudent} 
+            variant="contained" 
+            disabled={loading || !studentForm.name || !studentForm.email || !studentForm.curriculumId || !studentForm.studentNumber}
+          >
             Add Student
           </Button>
         </DialogActions>
