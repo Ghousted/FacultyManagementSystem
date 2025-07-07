@@ -37,23 +37,23 @@ import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import WifiOffIcon from '@mui/icons-material/WifiOff';
 import { getStudents } from '../../models/curriculumModels';
-import { useAuth } from '../../contexts/AuthContext';
-import { db } from '../../firebase';
 import { 
-  collection, 
-  doc, 
-  getDocs, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  where,
-  onSnapshot
-} from 'firebase/firestore';
+  createPayable, 
+  getPayables, 
+  updatePayable, 
+  deletePayable,
+  createStudentPayment,
+  getStudentPayments,
+  updateStudentPayment,
+  getPayablesByYearLevel,
+  calculateStudentBalance
+} from '../../models/payablesModels';
+import { useAuth } from '../../contexts/AuthContext';
 
 const PayablesSystem = ({ onBackToDashboard }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, isOnline } = useAuth();
   const [students, setStudents] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -113,16 +113,20 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       setError('Please sign in to access student data');
       return;
     }
-    
     setLoading(true);
     setError('');
-    const result = await getStudents();
-    if (result.success) {
-      setStudents(result.data);
-    } else {
-      setError(result.error);
+    try {
+      const result = await getStudents();
+      if (result.success) {
+        setStudents(result.data);
+      } else {
+        setError(result.error);
+      }
+    } catch (error) {
+      setError('Failed to load students: ' + error.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const loadPayables = async () => {
@@ -130,32 +134,25 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       setError('Please sign in to access payables data');
       return;
     }
-    
     setLoading(true);
     setError('');
-    
     try {
-      const payablesRef = collection(db, 'payables');
-      const q = query(payablesRef, where('userId', '==', currentUser.uid));
-      const querySnapshot = await getDocs(q);
-      
-      const yearSpecificPayables = {};
-      
-      querySnapshot.forEach((doc) => {
-        const payable = { id: doc.id, ...doc.data() };
-        const yearLevel = payable.yearLevel;
-        
-        if (!yearSpecificPayables[yearLevel]) {
-          yearSpecificPayables[yearLevel] = [];
-        }
-        
-        yearSpecificPayables[yearLevel].push(payable);
-      });
-      
-      setPayables(yearSpecificPayables);
-      setEditingPayables(yearSpecificPayables);
+      const result = await getPayables(currentUser.uid);
+      if (result.success) {
+        const yearSpecificPayables = {};
+        result.data.forEach((payable) => {
+          const yearLevel = payable.yearLevel;
+          if (!yearSpecificPayables[yearLevel]) {
+            yearSpecificPayables[yearLevel] = [];
+          }
+          yearSpecificPayables[yearLevel].push(payable);
+        });
+        setPayables(yearSpecificPayables);
+        setEditingPayables(yearSpecificPayables);
+      } else {
+        setError(result.error);
+      }
     } catch (error) {
-      console.error('Error loading payables:', error);
       setError('Failed to load payables: ' + error.message);
     } finally {
       setLoading(false);
@@ -225,41 +222,22 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       setError('Please fill in all required fields');
       return;
     }
-    
     setLoading(true);
     try {
       const currentYear = tabValue + 1;
-      
       if (editingMode) {
-        // Update existing payable in Firestore
-        const payableRef = doc(db, 'payables', newPayableForm.id);
-        await updateDoc(payableRef, {
+        const result = await updatePayable(newPayableForm.id, {
           type: newPayableForm.type,
-          amount: parseFloat(newPayableForm.amount),
-          updatedAt: new Date()
+          amount: parseFloat(newPayableForm.amount)
         });
-        
-        // Update local state
-        setPayables(prev => ({
-          ...prev,
-          [currentYear]: prev[currentYear].map(payable => {
-            if (payable.id === newPayableForm.id) {
-              return {
-                ...payable,
-                type: newPayableForm.type,
-                amount: parseFloat(newPayableForm.amount)
-              };
-            }
-            return payable;
-          })
-        }));
-        setSuccess('Payable updated successfully!');
+        if (result.success) {
+          setSuccess('Payable updated successfully!');
+          await loadPayables();
+        } else {
+          setError(result.error);
+        }
       } else {
-        // Add new payable to Firestore
-        // Get all students in the current year level
         const currentYearStudents = students.filter(student => student.yearLevel === currentYear);
-        
-        // Create student payments object for all students in the year level
         const studentPayments = {};
         currentYearStudents.forEach(student => {
           studentPayments[student.id] = {
@@ -267,33 +245,21 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             paidAmount: 0
           };
         });
-        
         const newPayableData = {
           type: newPayableForm.type,
           amount: parseFloat(newPayableForm.amount),
           yearLevel: currentYear,
-          userId: currentUser.uid,
-          studentPayments: studentPayments,
-          createdAt: new Date(),
-          updatedAt: new Date()
+          studentPayments: studentPayments
         };
-        
-        const docRef = await addDoc(collection(db, 'payables'), newPayableData);
-        
-        // Update local state with the new payable
-        const newPayable = {
-          id: docRef.id,
-          ...newPayableData
-        };
-        
-        setPayables(prev => ({
-          ...prev,
-          [currentYear]: [...(prev[currentYear] || []), newPayable]
-        }));
-        setSuccess(`Payable added successfully for ${currentYearStudents.length} students!`);
-        setAddPayableDialogOpen(false);
+        const result = await createPayable(newPayableData, currentUser.uid);
+        if (result.success) {
+          setSuccess(`Payable added successfully for ${currentYearStudents.length} students!`);
+          await loadPayables();
+          setAddPayableDialogOpen(false);
+        } else {
+          setError(result.error);
+        }
       }
-      
       setEditingMode(false);
       setNewPayableForm({
         type: '',
@@ -302,10 +268,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
         paidAmount: '0'
       });
     } catch (error) {
-      console.error('Error saving payable:', error);
       setError('Failed to save payable: ' + error.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSavePayment = async () => {
@@ -379,26 +345,18 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   const handleDeletePayable = async (payableId) => {
     setLoading(true);
     try {
-      // Delete from Firestore
-      await deleteDoc(doc(db, 'payables', payableId));
-      
-      // Update local state
-      const currentYear = tabValue + 1;
-      setPayables(prev => ({
-        ...prev,
-        [currentYear]: prev[currentYear].filter(payable => payable.id !== payableId)
-      }));
-      setEditingPayables(prev => ({
-        ...prev,
-        [currentYear]: prev[currentYear].filter(payable => payable.id !== payableId)
-      }));
-      
-      setSuccess('Payable deleted successfully!');
+      const result = await deletePayable(payableId);
+      if (result.success) {
+        setSuccess('Payable deleted successfully!');
+        await loadPayables();
+      } else {
+        setError(result.error);
+      }
     } catch (error) {
-      console.error('Error deleting payable:', error);
       setError('Failed to delete payable: ' + error.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const getPaymentTypeLabel = (type) => {
@@ -479,72 +437,32 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   };
 
   const handleSaveStudentPayment = async () => {
-    if (!selectedPayableForPayment || !selectedStudentForPayment || !studentPaymentForm.paymentAmount) {
+    if (!selectedStudentForPayment || !selectedPayableForPayment || !studentPaymentForm.paymentAmount) {
       setError('Please fill in all required fields');
       return;
     }
-
-    const paymentAmount = parseFloat(studentPaymentForm.paymentAmount);
-    if (paymentAmount <= 0) {
-      setError('Payment amount must be greater than 0');
-      return;
-    }
-
     setLoading(true);
     try {
-      const currentYear = selectedStudentForPayment.yearLevel;
-      const currentPayment = selectedPayableForPayment.studentPayments?.[selectedStudentForPayment.id] || { status: 'unpaid', paidAmount: 0 };
-      const newPaidAmount = currentPayment.paidAmount + paymentAmount;
-      const totalAmount = selectedPayableForPayment.amount;
-      
-      // Determine new status based on payment amount
-      let newStatus = 'unpaid';
-      if (newPaidAmount >= totalAmount) {
-        newStatus = 'fully_paid';
-      } else if (newPaidAmount > 0) {
-        newStatus = 'partially_paid';
-      }
-
-      // Update the payable in Firestore
-      const payableRef = doc(db, 'payables', selectedPayableForPayment.id);
-      const updatedStudentPayments = {
-        ...selectedPayableForPayment.studentPayments,
-        [selectedStudentForPayment.id]: {
-          status: newStatus,
-          paidAmount: newPaidAmount
-        }
+      const paymentData = {
+        studentId: selectedStudentForPayment.id,
+        payableId: selectedPayableForPayment.id,
+        amount: parseFloat(studentPaymentForm.paymentAmount),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
-      
-      await updateDoc(payableRef, {
-        studentPayments: updatedStudentPayments,
-        updatedAt: new Date()
-      });
-
-      // Update local state
-      setPayables(prev => ({
-        ...prev,
-        [currentYear]: prev[currentYear].map(payable =>
-          payable.id === selectedPayableForPayment.id
-            ? {
-                ...payable,
-                studentPayments: updatedStudentPayments
-              }
-            : payable
-        )
-      }));
-
-      setSuccess(`Payment of ₱${paymentAmount.toLocaleString()} recorded successfully!`);
-      setStudentPaymentDialogOpen(false);
-      setSelectedPayableForPayment(null);
-      setSelectedStudentForPayment(null);
-      setStudentPaymentForm({
-        paymentAmount: ''
-      });
+      const result = await createStudentPayment(paymentData);
+      if (result.success) {
+        setSuccess('Student payment recorded successfully!');
+        await loadPayables();
+        setStudentPaymentDialogOpen(false);
+      } else {
+        setError(result.error);
+      }
     } catch (error) {
-      console.error('Error saving student payment:', error);
-      setError('Failed to save payment: ' + error.message);
+      setError('Failed to record student payment: ' + error.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleMarkAsFullyPaid = async () => {
@@ -557,8 +475,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       const currentYear = selectedStudentForPayment.yearLevel;
       const totalAmount = selectedPayableForPayment.amount;
 
-      // Update the payable in Firestore
-      const payableRef = doc(db, 'payables', selectedPayableForPayment.id);
+      // Update the payable using the offline-enabled function
       const updatedStudentPayments = {
         ...selectedPayableForPayment.studentPayments,
         [selectedStudentForPayment.id]: {
@@ -567,31 +484,37 @@ const PayablesSystem = ({ onBackToDashboard }) => {
         }
       };
       
-      await updateDoc(payableRef, {
-        studentPayments: updatedStudentPayments,
-        updatedAt: new Date()
-      });
+      const result = await updatePayable(selectedPayableForPayment.id, {
+        studentPayments: updatedStudentPayments
+      }, isOnline);
 
-      // Update local state
-      setPayables(prev => ({
-        ...prev,
-        [currentYear]: prev[currentYear].map(payable =>
-          payable.id === selectedPayableForPayment.id
-            ? {
-                ...payable,
-                studentPayments: updatedStudentPayments
-              }
-            : payable
+      if (result.success) {
+        // Update local state
+        setPayables(prev => ({
+          ...prev,
+          [currentYear]: prev[currentYear].map(payable =>
+            payable.id === selectedPayableForPayment.id
+              ? {
+                  ...payable,
+                  studentPayments: updatedStudentPayments
+                }
+              : payable
         )
       }));
 
-      setSuccess(`Marked as fully paid (₱${totalAmount.toLocaleString()})!`);
-      setStudentPaymentDialogOpen(false);
-      setSelectedPayableForPayment(null);
-      setSelectedStudentForPayment(null);
-      setStudentPaymentForm({
-        paymentAmount: ''
-      });
+        setSuccess(result.offline ? 
+          `Marked as fully paid locally (₱${totalAmount.toLocaleString()}) (will sync when online)!` : 
+          `Marked as fully paid (₱${totalAmount.toLocaleString()})!`
+        );
+        setStudentPaymentDialogOpen(false);
+        setSelectedPayableForPayment(null);
+        setSelectedStudentForPayment(null);
+        setStudentPaymentForm({
+          paymentAmount: ''
+        });
+      } else {
+        setError(result.error);
+      }
     } catch (error) {
       console.error('Error marking as fully paid:', error);
       setError('Failed to mark as fully paid: ' + error.message);

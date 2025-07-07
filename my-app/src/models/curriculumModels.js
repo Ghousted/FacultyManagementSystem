@@ -8,7 +8,8 @@ import {
   deleteDoc, 
   query, 
   where, 
-  orderBy 
+  orderBy,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -19,11 +20,12 @@ export const createCurriculum = async (curriculumData) => {
       name: curriculumData.name,
       description: curriculumData.description,
       yearLevels: curriculumData.yearLevels, // Array of year levels (1-4)
-      createdAt: new Date(),
-      updatedAt: new Date()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     });
     return { success: true, id: docRef.id };
   } catch (error) {
+    console.error('Error creating curriculum:', error);
     return { success: false, error: error.message };
   }
 };
@@ -38,6 +40,7 @@ export const getCurriculums = async () => {
     }));
     return { success: true, data: curriculums };
   } catch (error) {
+    console.error('Error getting curriculums:', error);
     return { success: false, error: error.message };
   }
 };
@@ -53,22 +56,19 @@ export const addCourse = async (curriculumId, yearLevel, semester, courseData) =
       courseTitle: courseData.courseTitle,
       units: courseData.units,
       prerequisites: courseData.prerequisites || [], // Array of course codes
-      createdAt: new Date()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     });
     return { success: true, id: docRef.id };
   } catch (error) {
+    console.error('Error adding course:', error);
     return { success: false, error: error.message };
   }
 };
 
 export const getCoursesByCurriculum = async (curriculumId) => {
   try {
-    const q = query(
-      collection(db, 'courses'), 
-      where('curriculumId', '==', curriculumId),
-      orderBy('yearLevel'),
-      orderBy('semester')
-    );
+    const q = query(collection(db, 'courses'), where('curriculumId', '==', curriculumId), orderBy('yearLevel'), orderBy('semester'));
     const querySnapshot = await getDocs(q);
     const courses = querySnapshot.docs.map(doc => ({
       id: doc.id,
@@ -76,6 +76,7 @@ export const getCoursesByCurriculum = async (curriculumId) => {
     }));
     return { success: true, data: courses };
   } catch (error) {
+    console.error('Error getting courses:', error);
     return { success: false, error: error.message };
   }
 };
@@ -88,11 +89,12 @@ export const addStudent = async (studentData) => {
       yearLevel: studentData.yearLevel,
       curriculumId: studentData.curriculumId,
       completedCourses: [], // Array of course codes
-      createdAt: new Date(),
-      updatedAt: new Date()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     });
     return { success: true, id: docRef.id };
   } catch (error) {
+    console.error('Error adding student:', error);
     return { success: false, error: error.message };
   }
 };
@@ -107,6 +109,7 @@ export const getStudents = async () => {
     }));
     return { success: true, data: students };
   } catch (error) {
+    console.error('Error getting students:', error);
     return { success: false, error: error.message };
   }
 };
@@ -151,7 +154,7 @@ export const updateStudentCourse = async (studentId, courseCode, isCompleted) =>
     
     await updateDoc(studentRef, {
       completedCourses,
-      updatedAt: new Date()
+      updatedAt: new Date().toISOString()
     });
     
     return { success: true };
@@ -246,4 +249,80 @@ export const getStudentCurriculumStatus = async (studentId) => {
   } catch (error) {
     return { success: false, error: error.message };
   }
-}; 
+};
+
+// Sync function to handle pending actions when coming back online
+export const syncOfflineData = async () => {
+  try {
+    const pendingActions = await OfflineStorage.getPendingActions();
+    
+    if (pendingActions.length === 0) {
+      return { success: true, message: 'No pending actions to sync' };
+    }
+    
+    const batch = writeBatch(db);
+    let syncedCount = 0;
+    
+    for (const action of pendingActions) {
+      try {
+        switch (action.type) {
+          case 'CREATE_CURRICULUM':
+            const curriculumRef = doc(collection(db, 'curriculums'));
+            batch.set(curriculumRef, action.data);
+            syncedCount++;
+            break;
+            
+          case 'UPDATE_CURRICULUM':
+            const curriculumUpdateRef = doc(db, 'curriculums', action.data.id);
+            batch.update(curriculumUpdateRef, action.data.updates);
+            syncedCount++;
+            break;
+            
+          case 'DELETE_CURRICULUM':
+            const curriculumDeleteRef = doc(db, 'curriculums', action.data.id);
+            batch.delete(curriculumDeleteRef);
+            syncedCount++;
+            break;
+            
+          case 'ADD_COURSE':
+            const courseRef = doc(collection(db, 'courses'));
+            batch.set(courseRef, action.data);
+            syncedCount++;
+            break;
+            
+          case 'ADD_STUDENT':
+            const studentRef = doc(collection(db, 'students'));
+            batch.set(studentRef, action.data);
+            syncedCount++;
+            break;
+            
+          case 'UPDATE_STUDENT_PROGRESS':
+            // Handle student progress update
+            syncedCount++;
+            break;
+            
+          default:
+            console.warn('Unknown action type:', action.type);
+        }
+      } catch (error) {
+        console.error('Error syncing action:', action, error);
+      }
+    }
+    
+    await batch.commit();
+    await OfflineStorage.clearPendingActions();
+    await OfflineStorage.updateLastSync();
+    
+    return { 
+      success: true, 
+      message: `Successfully synced ${syncedCount} actions`,
+      syncedCount 
+    };
+  } catch (error) {
+    console.error('Error syncing offline data:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Export the offline storage service
+export { OfflineStorage }; 

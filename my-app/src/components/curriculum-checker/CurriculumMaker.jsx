@@ -43,7 +43,7 @@ import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
 const CurriculumMaker = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, isOnline } = useAuth();
   const [curriculums, setCurriculums] = useState([]);
   const [selectedCurriculum, setSelectedCurriculum] = useState(null);
   const [courses, setCourses] = useState([]);
@@ -115,9 +115,12 @@ const CurriculumMaker = () => {
     
     setLoading(true);
     setError('');
-    const result = await getCurriculums();
+    const result = await getCurriculums(isOnline);
     if (result.success) {
       setCurriculums(result.data);
+      if (result.offline) {
+        console.log('Loaded curricula from offline storage');
+      }
     } else {
       setError(result.error);
     }
@@ -132,9 +135,12 @@ const CurriculumMaker = () => {
     
     setLoading(true);
     setError('');
-    const result = await getCoursesByCurriculum(curriculumId);
+    const result = await getCoursesByCurriculum(curriculumId, isOnline);
     if (result.success) {
       setCourses(result.data);
+      if (result.offline) {
+        console.log('Loaded courses from offline storage');
+      }
     } else {
       setError(result.error);
     }
@@ -146,19 +152,23 @@ const CurriculumMaker = () => {
       setError('Please sign in to create a curriculum');
       return;
     }
-    
     setLoading(true);
     setError('');
-    const result = await createCurriculum(curriculumForm);
-    if (result.success) {
-      setSuccess('Curriculum created successfully!');
-      setCurriculumForm({ name: '', description: '', yearLevels: [1, 2, 3, 4] });
-      setCurriculumDialogOpen(false);
-      loadCurriculums();
-    } else {
-      setError(result.error);
+    try {
+      const result = await createCurriculum(curriculumForm);
+      if (result.success) {
+        setSuccess('Curriculum created successfully!');
+        setCurriculumForm({ name: '', description: '', yearLevels: [1, 2, 3, 4] });
+        setCurriculumDialogOpen(false);
+        await loadCurriculums();
+      } else {
+        setError(result.error);
+      }
+    } catch (error) {
+      setError('Failed to create curriculum: ' + error.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleAddCourse = async () => {
@@ -166,29 +176,32 @@ const CurriculumMaker = () => {
       setError('Please sign in to add a course');
       return;
     }
-    
     if (!selectedCurriculum) {
       setError('Please select a curriculum first');
       return;
     }
-
     setLoading(true);
     setError('');
-    const result = await addCourse(
-      selectedCurriculum.id,
-      selectedYear,
-      selectedSemester,
-      courseForm
-    );
-    if (result.success) {
-      setSuccess('Course added successfully!');
-      setCourseForm({ courseCode: '', courseTitle: '', units: '', prerequisites: [] });
-      setCourseDialogOpen(false);
-      loadCourses(selectedCurriculum.id);
-    } else {
-      setError(result.error);
+    try {
+      const result = await addCourse(
+        selectedCurriculum.id,
+        selectedYear,
+        selectedSemester,
+        courseForm
+      );
+      if (result.success) {
+        setSuccess('Course added successfully!');
+        setCourseForm({ courseCode: '', courseTitle: '', units: '', prerequisites: [] });
+        setCourseDialogOpen(false);
+        await loadCourses(selectedCurriculum.id);
+      } else {
+        setError(result.error);
+      }
+    } catch (error) {
+      setError('Failed to add course: ' + error.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleEditCourse = (course) => {
@@ -213,38 +226,25 @@ const CurriculumMaker = () => {
       setError('Please sign in to save changes');
       return;
     }
-
     if (!editingCourse || !hasChanges) return;
-
     setLoading(true);
     setError('');
-    
     try {
-      // Update the course in Firestore
       const courseRef = doc(db, 'courses', editingCourse);
       await updateDoc(courseRef, {
         ...editingData,
         updatedAt: new Date()
       });
-
-      // Update local state
-      setCourses(prevCourses => 
-        prevCourses.map(course => 
-          course.id === editingCourse 
-            ? { ...course, ...editingData }
-            : course
-        )
-      );
-
       setSuccess('Course updated successfully!');
       setEditingCourse(null);
       setEditingData({});
       setHasChanges(false);
+      await loadCourses(selectedCurriculum.id);
     } catch (error) {
       setError('Failed to update course: ' + error.message);
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   const handleDeleteCourse = async (courseId) => {
@@ -252,22 +252,18 @@ const CurriculumMaker = () => {
       setError('Please sign in to delete a course');
       return;
     }
-
     if (!window.confirm('Are you sure you want to delete this course?')) return;
-
     setLoading(true);
     setError('');
-    
     try {
       await deleteDoc(doc(db, 'courses', courseId));
-      
-      setCourses(prevCourses => prevCourses.filter(course => course.id !== courseId));
       setSuccess('Course deleted successfully!');
+      await loadCourses(selectedCurriculum.id);
     } catch (error) {
       setError('Failed to delete course: ' + error.message);
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   const handleInputChange = (field, value) => {
@@ -284,36 +280,35 @@ const CurriculumMaker = () => {
       setError('Please sign in to add a course');
       return;
     }
-
     if (!selectedCurriculum) {
       setError('Please select a curriculum first');
       return;
     }
-
     if (!newCourseData[semester].courseCode || !newCourseData[semester].courseTitle || !newCourseData[semester].units) {
       setError('Please fill in all required fields (Course Code, Title, and Units)');
       return;
     }
-
     setLoading(true);
     setError('');
-    
-    const result = await addCourse(
-      selectedCurriculum.id,
-      selectedYear,
-      semester,
-      newCourseData[semester]
-    );
-    
-    if (result.success) {
-      setSuccess('Course added successfully!');
-      setNewCourseData({ ...newCourseData, [semester]: { courseCode: '', courseTitle: '', units: '', prerequisites: [] } });
-      loadCourses(selectedCurriculum.id);
-    } else {
-      setError(result.error);
+    try {
+      const result = await addCourse(
+        selectedCurriculum.id,
+        selectedYear,
+        semester,
+        newCourseData[semester]
+      );
+      if (result.success) {
+        setSuccess('Course added successfully!');
+        setNewCourseData({ ...newCourseData, [semester]: { courseCode: '', courseTitle: '', units: '', prerequisites: [] } });
+        await loadCourses(selectedCurriculum.id);
+      } else {
+        setError(result.error);
+      }
+    } catch (error) {
+      setError('Failed to add course: ' + error.message);
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   const getCoursesByYearAndSemester = (year, semester) => {

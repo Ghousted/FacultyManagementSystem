@@ -80,6 +80,9 @@ const CurriculumCheckerMain = () => {
     const result = await getStudents();
     if (result.success) {
       setStudents(result.data);
+      if (result.offline) {
+        console.log('Loaded students from offline storage');
+      }
       // Load courses for the first student to have course data available
       if (result.data.length > 0) {
         await loadStudentCourses(result.data[0].curriculumId);
@@ -96,6 +99,9 @@ const CurriculumCheckerMain = () => {
     const result = await getCoursesByCurriculum(curriculumId);
     if (result.success) {
       setStudentCourses(result.data);
+      if (result.offline) {
+        console.log('Loaded student courses from offline storage');
+      }
     }
   };
 
