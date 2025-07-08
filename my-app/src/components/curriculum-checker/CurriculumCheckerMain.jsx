@@ -177,7 +177,7 @@ const CurriculumCheckerMain = () => {
       case 'incomplete':
         return 'Incomplete';
       default:
-        return 'Not Taken';
+        return 'Not Available';
     }
   };
 
@@ -304,6 +304,7 @@ const CurriculumCheckerMain = () => {
                 </Typography>
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year
+                  {student.isIrregular ? ' • Irregular' : ''} • {student.completedCourses?.length || 0} courses completed
                 </Typography>
                 
                 <Box mt={2}>
@@ -519,6 +520,25 @@ const CurriculumCheckerMain = () => {
               </Accordion>
             );
           })}
+          {/* Place the available courses accordion here, outside the year accordions */}
+          <Accordion sx={{ mb: 2, border: '1px solid #1976d2' }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="h6" fontWeight={700} color="primary">
+                Available Courses This Term
+              </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                {courses.filter(c => c.status === 'available').length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">No available courses for this term.</Typography>
+                ) : (
+                  courses.filter(c => c.status === 'available').map(course => (
+                    <Chip key={course.id} label={`${course.courseCode} - ${course.courseTitle}`} color="primary" variant="outlined" />
+                  ))
+                )}
+              </Box>
+            </AccordionDetails>
+          </Accordion>
         </Box>
         
         <Box mt={4} p={3} bgcolor="#f8f9fa" borderRadius={2} border="1px solid #e0e0e0">

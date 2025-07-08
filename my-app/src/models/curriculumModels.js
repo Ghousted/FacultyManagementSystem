@@ -56,6 +56,7 @@ export const addCourse = async (curriculumId, yearLevel, semester, courseData) =
       courseTitle: courseData.courseTitle,
       units: courseData.units,
       prerequisites: courseData.prerequisites || [], // Array of course codes
+      isAvailable: courseData.isAvailable !== undefined ? courseData.isAvailable : true, // Default to true
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
@@ -89,6 +90,7 @@ export const addStudent = async (studentData) => {
       yearLevel: studentData.yearLevel,
       curriculumId: studentData.curriculumId,
       completedCourses: [], // Array of course codes
+      isIrregular: studentData.isIrregular || false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
@@ -199,53 +201,31 @@ export const getStudentCurriculumStatus = async (studentId) => {
     
     // Get curriculum courses
     const coursesResult = await getCoursesByCurriculum(studentData.curriculumId);
-    if (!coursesResult.success) {
-      return coursesResult;
-    }
-    
+    if (!coursesResult.success) return { success: false, error: coursesResult.error };
     const courses = coursesResult.data;
-    
-    // Process each course to determine status
-    const processedCourses = courses.map(course => {
-      const isCompleted = completedCourses.includes(course.courseCode);
-      const isFailed = isCourseFailed(course.courseCode);
-      const isIncomplete = isCourseIncomplete(course.courseCode);
-      
-      // Check if prerequisites are met (only completed courses that are not failed/incomplete)
-      const prerequisitesMet = course.prerequisites.every(prereq => 
-        isPrerequisiteMet(prereq)
-      );
-      
+    // Build course status list
+    const courseStatuses = courses.map(course => {
       let status = 'not-taken';
-      if (isCompleted && !isFailed && !isIncomplete) {
-        status = 'completed';
-      } else if (isFailed) {
-        status = 'failed';
-      } else if (isIncomplete) {
-        status = 'incomplete';
-      } else if (!prerequisitesMet && course.prerequisites.length > 0) {
-        status = 'blocked';
+      if (course.isAvailable === false) {
+        status = 'unavailable';
+      } else if (completedCourses.includes(course.courseCode)) {
+        status = isCourseFailed(course.courseCode) ? 'failed' : 'completed';
+      } else if (course.prerequisites && course.prerequisites.length > 0) {
+        const prereqsMet = course.prerequisites.every(isPrerequisiteMet);
+        if (prereqsMet) {
+          status = 'available';
+        } else {
+          status = 'blocked';
+        }
       } else {
         status = 'available';
       }
-      
       return {
         ...course,
-        status,
-        isCompleted,
-        isFailed,
-        isIncomplete,
-        prerequisitesMet
+        status
       };
     });
-    
-    return { 
-      success: true, 
-      data: {
-        student: studentData,
-        courses: processedCourses
-      }
-    };
+    return { success: true, data: { student: { ...studentData, id: studentId }, courses: courseStatuses } };
   } catch (error) {
     return { success: false, error: error.message };
   }

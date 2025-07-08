@@ -33,6 +33,7 @@ import {
   TableRow,
   TableCell,
   Autocomplete,
+  Checkbox,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -63,7 +64,8 @@ const CurriculumMaker = () => {
     courseCode: '',
     courseTitle: '',
     units: '',
-    prerequisites: []
+    prerequisites: [],
+    isAvailable: true
   });
   
   // Dialog states
@@ -78,8 +80,9 @@ const CurriculumMaker = () => {
   const [editingData, setEditingData] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
   const [newCourseData, setNewCourseData] = useState({
-    1: { courseCode: '', courseTitle: '', units: '', prerequisites: [] },
-    2: { courseCode: '', courseTitle: '', units: '', prerequisites: [] }
+    1: { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true },
+    2: { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true },
+    3: { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true }
   });
 
   useEffect(() => {
@@ -191,7 +194,7 @@ const CurriculumMaker = () => {
       );
       if (result.success) {
         setSuccess('Course added successfully!');
-        setCourseForm({ courseCode: '', courseTitle: '', units: '', prerequisites: [] });
+        setCourseForm({ courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true });
         setCourseDialogOpen(false);
         await loadCourses(selectedCurriculum.id);
       } else {
@@ -210,7 +213,8 @@ const CurriculumMaker = () => {
       courseCode: course.courseCode,
       courseTitle: course.courseTitle,
       units: course.units,
-      prerequisites: course.prerequisites
+      prerequisites: course.prerequisites,
+      isAvailable: course.isAvailable !== undefined ? course.isAvailable : true
     });
     setHasChanges(false);
   };
@@ -272,7 +276,13 @@ const CurriculumMaker = () => {
   };
 
   const handleNewCourseInputChange = (field, value, semester) => {
-    setNewCourseData(prev => ({ ...prev, [semester]: { ...prev[semester], [field]: value } }));
+    setNewCourseData(prev => ({
+      ...prev,
+      [semester]: {
+        ...(prev[semester] || { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true }),
+        [field]: value
+      }
+    }));
   };
 
   const handleAddNewCourse = async (semester) => {
@@ -299,7 +309,10 @@ const CurriculumMaker = () => {
       );
       if (result.success) {
         setSuccess('Course added successfully!');
-        setNewCourseData({ ...newCourseData, [semester]: { courseCode: '', courseTitle: '', units: '', prerequisites: [] } });
+        setNewCourseData(prev => ({
+          ...prev,
+          [semester]: { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true }
+        }));
         await loadCourses(selectedCurriculum.id);
       } else {
         setError(result.error);
@@ -439,10 +452,10 @@ const CurriculumMaker = () => {
         </Box>
 
         <Box sx={{ maxHeight: 'calc(100vh - 300px)', overflowY: 'auto' }}>
-          {[1, 2].map(semester => (
+          {([1, 2, (selectedYear === 3 ? 3 : null)].filter(Boolean)).map(semester => (
             <Box key={semester} mb={4}>
               <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold' }}>
-                {semester === 1 ? '1st' : '2nd'} Semester
+                {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
               </Typography>
               
               <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 1 }}>
@@ -453,6 +466,7 @@ const CurriculumMaker = () => {
                       <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Course Title</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '10%' }}>Units</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '25%' }}>Prerequisites</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '10%' }}>Available</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Actions</TableCell>
                     </TableRow>
                   </TableHead>
@@ -559,6 +573,21 @@ const CurriculumMaker = () => {
                             )}
                           </TableCell>
                           <TableCell>
+                            {isEditing ? (
+                              <Checkbox
+                                checked={data.isAvailable}
+                                onChange={e => handleInputChange('isAvailable', e.target.checked)}
+                                color="primary"
+                              />
+                            ) : (
+                              <Checkbox
+                                checked={course.isAvailable !== false}
+                                disabled
+                                color="primary"
+                              />
+                            )}
+                          </TableCell>
+                          <TableCell>
                             <Box display="flex" gap={1}>
                               {isEditing ? (
                                 <IconButton 
@@ -657,6 +686,13 @@ const CurriculumMaker = () => {
                         />
                       </TableCell>
                       <TableCell>
+                        <Checkbox
+                          checked={newCourseData[semester].isAvailable}
+                          onChange={e => handleNewCourseInputChange('isAvailable', e.target.checked, semester)}
+                          color="primary"
+                        />
+                      </TableCell>
+                      <TableCell>
                         <Button
                           variant="contained"
                           size="small"
@@ -672,7 +708,7 @@ const CurriculumMaker = () => {
                     
                     {getCoursesByYearAndSemester(selectedYear, semester).length === 0 && (
                       <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 2 }}>
-                        No courses in {selectedYear === 1 ? '1st' : selectedYear === 2 ? '2nd' : selectedYear === 3 ? '3rd' : '4th'} Year, {semester === 1 ? '1st' : '2nd'} Semester
+                        No courses in {selectedYear === 1 ? '1st' : selectedYear === 2 ? '2nd' : selectedYear === 3 ? '3rd' : '4th'} Year, {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
                       </Typography>
                     )}
                   </TableBody>
@@ -805,8 +841,8 @@ const CurriculumMaker = () => {
                   value={selectedSemester}
                   onChange={(e) => setSelectedSemester(e.target.value)}
                 >
-                  {[1, 2].map(sem => (
-                    <MenuItem key={sem} value={sem}>{sem === 1 ? '1st' : '2nd'} Semester</MenuItem>
+                  {[1, 2, (selectedYear === 3 ? 3 : null)].filter(Boolean).map(sem => (
+                    <MenuItem key={sem} value={sem}>{sem === 1 ? '1st' : sem === 2 ? '2nd' : 'Summer'} Semester</MenuItem>
                   ))}
                 </Select>
               </FormControl>

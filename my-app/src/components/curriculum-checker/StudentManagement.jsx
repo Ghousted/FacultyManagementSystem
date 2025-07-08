@@ -36,6 +36,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  FormControlLabel,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -71,7 +72,8 @@ const StudentManagement = () => {
     email: '',
     studentNumber: '',
     yearLevel: 1,
-    curriculumId: ''
+    curriculumId: '',
+    isIrregular: false
   });
   
   // Dialog states
@@ -87,7 +89,8 @@ const StudentManagement = () => {
     email: '',
     studentNumber: '',
     yearLevel: 1,
-    curriculumId: ''
+    curriculumId: '',
+    isIrregular: false
   });
   
   // Grade management state
@@ -176,7 +179,7 @@ const StudentManagement = () => {
     const result = await addStudent(studentForm);
     if (result.success) {
       setSuccess('Student added successfully!');
-      setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: 1, curriculumId: '' });
+      setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: 1, curriculumId: '', isIrregular: false });
       setStudentDialogOpen(false);
       loadStudents();
     } else {
@@ -234,7 +237,15 @@ const StudentManagement = () => {
 
   const handleStartEdit = (student) => {
     setEditingStudent(student.id);
-    setEditingData({ ...student });
+    setEditingData({
+      name: student.name,
+      email: student.email,
+      studentNumber: student.studentNumber,
+      yearLevel: student.yearLevel,
+      curriculumId: student.curriculumId,
+      isIrregular: student.isIrregular || false
+    });
+    setHasChanges(false);
   };
 
   const handleCancelEdit = () => {
@@ -247,28 +258,27 @@ const StudentManagement = () => {
       setError('Please sign in to update student data');
       return;
     }
-    
     setLoading(true);
     setError('');
-    
     try {
       const studentRef = doc(db, 'students', studentId);
       await updateDoc(studentRef, {
         name: editingData.name,
         email: editingData.email,
         studentNumber: editingData.studentNumber,
+        yearLevel: editingData.yearLevel,
         curriculumId: editingData.curriculumId,
+        isIrregular: editingData.isIrregular,
         updatedAt: new Date()
       });
-      
       setSuccess('Student updated successfully!');
       setEditingStudent(null);
       setEditingData({});
+      setTabValue(editingData.yearLevel - 1);
       loadStudents();
     } catch (error) {
       setError('Failed to update student: ' + error.message);
     }
-    
     setLoading(false);
   };
 
@@ -324,7 +334,7 @@ const StudentManagement = () => {
     });
     if (result.success) {
       setSuccess('Student added successfully!');
-      setNewStudentData({ name: '', email: '', studentNumber: '', yearLevel: tabValue + 1, curriculumId: '' });
+      setNewStudentData({ name: '', email: '', studentNumber: '', yearLevel: tabValue + 1, curriculumId: '', isIrregular: false });
       loadStudents();
     } else {
       setError(result.error);
@@ -502,7 +512,7 @@ const StudentManagement = () => {
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => {
-            setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: tabValue + 1, curriculumId: '' });
+            setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: tabValue + 1, curriculumId: '', isIrregular: false });
             setStudentDialogOpen(true);
           }}
           size="small"
@@ -537,7 +547,7 @@ const StudentManagement = () => {
                     variant="contained"
                     startIcon={<AddIcon />}
                     onClick={() => {
-                      setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: tabValue + 1, curriculumId: '' });
+                      setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: tabValue + 1, curriculumId: '', isIrregular: false });
                       setStudentDialogOpen(true);
                     }}
                   >
@@ -554,9 +564,11 @@ const StudentManagement = () => {
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ width: '20%' }}>Student Number</TableCell>
-                    <TableCell sx={{ width: '25%' }}>Name</TableCell>
-                    <TableCell sx={{ width: '30%' }}>Email</TableCell>
+                    <TableCell sx={{ width: '20%' }}>Name</TableCell>
+                    <TableCell sx={{ width: '20%' }}>Email</TableCell>
+                    <TableCell sx={{ width: '10%' }}>Year Level</TableCell>
                     <TableCell sx={{ width: '15%' }}>Curriculum</TableCell>
+                    <TableCell sx={{ width: '10%' }}>Irregular</TableCell>
                     <TableCell sx={{ width: '10%' }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
@@ -588,7 +600,7 @@ const StudentManagement = () => {
                             </Typography>
                           )}
                         </TableCell>
-                        <TableCell sx={{ width: '25%' }}>
+                        <TableCell sx={{ width: '20%' }}>
                           {isEditing ? (
                             <TextField
                               size="small"
@@ -602,7 +614,7 @@ const StudentManagement = () => {
                             </Typography>
                           )}
                         </TableCell>
-                        <TableCell sx={{ width: '30%' }}>
+                        <TableCell sx={{ width: '20%' }}>
                           {isEditing ? (
                             <TextField
                               size="small"
@@ -613,6 +625,24 @@ const StudentManagement = () => {
                           ) : (
                             <Typography variant="body2" noWrap>
                               {student.email}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell sx={{ width: '10%' }}>
+                          {isEditing ? (
+                            <FormControl size="small" fullWidth>
+                              <Select
+                                value={data.yearLevel}
+                                onChange={(e) => handleInputChange('yearLevel', e.target.value)}
+                              >
+                                {[1, 2, 3, 4].map(year => (
+                                  <MenuItem key={year} value={year}>{year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year</MenuItem>
+                                ))}
+                              </Select>
+                            </FormControl>
+                          ) : (
+                            <Typography variant="body2" noWrap>
+                              {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year
                             </Typography>
                           )}
                         </TableCell>
@@ -637,7 +667,16 @@ const StudentManagement = () => {
                           )}
                         </TableCell>
                         <TableCell sx={{ width: '10%' }}>
-                          <Box display="flex" gap={0.5} flexWrap="wrap">
+                          <Checkbox
+                            checked={data.isIrregular}
+                            onChange={e => isEditing && handleInputChange('isIrregular', e.target.checked)}
+                            color="warning"
+                            size="small"
+                            disabled={!isEditing}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ width: '10%' }}>
+                          <Box display="flex" gap={0.5} flexWrap="wrap" alignItems="center">
                             {isEditing ? (
                               <>
                                 <Button
@@ -715,6 +754,7 @@ const StudentManagement = () => {
 
     const currentYear = tabValue + 1;
     const scholarshipEligibility = calculateScholarshipEligibility(currentYear);
+    const isThirdYearTab = tabValue === 2;
 
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -773,12 +813,11 @@ const StudentManagement = () => {
         </Box>
 
         <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {[1, 2].map(semester => (
+          {([1, 2, (isThirdYearTab ? 3 : null)].filter(Boolean)).map(semester => (
             <Box key={semester} sx={{ flex: 1, display: 'flex', flexDirection: 'column', mb: 2 }}>
               <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold', flexShrink: 0 }}>
-                {semester === 1 ? '1st' : '2nd'} Semester
+                {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
               </Typography>
-              
               <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 1, flex: 1 }}>
                 <Table size="small" sx={{ tableLayout: 'fixed' }}>
                   <TableHead>
@@ -793,7 +832,7 @@ const StudentManagement = () => {
                   </TableHead>
                   <TableBody>
                     {studentCourses
-                      .filter(course => course.yearLevel === (tabValue + 1) && course.semester === semester)
+                      .filter(course => course.yearLevel === currentYear && course.semester === semester)
                       .map((course) => (
                         <TableRow key={course.id} sx={{ '&:hover': { bgcolor: '#f9f9f9' } }}>
                           <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -918,12 +957,11 @@ const StudentManagement = () => {
                           </TableCell>
                         </TableRow>
                       ))}
-                    
-                    {studentCourses.filter(course => course.yearLevel === (tabValue + 1) && course.semester === semester).length === 0 && (
+                    {studentCourses.filter(course => course.yearLevel === currentYear && course.semester === semester).length === 0 && (
                       <TableRow>
                         <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
                           <Typography variant="body2" color="text.secondary">
-                            No courses in Year {tabValue + 1}, Semester {semester}
+                            No courses in Year {currentYear}, {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
                           </Typography>
                         </TableCell>
                       </TableRow>
@@ -957,7 +995,8 @@ const StudentManagement = () => {
       email: '',
       studentNumber: '',
       yearLevel: tabValue + 1,
-      curriculumId: ''
+      curriculumId: '',
+      isIrregular: false
     });
     setStudentDialogOpen(true);
   };
@@ -1007,6 +1046,9 @@ const StudentManagement = () => {
                   <Typography variant="body2" color="text.secondary">
                     Year {selectedStudent.yearLevel} • {getCurriculumName(selectedStudent.curriculumId)} • {selectedStudent.completedCourses?.length || 0} courses completed
                   </Typography>
+                  {selectedStudent.isIrregular && (
+                    <Chip label="Irregular" color="warning" size="small" sx={{ ml: 1 }} />
+                  )}
                 </Box>
               </Box>
               
@@ -1079,6 +1121,16 @@ const StudentManagement = () => {
               ))}
             </Select>
           </FormControl>
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={studentForm.isIrregular}
+                onChange={e => setStudentForm({ ...studentForm, isIrregular: e.target.checked })}
+                color="primary"
+              />
+            }
+            label="Irregular"
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setStudentDialogOpen(false)}>Cancel</Button>
