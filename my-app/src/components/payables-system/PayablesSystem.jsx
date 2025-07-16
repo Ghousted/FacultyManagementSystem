@@ -443,18 +443,43 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     }
     setLoading(true);
     try {
+      const paymentAmount = parseFloat(studentPaymentForm.paymentAmount);
       const paymentData = {
         studentId: selectedStudentForPayment.id,
         payableId: selectedPayableForPayment.id,
-        amount: parseFloat(studentPaymentForm.paymentAmount),
+        amount: paymentAmount,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
+      // 1. Create a student payment record (for history)
       const result = await createStudentPayment(paymentData);
       if (result.success) {
-        setSuccess('Student payment recorded successfully!');
-        await loadPayables();
-        setStudentPaymentDialogOpen(false);
+        // 2. Update the studentPayments field in the payable document
+        const prevPayment = selectedPayableForPayment.studentPayments?.[selectedStudentForPayment.id] || { paidAmount: 0, status: 'unpaid' };
+        const newPaidAmount = (prevPayment.paidAmount || 0) + paymentAmount;
+        let newStatus = 'unpaid';
+        if (newPaidAmount >= selectedPayableForPayment.amount) {
+          newStatus = 'fully_paid';
+        } else if (newPaidAmount > 0) {
+          newStatus = 'partially_paid';
+        }
+        const updatedStudentPayments = {
+          ...selectedPayableForPayment.studentPayments,
+          [selectedStudentForPayment.id]: {
+            paidAmount: newPaidAmount,
+            status: newStatus
+          }
+        };
+        const updateResult = await updatePayable(selectedPayableForPayment.id, {
+          studentPayments: updatedStudentPayments
+        });
+        if (updateResult.success) {
+          setSuccess('Student payment recorded successfully!');
+          await loadPayables();
+          setStudentPaymentDialogOpen(false);
+        } else {
+          setError(updateResult.error);
+        }
       } else {
         setError(result.error);
       }
