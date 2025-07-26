@@ -82,6 +82,21 @@ export const getCoursesByCurriculum = async (curriculumId) => {
   }
 };
 
+export const getAllCourses = async () => {
+  try {
+    const q = query(collection(db, 'courses'));
+    const querySnapshot = await getDocs(q);
+    const courses = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    return { success: true, data: courses };
+  } catch (error) {
+    console.error('Error getting all courses:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 // Student Model
 export const addStudent = async (studentData) => {
   try {
@@ -203,9 +218,16 @@ export const getStudentCurriculumStatus = async (studentId) => {
     const coursesResult = await getCoursesByCurriculum(studentData.curriculumId);
     if (!coursesResult.success) return { success: false, error: coursesResult.error };
     const courses = coursesResult.data;
+    
+    // Get all courses for equivalent subject logic
+    const allCoursesResult = await getAllCourses();
+    const allCourses = allCoursesResult.success ? allCoursesResult.data : [];
+    
     // Build course status list
     const courseStatuses = courses.map(course => {
       let status = 'not-taken';
+      
+      // Check if course is marked as unavailable
       if (course.isAvailable === false) {
         status = 'unavailable';
       } else if (completedCourses.includes(course.courseCode)) {
@@ -220,11 +242,40 @@ export const getStudentCurriculumStatus = async (studentId) => {
       } else {
         status = 'available';
       }
+      
+      // For irregular students, check if equivalent subjects are available
+      if (studentData.isIrregular && course.equivalentSubjectId) {
+        const equivalentCourses = allCourses.filter(c => 
+          c.equivalentSubjectId === course.equivalentSubjectId && 
+          c.id !== course.id
+        );
+        
+        // Check if any equivalent course is available AND the student meets its prerequisites
+        const anyEquivalentAvailable = equivalentCourses.some(eq => {
+          // First check if the equivalent course itself is available
+          if (eq.isAvailable === false) return false;
+          
+          // Then check if the student meets the prerequisites for this equivalent course
+          if (eq.prerequisites && eq.prerequisites.length > 0) {
+            const prereqsMet = eq.prerequisites.every(isPrerequisiteMet);
+            return prereqsMet;
+          }
+          
+          // If no prerequisites, the equivalent course is available
+          return true;
+        });
+        
+        if (anyEquivalentAvailable && status !== 'completed' && status !== 'failed') {
+          status = 'available';
+        }
+      }
+      
       return {
         ...course,
         status
       };
     });
+    
     return { success: true, data: { student: { ...studentData, id: studentId }, courses: courseStatuses } };
   } catch (error) {
     return { success: false, error: error.message };

@@ -38,9 +38,9 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
-import { createCurriculum, getCurriculums, addCourse, getCoursesByCurriculum } from '../../models/curriculumModels';
+import { createCurriculum, getCurriculums, addCourse, getCoursesByCurriculum, getAllCourses } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../firebase';
 
 const CurriculumMaker = () => {
@@ -65,7 +65,8 @@ const CurriculumMaker = () => {
     courseTitle: '',
     units: '',
     prerequisites: [],
-    isAvailable: true
+    isAvailable: true,
+    equivalentSubjectId: ''
   });
   
   // Dialog states
@@ -78,6 +79,7 @@ const CurriculumMaker = () => {
   // Editing states
   const [editingCourse, setEditingCourse] = useState(null);
   const [editingData, setEditingData] = useState({});
+  const [editingEquivalents, setEditingEquivalents] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [newCourseData, setNewCourseData] = useState({
     1: { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true },
@@ -85,9 +87,14 @@ const CurriculumMaker = () => {
     3: { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true }
   });
 
+  // Equivalent subject selection state
+  const [selectedEquivalent, setSelectedEquivalent] = useState([]);
+  const [allCourses, setAllCourses] = useState([]);
+
   useEffect(() => {
     if (currentUser) {
       loadCurriculums();
+      loadAllCourses();
     }
   }, [currentUser]);
 
@@ -150,6 +157,11 @@ const CurriculumMaker = () => {
     setLoading(false);
   };
 
+  const loadAllCourses = async () => {
+    const result = await getAllCourses();
+    if (result.success) setAllCourses(result.data);
+  };
+
   const handleCreateCurriculum = async () => {
     if (!currentUser) {
       setError('Please sign in to create a curriculum');
@@ -186,15 +198,21 @@ const CurriculumMaker = () => {
     setLoading(true);
     setError('');
     try {
+      // If equivalentSubjectId is not set but equivalents are selected, generate a new id
+      let eqId = courseForm.equivalentSubjectId;
+      if (!eqId && selectedEquivalent && selectedEquivalent.length > 0) {
+        eqId = 'EQ_' + Math.random().toString(36).substr(2, 9);
+      }
       const result = await addCourse(
         selectedCurriculum.id,
         selectedYear,
         selectedSemester,
-        courseForm
+        { ...courseForm, equivalentSubjectId: eqId }
       );
       if (result.success) {
         setSuccess('Course added successfully!');
-        setCourseForm({ courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true });
+        setCourseForm({ courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true, equivalentSubjectId: '' });
+        setSelectedEquivalent([]);
         setCourseDialogOpen(false);
         await loadCourses(selectedCurriculum.id);
       } else {
@@ -214,14 +232,23 @@ const CurriculumMaker = () => {
       courseTitle: course.courseTitle,
       units: course.units,
       prerequisites: course.prerequisites,
-      isAvailable: course.isAvailable !== undefined ? course.isAvailable : true
+      isAvailable: course.isAvailable !== undefined ? course.isAvailable : true,
+      equivalentSubjectId: course.equivalentSubjectId || ''
     });
+    // Set the current equivalents for editing
+    const currentEquivalents = allCourses.filter(c => 
+      c.equivalentSubjectId && 
+      c.equivalentSubjectId === course.equivalentSubjectId && 
+      c.id !== course.id
+    );
+    setEditingEquivalents(currentEquivalents.map(eq => eq.courseCode));
     setHasChanges(false);
   };
 
   const handleCancelEdit = () => {
     setEditingCourse(null);
     setEditingData({});
+    setEditingEquivalents([]);
     setHasChanges(false);
   };
 
@@ -234,16 +261,39 @@ const CurriculumMaker = () => {
     setLoading(true);
     setError('');
     try {
+      const batch = writeBatch(db);
+      
+      // Update the main course
       const courseRef = doc(db, 'courses', editingCourse);
-      await updateDoc(courseRef, {
+      batch.update(courseRef, {
         ...editingData,
         updatedAt: new Date()
       });
+      
+      // Update equivalent subjects if any are selected
+      if (editingEquivalents.length > 0) {
+        const selectedEquivalentCourses = allCourses.filter(c => 
+          editingEquivalents.includes(c.courseCode) && c.id !== editingCourse
+        );
+        
+        // Update all selected equivalent courses to have the same equivalentSubjectId
+        selectedEquivalentCourses.forEach(equivalentCourse => {
+          const equivalentRef = doc(db, 'courses', equivalentCourse.id);
+          batch.update(equivalentRef, {
+            equivalentSubjectId: editingData.equivalentSubjectId,
+            updatedAt: new Date()
+          });
+        });
+      }
+      
+      await batch.commit();
       setSuccess('Course updated successfully!');
       setEditingCourse(null);
       setEditingData({});
+      setEditingEquivalents([]);
       setHasChanges(false);
       await loadCourses(selectedCurriculum.id);
+      await loadAllCourses(); // Reload all courses to update the equivalents display
     } catch (error) {
       setError('Failed to update course: ' + error.message);
     } finally {
@@ -466,6 +516,7 @@ const CurriculumMaker = () => {
                       <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Course Title</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '10%' }}>Units</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '25%' }}>Prerequisites</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Equivalent Subjects</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '10%' }}>Available</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Actions</TableCell>
                     </TableRow>
@@ -474,6 +525,8 @@ const CurriculumMaker = () => {
                     {getCoursesByYearAndSemester(selectedYear, semester).map((course) => {
                       const isEditing = editingCourse === course.id;
                       const data = isEditing ? editingData : course;
+                      // Find all equivalent courses (by equivalentSubjectId, excluding self)
+                      const equivalents = allCourses.filter(c => c.equivalentSubjectId && c.equivalentSubjectId === data.equivalentSubjectId && c.id !== course.id);
                       
                       return (
                         <TableRow key={course.id} sx={{ 
@@ -523,13 +576,13 @@ const CurriculumMaker = () => {
                               </Typography>
                             )}
                           </TableCell>
-                          <TableCell>
+                                                    <TableCell>
                             {isEditing ? (
                               <Autocomplete
                                 multiple
                                 size="small"
                                 options={getAllCourseCodes()}
-                                value={data.prerequisites}
+                                value={editingData.prerequisites || []}
                                 onChange={(event, newValue) => {
                                   setEditingData(prev => ({ ...prev, prerequisites: newValue }));
                                   setHasChanges(true);
@@ -537,8 +590,9 @@ const CurriculumMaker = () => {
                                 renderInput={(params) => (
                                   <TextField
                                     {...params}
-                                    placeholder="Select prerequisites"
+                                    label="Prerequisites"
                                     size="small"
+                                    placeholder="Select prerequisites"
                                   />
                                 )}
                                 renderTags={(value, getTagProps) =>
@@ -551,7 +605,7 @@ const CurriculumMaker = () => {
                                     />
                                   ))
                                 }
-                                sx={{ minWidth: 150 }}
+                                sx={{ minWidth: 120, mb: 1 }}
                               />
                             ) : (
                               data.prerequisites.length > 0 ? (
@@ -569,6 +623,57 @@ const CurriculumMaker = () => {
                                 <Typography variant="body2" color="text.secondary">
                                   None
                                 </Typography>
+                              )
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {isEditing ? (
+                              <Autocomplete
+                                multiple
+                                size="small"
+                                options={allCourses.filter(c => c.id !== course.id).map(c => c.courseCode)}
+                                value={editingEquivalents}
+                                onChange={(event, newValue) => {
+                                  setEditingEquivalents(newValue);
+                                  // If user selects equivalents, assign a shared equivalentSubjectId
+                                  let eqId = data.equivalentSubjectId;
+                                  if (!eqId && newValue.length > 0) {
+                                    eqId = 'EQ_' + Math.random().toString(36).substr(2, 9);
+                                  } else if (newValue.length === 0) {
+                                    eqId = ''; // Clear equivalentSubjectId if no equivalents selected
+                                  }
+                                  setEditingData(prev => ({ ...prev, equivalentSubjectId: eqId }));
+                                  setHasChanges(true);
+                                }}
+                                renderInput={(params) => (
+                                  <TextField
+                                    {...params}
+                                    label="Equivalent Subjects"
+                                    size="small"
+                                    placeholder="Select equivalents"
+                                  />
+                                )}
+                                renderTags={(value, getTagProps) =>
+                                  value.map((option, index) => (
+                                    <Chip
+                                      {...getTagProps({ index })}
+                                      key={option}
+                                      label={option}
+                                      size="small"
+                                    />
+                                  ))
+                                }
+                                sx={{ minWidth: 120, mb: 1 }}
+                              />
+                            ) : (
+                              equivalents.length > 0 ? (
+                                <Box>
+                                  {equivalents.map(eq => (
+                                    <Chip key={eq.id} label={eq.courseCode} size="small" sx={{ mr: 0.5, mb: 0.5 }} />
+                                  ))}
+                                </Box>
+                              ) : (
+                                <Typography variant="body2" color="text.secondary">None</Typography>
                               )
                             )}
                           </TableCell>
@@ -683,6 +788,35 @@ const CurriculumMaker = () => {
                             ))
                           }
                           sx={{ minWidth: 150 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Autocomplete
+                          multiple
+                          size="small"
+                          options={allCourses.filter(c => c.id !== courseForm.id).map(c => c.courseCode)}
+                          value={selectedEquivalent}
+                          onChange={(event, newValue) => setSelectedEquivalent(newValue)}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label="Equivalent Subjects"
+                              margin="normal"
+                              size="small"
+                              helperText="Select equivalent subjects by course code"
+                            />
+                          )}
+                          renderTags={(value, getTagProps) =>
+                            value.map((option, index) => (
+                              <Chip
+                                {...getTagProps({ index })}
+                                key={option}
+                                label={option}
+                                size="small"
+                              />
+                            ))
+                          }
+                          sx={{ minWidth: 150, mb: 2 }}
                         />
                       </TableCell>
                       <TableCell>
@@ -873,6 +1007,9 @@ const CurriculumMaker = () => {
             margin="normal"
             size="small"
           />
+          {/* In the course dialog, place prerequisites and equivalents side by side */}
+          <Grid container spacing={2}>
+            <Grid item xs={6}>
           <Autocomplete
             multiple
             size="small"
@@ -900,7 +1037,11 @@ const CurriculumMaker = () => {
                 />
               ))
             }
+                sx={{ minWidth: 150, mb: 2 }}
           />
+            </Grid>
+            {/* Removed the equivalent subjects Autocomplete from the add course dialog */}
+          </Grid>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCourseDialogOpen(false)}>Cancel</Button>

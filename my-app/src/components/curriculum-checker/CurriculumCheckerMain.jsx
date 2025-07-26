@@ -33,7 +33,7 @@ import {
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum } from '../../models/curriculumModels';
+import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAllCourses } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
 
 const CurriculumCheckerMain = () => {
@@ -49,10 +49,12 @@ const CurriculumCheckerMain = () => {
   const [curriculumDialogOpen, setCurriculumDialogOpen] = useState(false);
   const [tabValue, setTabValue] = useState(0);
   const [studentCourses, setStudentCourses] = useState([]);
+  const [allCourses, setAllCourses] = useState([]);
 
   useEffect(() => {
     if (currentUser) {
       loadStudents();
+      loadAllCourses();
     }
   }, [currentUser]);
 
@@ -103,6 +105,11 @@ const CurriculumCheckerMain = () => {
         console.log('Loaded student courses from offline storage');
       }
     }
+  };
+
+  const loadAllCourses = async () => {
+    const result = await getAllCourses();
+    if (result.success) setAllCourses(result.data);
   };
 
   const handleStudentSelect = async (student) => {
@@ -245,6 +252,81 @@ const CurriculumCheckerMain = () => {
     return grade === 'INC';
   };
 
+  // Helper: For irregular students, process equivalents
+  const getAvailableCoursesForIrregular = (student, curriculumCourses) => {
+    if (!student?.isIrregular) return curriculumCourses;
+    
+    // Map: equivalentSubjectId -> all courses with that id
+    const equivMap = {};
+    allCourses.forEach(course => {
+      if (course.equivalentSubjectId) {
+        if (!equivMap[course.equivalentSubjectId]) equivMap[course.equivalentSubjectId] = [];
+        equivMap[course.equivalentSubjectId].push(course);
+      }
+    });
+    
+    // For each course in the student's curriculum, check equivalents
+    return curriculumCourses.map(course => {
+      if (!course.equivalentSubjectId) return course;
+      const equivalents = equivMap[course.equivalentSubjectId] || [];
+      // If any equivalent is available, mark as available
+      const anyAvailable = equivalents.some(eq => eq.isAvailable !== false);
+      // If the course is already completed/failed, keep its status
+      if (course.status === 'completed' || course.status === 'failed') return course;
+      return {
+        ...course,
+        status: anyAvailable ? 'available' : course.status
+      };
+    });
+  };
+
+  // Helper: Get equivalent courses from other curriculums for irregular students
+  const getEquivalentCoursesFromOtherCurriculums = (student, curriculumCourses) => {
+    if (!student?.isIrregular) return [];
+    
+    const equivalentCourses = [];
+    const studentCurriculumIds = new Set([student.curriculumId]);
+    
+    // Helper function to check if a course meets prerequisites
+    const isPrerequisiteMet = (courseCode) => {
+      return student.completedCourses?.includes(courseCode) && 
+             !isCourseFailed(student, courseCode) && 
+             !isCourseIncomplete(student, courseCode);
+    };
+    
+    // Get all courses that have equivalentSubjectId and are available
+    allCourses.forEach(course => {
+      if (course.equivalentSubjectId && course.isAvailable !== false) {
+        // Check if this course is equivalent to any course in the student's curriculum
+        const isEquivalentToStudentCourse = curriculumCourses.some(studentCourse => 
+          studentCourse.equivalentSubjectId === course.equivalentSubjectId
+        );
+        
+        // Only include courses from different curriculums that are equivalent to student's courses
+        if (isEquivalentToStudentCourse && !studentCurriculumIds.has(course.curriculumId)) {
+          // Check if the student meets the prerequisites for this equivalent course
+          let meetsPrerequisites = true;
+          if (course.prerequisites && course.prerequisites.length > 0) {
+            meetsPrerequisites = course.prerequisites.every(isPrerequisiteMet);
+          }
+          
+          // Only include if prerequisites are met
+          if (meetsPrerequisites) {
+            equivalentCourses.push({
+              ...course,
+              isEquivalentCourse: true,
+              originalCourseCode: curriculumCourses.find(sc => 
+                sc.equivalentSubjectId === course.equivalentSubjectId
+              )?.courseCode
+            });
+          }
+        }
+      }
+    });
+    
+    return equivalentCourses;
+  };
+
   const renderStudentList = () => (
     <Box>
       <Typography variant="h5" fontWeight={600} gutterBottom sx={{ mb: 3 }}>
@@ -349,6 +431,8 @@ const CurriculumCheckerMain = () => {
     if (!studentCurriculum) return null;
 
     const { student, courses } = studentCurriculum;
+    // Use processed courses for irregulars
+    const processedCourses = getAvailableCoursesForIrregular(student, courses);
 
     return (
       <Box>
@@ -431,7 +515,7 @@ const CurriculumCheckerMain = () => {
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {courses
+                            {processedCourses
                               .filter(course => course.yearLevel === year && course.semester === semester)
                               .map((course) => (
                                 <TableRow 
@@ -529,16 +613,55 @@ const CurriculumCheckerMain = () => {
             </AccordionSummary>
             <AccordionDetails>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-                {courses.filter(c => c.status === 'available').length === 0 ? (
+                {processedCourses.filter(c => c.status === 'available').length === 0 ? (
                   <Typography variant="body2" color="text.secondary">No available courses for this term.</Typography>
                 ) : (
-                  courses.filter(c => c.status === 'available').map(course => (
+                  processedCourses.filter(c => c.status === 'available').map(course => (
                     <Chip key={course.id} label={`${course.courseCode} - ${course.courseTitle}`} color="primary" variant="outlined" />
                   ))
                 )}
               </Box>
             </AccordionDetails>
           </Accordion>
+
+          {/* Equivalent Courses from Other Curriculums (for irregular students only) */}
+          {student.isIrregular && (
+            <Accordion sx={{ mb: 2, border: '1px solid #ff9800' }}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="h6" fontWeight={700} color="warning">
+                  Equivalent Courses from Other Curriculums
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    As an irregular student, you can enroll in these equivalent courses from other curriculums:
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                    {(() => {
+                      const equivalentCourses = getEquivalentCoursesFromOtherCurriculums(student, processedCourses);
+                      if (equivalentCourses.length === 0) {
+                        return (
+                          <Typography variant="body2" color="text.secondary">
+                            No equivalent courses available from other curriculums.
+                          </Typography>
+                        );
+                      }
+                      return equivalentCourses.map(course => (
+                        <Chip 
+                          key={course.id} 
+                          label={`${course.courseCode} - ${course.courseTitle} (Equivalent to ${course.originalCourseCode})`} 
+                          color="warning" 
+                          variant="outlined"
+                          sx={{ borderColor: '#ff9800' }}
+                        />
+                      ));
+                    })()}
+                  </Box>
+                </Box>
+              </AccordionDetails>
+            </Accordion>
+          )}
         </Box>
         
         <Box mt={4} p={3} bgcolor="#f8f9fa" borderRadius={2} border="1px solid #e0e0e0">
@@ -606,6 +729,18 @@ const CurriculumCheckerMain = () => {
               />
               <Typography variant="body2" fontWeight={500}>Blocked (Incomplete or Failed)</Typography>
             </Box>
+            {student?.isIrregular && (
+              <Box display="flex" alignItems="center">
+                <Chip 
+                  label="Equivalent"
+                  size="small"
+                  color="warning"
+                  variant="outlined"
+                  sx={{ mr: 1, borderColor: '#ff9800' }}
+                />
+                <Typography variant="body2" fontWeight={500}>Equivalent Course from Other Curriculum</Typography>
+              </Box>
+            )}
           </Box>
         </Box>
       </Box>

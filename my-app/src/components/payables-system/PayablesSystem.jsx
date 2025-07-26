@@ -474,9 +474,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           studentPayments: updatedStudentPayments
         });
         if (updateResult.success) {
-          setSuccess('Student payment recorded successfully!');
-          await loadPayables();
-          setStudentPaymentDialogOpen(false);
+        setSuccess('Student payment recorded successfully!');
+        await loadPayables();
+        setStudentPaymentDialogOpen(false);
         } else {
           setError(updateResult.error);
         }
