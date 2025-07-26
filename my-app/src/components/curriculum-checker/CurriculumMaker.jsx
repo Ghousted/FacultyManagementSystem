@@ -320,6 +320,45 @@ const CurriculumMaker = () => {
     }
   };
 
+  const handleDeleteCurriculum = async (curriculumId) => {
+    if (!currentUser) {
+      setError('Please sign in to delete a curriculum');
+      return;
+    }
+    if (!window.confirm('Are you sure you want to delete this curriculum? This will also delete all associated courses and cannot be undone.')) return;
+    setLoading(true);
+    setError('');
+    try {
+      // Delete all courses associated with this curriculum first
+      const coursesToDelete = courses.filter(course => course.curriculumId === curriculumId);
+      const batch = writeBatch(db);
+      
+      coursesToDelete.forEach(course => {
+        const courseRef = doc(db, 'courses', course.id);
+        batch.delete(courseRef);
+      });
+      
+      // Delete the curriculum
+      const curriculumRef = doc(db, 'curriculums', curriculumId);
+      batch.delete(curriculumRef);
+      
+      await batch.commit();
+      setSuccess('Curriculum and all associated courses deleted successfully!');
+      
+      // Clear selected curriculum if it was the one deleted
+      if (selectedCurriculum?.id === curriculumId) {
+        setSelectedCurriculum(null);
+      }
+      
+      await loadCurriculums();
+      await loadAllCourses(); // Reload all courses since some may have been deleted
+    } catch (error) {
+      setError('Failed to delete curriculum: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleInputChange = (field, value) => {
     setEditingData(prev => ({ ...prev, [field]: value }));
     setHasChanges(true);
@@ -412,10 +451,33 @@ const CurriculumMaker = () => {
                     borderColor: 'primary.main',
                     transform: 'translateY(-2px)',
                     transition: 'all 0.2s ease-in-out'
-                  }
+                  },
+                  position: 'relative'
                 }}
                 onClick={() => setSelectedCurriculum(curriculum)}
               >
+                {/* Delete Button */}
+                <IconButton
+                  size="small"
+                  color="error"
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevent triggering the card click
+                    handleDeleteCurriculum(curriculum.id);
+                  }}
+                  disabled={loading}
+                  sx={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    bgcolor: 'rgba(255, 255, 255, 0.9)',
+                    '&:hover': {
+                      bgcolor: 'rgba(255, 255, 255, 1)',
+                    }
+                  }}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+                
                 <Typography variant="h6" fontWeight="bold" gutterBottom>
                   {curriculum.name}
                 </Typography>
