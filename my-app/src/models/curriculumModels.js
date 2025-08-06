@@ -5,11 +5,9 @@ import {
   getDoc, 
   doc, 
   updateDoc, 
-  deleteDoc, 
   query, 
   where, 
-  orderBy,
-  writeBatch
+  orderBy
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -213,6 +211,34 @@ export const getStudentCurriculumStatus = async (studentId) => {
              !isCourseFailed(courseCode) && 
              !isCourseIncomplete(courseCode);
     };
+
+    // Helper to get all prerequisites for a course and its equivalents
+    const getAllEquivalentPrerequisites = (course) => {
+      if (!course.equivalentSubjectId) return course.prerequisites || [];
+      // Find all courses with the same equivalentSubjectId
+      const equivalents = allCourses.filter(c => c.equivalentSubjectId === course.equivalentSubjectId);
+      // Union of all prerequisites
+      const allPrereqs = new Set();
+      equivalents.forEach(eq => {
+        (eq.prerequisites || []).forEach(pr => allPrereqs.add(pr));
+      });
+      return Array.from(allPrereqs);
+    };
+
+    // Helper function to check if all first semester courses of a year level are completed
+    const areFirstSemesterCoursesCompleted = (yearLevel) => {
+      const firstSemCourses = courses.filter(c => 
+        c.yearLevel === yearLevel && c.semester === 1
+      );
+      
+      if (firstSemCourses.length === 0) return true; // No first semester courses
+      
+      return firstSemCourses.every(course => 
+        completedCourses.includes(course.courseCode) && 
+        !isCourseFailed(course.courseCode) && 
+        !isCourseIncomplete(course.courseCode)
+      );
+    };
     
     // Get curriculum courses
     const coursesResult = await getCoursesByCurriculum(studentData.curriculumId);
@@ -222,25 +248,40 @@ export const getStudentCurriculumStatus = async (studentId) => {
     // Get all courses for equivalent subject logic
     const allCoursesResult = await getAllCourses();
     const allCourses = allCoursesResult.success ? allCoursesResult.data : [];
-    
+      
     // Build course status list
     const courseStatuses = courses.map(course => {
       let status = 'not-taken';
       
-      // Check if course is marked as unavailable
-      if (course.isAvailable === false) {
-        status = 'unavailable';
-      } else if (completedCourses.includes(course.courseCode)) {
+      // FIRST: Check if course is completed/failed (highest priority)
+      if (completedCourses.includes(course.courseCode)) {
         status = isCourseFailed(course.courseCode) ? 'failed' : 'completed';
-      } else if (course.prerequisites && course.prerequisites.length > 0) {
-        const prereqsMet = course.prerequisites.every(isPrerequisiteMet);
-        if (prereqsMet) {
-          status = 'available';
+      } 
+      // SECOND: Check if course is marked as unavailable (only for non-completed courses)
+      else if (course.isAvailable === false) {
+        status = 'unavailable';
+      } 
+      // For regular students, check if course is from a higher year level AFTER checking completion
+      else if (!studentData.isIrregular && course.yearLevel > studentData.yearLevel) {
+        status = 'blocked';  // Higher year courses are blocked for regular students
+      } 
+      // For regular students, check semester progression: must complete 1st semester before 2nd semester
+      else if (!studentData.isIrregular && course.semester === 2 && !areFirstSemesterCoursesCompleted(course.yearLevel)) {
+        status = 'blocked';  // Second semester courses are blocked until first semester is completed
+      }
+      else {
+        // Use all equivalent prerequisites
+        const allPrereqs = getAllEquivalentPrerequisites(course);
+        if (allPrereqs.length > 0) {
+          const prereqsMet = allPrereqs.every(isPrerequisiteMet);
+          if (prereqsMet) {
+            status = 'available';
+          } else {
+            status = 'blocked';
+          }
         } else {
-          status = 'blocked';
+          status = 'available';
         }
-      } else {
-        status = 'available';
       }
       
       // For irregular students, check if equivalent subjects are available
@@ -250,18 +291,13 @@ export const getStudentCurriculumStatus = async (studentId) => {
           c.id !== course.id
         );
         
-        // Check if any equivalent course is available AND the student meets its prerequisites
+        // Check if any equivalent course is available AND the student meets all prerequisites for that equivalent
         const anyEquivalentAvailable = equivalentCourses.some(eq => {
-          // First check if the equivalent course itself is available
           if (eq.isAvailable === false) return false;
-          
-          // Then check if the student meets the prerequisites for this equivalent course
-          if (eq.prerequisites && eq.prerequisites.length > 0) {
-            const prereqsMet = eq.prerequisites.every(isPrerequisiteMet);
-            return prereqsMet;
+          const eqAllPrereqs = getAllEquivalentPrerequisites(eq);
+          if (eqAllPrereqs.length > 0) {
+            return eqAllPrereqs.every(isPrerequisiteMet);
           }
-          
-          // If no prerequisites, the equivalent course is available
           return true;
         });
         
@@ -284,76 +320,7 @@ export const getStudentCurriculumStatus = async (studentId) => {
 
 // Sync function to handle pending actions when coming back online
 export const syncOfflineData = async () => {
-  try {
-    const pendingActions = await OfflineStorage.getPendingActions();
-    
-    if (pendingActions.length === 0) {
-      return { success: true, message: 'No pending actions to sync' };
-    }
-    
-    const batch = writeBatch(db);
-    let syncedCount = 0;
-    
-    for (const action of pendingActions) {
-      try {
-        switch (action.type) {
-          case 'CREATE_CURRICULUM':
-            const curriculumRef = doc(collection(db, 'curriculums'));
-            batch.set(curriculumRef, action.data);
-            syncedCount++;
-            break;
-            
-          case 'UPDATE_CURRICULUM':
-            const curriculumUpdateRef = doc(db, 'curriculums', action.data.id);
-            batch.update(curriculumUpdateRef, action.data.updates);
-            syncedCount++;
-            break;
-            
-          case 'DELETE_CURRICULUM':
-            const curriculumDeleteRef = doc(db, 'curriculums', action.data.id);
-            batch.delete(curriculumDeleteRef);
-            syncedCount++;
-            break;
-            
-          case 'ADD_COURSE':
-            const courseRef = doc(collection(db, 'courses'));
-            batch.set(courseRef, action.data);
-            syncedCount++;
-            break;
-            
-          case 'ADD_STUDENT':
-            const studentRef = doc(collection(db, 'students'));
-            batch.set(studentRef, action.data);
-            syncedCount++;
-            break;
-            
-          case 'UPDATE_STUDENT_PROGRESS':
-            // Handle student progress update
-            syncedCount++;
-            break;
-            
-          default:
-            console.warn('Unknown action type:', action.type);
-        }
-      } catch (error) {
-        console.error('Error syncing action:', action, error);
-      }
-    }
-    
-    await batch.commit();
-    await OfflineStorage.clearPendingActions();
-    await OfflineStorage.updateLastSync();
-    
-    return { 
-      success: true, 
-      message: `Successfully synced ${syncedCount} actions`,
-      syncedCount 
-    };
-  } catch (error) {
-    console.error('Error syncing offline data:', error);
-    return { success: false, error: error.message };
-  }
-};
-
-// Export the offline storage service
-export { OfflineStorage }; 
+  // Note: OfflineStorage is not implemented yet
+  // This function is a placeholder for future offline functionality
+  return { success: true, message: 'No offline storage implemented yet' };
+}; 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Paper,
@@ -22,30 +22,20 @@ import {
   Alert,
   Tabs,
   Tab,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  Checkbox,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  FormControlLabel,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+
 import { 
   addStudent, 
   getStudents, 
-  getStudentsByYearLevel, 
   updateStudentCourse,
   getCurriculums,
   getCoursesByCurriculum 
@@ -63,7 +53,6 @@ const StudentManagement = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [selectedYearLevel, setSelectedYearLevel] = useState(1);
   const [tabValue, setTabValue] = useState(0);
   
   // Student form state
@@ -78,31 +67,54 @@ const StudentManagement = () => {
   
   // Dialog states
   const [studentDialogOpen, setStudentDialogOpen] = useState(false);
-  const [courseManagementDialogOpen, setCourseManagementDialogOpen] = useState(false);
-  const [selectedYearFilter, setSelectedYearFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [editingStudent, setEditingStudent] = useState(null);
   const [editingData, setEditingData] = useState({});
-  const [hasChanges, setHasChanges] = useState(false);
-  const [newStudentData, setNewStudentData] = useState({
-    name: '',
-    email: '',
-    studentNumber: '',
-    yearLevel: 1,
-    curriculumId: '',
-    isIrregular: false
-  });
   
   // Grade management state
   const [studentGrades, setStudentGrades] = useState({});
   const [editingGrades, setEditingGrades] = useState({});
+
+  const loadStudents = useCallback(async () => {
+    if (!currentUser) {
+      setError('Please sign in to access student data');
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
+    const result = await getStudents();
+    if (result.success) {
+      setStudents(result.data);
+    } else {
+      setError(result.error);
+    }
+    setLoading(false);
+  }, [currentUser]);
+
+  const loadCurriculums = useCallback(async () => {
+    if (!currentUser) {
+      setError('Please sign in to access curriculum data');
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
+    const result = await getCurriculums();
+    if (result.success) {
+      setCurriculums(result.data);
+    } else {
+      setError(result.error);
+    }
+    setLoading(false);
+  }, [currentUser]);
 
   useEffect(() => {
     if (currentUser) {
       loadStudents();
       loadCurriculums();
     }
-  }, [currentUser]);
+  }, [currentUser, loadStudents, loadCurriculums]);
 
   useEffect(() => {
     if (selectedStudent) {
@@ -119,45 +131,6 @@ const StudentManagement = () => {
       return () => clearTimeout(timer);
     }
   }, [success]);
-
-  useEffect(() => {
-    // Update new student data year level when tab changes
-    setNewStudentData(prev => ({ ...prev, yearLevel: tabValue + 1 }));
-  }, [tabValue]);
-
-  const loadStudents = async () => {
-    if (!currentUser) {
-      setError('Please sign in to access student data');
-      return;
-    }
-    
-    setLoading(true);
-    setError('');
-    const result = await getStudents();
-    if (result.success) {
-      setStudents(result.data);
-    } else {
-      setError(result.error);
-    }
-    setLoading(false);
-  };
-
-  const loadCurriculums = async () => {
-    if (!currentUser) {
-      setError('Please sign in to access curriculum data');
-      return;
-    }
-    
-    setLoading(true);
-    setError('');
-    const result = await getCurriculums();
-    if (result.success) {
-      setCurriculums(result.data);
-    } else {
-      setError(result.error);
-    }
-    setLoading(false);
-  };
 
   const loadStudentCourses = async (curriculumId) => {
     if (!curriculumId) return;
@@ -245,7 +218,6 @@ const StudentManagement = () => {
       curriculumId: student.curriculumId,
       isIrregular: student.isIrregular || false
     });
-    setHasChanges(false);
   };
 
   const handleCancelEdit = () => {
@@ -313,37 +285,14 @@ const StudentManagement = () => {
 
   const handleInputChange = (field, value) => {
     setEditingData(prev => ({ ...prev, [field]: value }));
-    setHasChanges(true);
   };
 
-  const handleNewStudentInputChange = (field, value) => {
-    setNewStudentData(prev => ({ ...prev, [field]: value }));
+  const getStudentCountByYear = (year) => {
+    return students.filter(student => student.yearLevel === year && !student.isIrregular).length;
   };
 
-  const handleAddNewStudent = async () => {
-    if (!currentUser) {
-      setError('Please sign in to add a student');
-      return;
-    }
-    
-    setLoading(true);
-    setError('');
-    const result = await addStudent({
-      ...newStudentData,
-      yearLevel: tabValue + 1
-    });
-    if (result.success) {
-      setSuccess('Student added successfully!');
-      setNewStudentData({ name: '', email: '', studentNumber: '', yearLevel: tabValue + 1, curriculumId: '', isIrregular: false });
-      loadStudents();
-    } else {
-      setError(result.error);
-    }
-    setLoading(false);
-  };
-
-  const getStudentsByYear = (year) => {
-    return students.filter(student => student.yearLevel === year);
+  const getIrregularStudentCount = () => {
+    return students.filter(student => student.isIrregular).length;
   };
 
   const getCurriculumName = (curriculumId) => {
@@ -352,7 +301,13 @@ const StudentManagement = () => {
   };
 
   const isCourseCompleted = (courseCode) => {
-    return selectedStudent?.completedCourses?.includes(courseCode) || false;
+    // Check if course is marked as completed OR if it has a grade (except failed/incomplete)
+    const hasGrade = studentGrades[courseCode] && studentGrades[courseCode] !== '';
+    const isFailed = studentGrades[courseCode] === '5.0';
+    const isIncomplete = studentGrades[courseCode] === 'INC';
+    
+    return selectedStudent?.completedCourses?.includes(courseCode) || 
+           (hasGrade && !isFailed && !isIncomplete);
   };
 
   // Calculate Dean's Lister eligibility for a semester
@@ -362,7 +317,7 @@ const StudentManagement = () => {
     const semesterGrades = studentCourses
       .filter(course => course.yearLevel === year && course.semester === semester)
       .map(course => studentGrades[course.courseCode])
-      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC');
+      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC' && grade !== 'CRED');
     
     if (semesterGrades.length === 0) return false;
     
@@ -380,7 +335,7 @@ const StudentManagement = () => {
     const yearGrades = studentCourses
       .filter(course => course.yearLevel === year)
       .map(course => studentGrades[course.courseCode])
-      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC');
+      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC' && grade !== 'CRED');
     
     if (yearGrades.length === 0) return { eligible: false, percentage: 0 };
     
@@ -395,47 +350,81 @@ const StudentManagement = () => {
     }
   };
 
-  // Check if a course is failed (grade 5.0 or above)
-  const isCourseFailed = (courseCode) => {
-    if (!selectedStudent || !studentGrades) return false;
-    const grade = studentGrades[courseCode];
-    return grade && parseFloat(grade) >= 5.0;
-  };
-
-  // Check if a course is incomplete
-  const isCourseIncomplete = (courseCode) => {
-    if (!selectedStudent || !studentGrades) return false;
-    const grade = studentGrades[courseCode];
-    return grade === 'INC';
-  };
-
-  // Handle grade input change
-  const handleGradeChange = (courseCode, grade) => {
+  // Handle grade input change and automatically save grades
+  const handleGradeChange = async (courseCode, grade) => {
+    // Update the local state immediately for UI responsiveness
     setEditingGrades(prev => ({
       ...prev,
       [courseCode]: grade
     }));
+    
+    // Automatically update completion status based on grade
+    let isCompleted = false;
+    
+    if (grade && grade !== '') {
+      if (grade === '5.0') {
+        // Failed courses are not considered completed
+        isCompleted = false;
+      } else if (grade === 'INC') {
+        // Incomplete courses are not considered completed
+        isCompleted = false;
+      } else {
+        // All other grades (including CRED) are considered completed
+        isCompleted = true;
+      }
+      
+      // Save grades immediately to database
+      try {
+        const studentRef = doc(db, 'students', selectedStudent.id);
+        const updatedGrades = { ...editingGrades, [courseCode]: grade };
+        
+        await updateDoc(studentRef, {
+          grades: updatedGrades,
+          updatedAt: new Date()
+        });
+        
+        // Update local state to reflect saved data
+        setStudentGrades(updatedGrades);
+        setEditingGrades(updatedGrades);
+        
+        // Update completion status
+        await handleUpdateStudentCourse(courseCode, isCompleted);
+        
+        setSuccess('Grade saved successfully!');
+      } catch (error) {
+        setError('Failed to save grade: ' + error.message);
+        // Revert the local state if save failed
+        setEditingGrades(prev => ({
+          ...prev,
+          [courseCode]: studentGrades[courseCode] || ''
+        }));
+      }
+    } else {
+      // If grade is empty, remove it from the database
+      try {
+        const studentRef = doc(db, 'students', selectedStudent.id);
+        const updatedGrades = { ...editingGrades };
+        delete updatedGrades[courseCode];
+        
+        await updateDoc(studentRef, {
+          grades: updatedGrades,
+          updatedAt: new Date()
+        });
+        
+        setStudentGrades(updatedGrades);
+        setEditingGrades(updatedGrades);
+        
+        // Update completion status
+        await handleUpdateStudentCourse(courseCode, false);
+        
+        setSuccess('Grade removed successfully!');
+      } catch (error) {
+        setError('Failed to remove grade: ' + error.message);
+      }
+    }
   };
 
-  // Save grades for a student
-  const handleSaveGrades = async () => {
-    if (!selectedStudent) return;
-    
-    setLoading(true);
-    try {
-      const studentRef = doc(db, 'students', selectedStudent.id);
-      await updateDoc(studentRef, {
-        grades: editingGrades,
-        updatedAt: new Date()
-      });
-      
-      setStudentGrades(editingGrades);
-      setSuccess('Grades saved successfully!');
-    } catch (error) {
-      setError('Failed to save grades: ' + error.message);
-    }
-    setLoading(false);
-  };
+
 
   // Load student grades
   const loadStudentGrades = async (studentId) => {
@@ -454,37 +443,6 @@ const StudentManagement = () => {
     }
   };
 
-  const getFilteredStudents = () => {
-    if (selectedYearFilter === 'all') {
-      return students;
-    }
-    return students.filter(student => student.yearLevel === parseInt(selectedYearFilter));
-  };
-
-  const getFilteredAndGroupedStudents = () => {
-    let filteredStudents = students;
-    
-    // Filter by search term
-    if (searchTerm) {
-      filteredStudents = students.filter(student => 
-        student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        getCurriculumName(student.curriculumId).toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-    
-    // Group by year level
-    const grouped = {};
-    filteredStudents.forEach(student => {
-      const year = student.yearLevel;
-      if (!grouped[year]) {
-        grouped[year] = [];
-      }
-      grouped[year].push(student);
-    });
-    
-    return grouped;
-  };
-
   const renderStudentList = () => (
     <Box>
       <TextField
@@ -499,31 +457,52 @@ const StudentManagement = () => {
       <Box sx={{ mb: 2 }}>
         <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
           {[1, 2, 3, 4].map(year => (
-            <Tab key={year} label={`${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year`} />
+            <Tab 
+              key={year} 
+              label={`${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year (${getStudentCountByYear(year)})`} 
+            />
           ))}
+          <Tab label={`Irregular (${getIrregularStudentCount()})`} />
         </Tabs>
       </Box>
       
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h6">
-          Students in {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year
+          {tabValue === 4 ? 'Irregular Students' : `Students in ${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year`}
         </Typography>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => {
-            setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: tabValue + 1, curriculumId: '', isIrregular: false });
+            setStudentForm({ 
+              name: '', 
+              email: '', 
+              studentNumber: '', 
+              yearLevel: tabValue === 4 ? 1 : tabValue + 1, 
+              curriculumId: '', 
+              isIrregular: tabValue === 4 
+            });
             setStudentDialogOpen(true);
           }}
           size="small"
         >
-          Add Student
+          Add {tabValue === 4 ? 'Irregular ' : ''}Student
         </Button>
       </Box>
       
       <Box sx={{ maxHeight: 'calc(100vh - 300px)', overflowY: 'auto', overflowX: 'hidden' }}>
         {(() => {
-          let filteredStudents = students.filter(student => student.yearLevel === (tabValue + 1));
+          let filteredStudents;
+          
+          if (tabValue === 4) {
+            // Show irregular students from all years
+            filteredStudents = students.filter(student => student.isIrregular);
+          } else {
+            // Show regular students by year level
+            filteredStudents = students.filter(student => 
+              student.yearLevel === (tabValue + 1) && !student.isIrregular
+            );
+          }
           
           // Filter by search term
           if (searchTerm) {
@@ -537,7 +516,9 @@ const StudentManagement = () => {
             return (
               <Box sx={{ textAlign: 'center', py: 8 }}>
                 <Typography variant="h6" color="text.secondary" gutterBottom>
-                  {searchTerm ? 'No students found' : `No students in Year ${tabValue + 1}`}
+                  {searchTerm ? 'No students found' : 
+                   tabValue === 4 ? 'No irregular students' : 
+                   `No students in Year ${tabValue + 1}`}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                   {searchTerm ? 'Try adjusting your search terms' : 'Add students to get started'}
@@ -547,11 +528,18 @@ const StudentManagement = () => {
                     variant="contained"
                     startIcon={<AddIcon />}
                     onClick={() => {
-                      setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: tabValue + 1, curriculumId: '', isIrregular: false });
+                      setStudentForm({ 
+                        name: '', 
+                        email: '', 
+                        studentNumber: '', 
+                        yearLevel: tabValue === 4 ? 1 : tabValue + 1, 
+                        curriculumId: '', 
+                        isIrregular: tabValue === 4 
+                      });
                       setStudentDialogOpen(true);
                     }}
                   >
-                    Add Student
+                    Add {tabValue === 4 ? 'Irregular ' : ''}Student
                   </Button>
                 )}
               </Box>
@@ -563,17 +551,17 @@ const StudentManagement = () => {
               <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
                 <TableHead>
                   <TableRow>
+                    <TableCell sx={{ width: '5%' }}>#</TableCell>
                     <TableCell sx={{ width: '20%' }}>Student Number</TableCell>
                     <TableCell sx={{ width: '20%' }}>Name</TableCell>
                     <TableCell sx={{ width: '20%' }}>Email</TableCell>
                     <TableCell sx={{ width: '10%' }}>Year Level</TableCell>
                     <TableCell sx={{ width: '15%' }}>Curriculum</TableCell>
-                    <TableCell sx={{ width: '10%' }}>Irregular</TableCell>
                     <TableCell sx={{ width: '10%' }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredStudents.map((student) => {
+                  {filteredStudents.map((student, index) => {
                     const isEditing = editingStudent === student.id;
                     const data = isEditing ? editingData : student;
                     
@@ -586,6 +574,11 @@ const StudentManagement = () => {
                         }}
                         onClick={() => !isEditing && setSelectedStudent(student)}
                       >
+                        <TableCell sx={{ width: '5%' }}>
+                          <Typography variant="body2" color="text.secondary">
+                            {index + 1}
+                          </Typography>
+                        </TableCell>
                         <TableCell sx={{ width: '20%' }}>
                           {isEditing ? (
                             <TextField
@@ -646,7 +639,7 @@ const StudentManagement = () => {
                             </Typography>
                           )}
                         </TableCell>
-                        <TableCell sx={{ width: '15%' }}>
+                        <TableCell sx={{ width: '20%' }}>
                           {isEditing ? (
                             <FormControl size="small" fullWidth>
                               <Select
@@ -665,15 +658,6 @@ const StudentManagement = () => {
                               {getCurriculumName(student.curriculumId)}
                             </Typography>
                           )}
-                        </TableCell>
-                        <TableCell sx={{ width: '10%' }}>
-                          <Checkbox
-                            checked={data.isIrregular}
-                            onChange={e => isEditing && handleInputChange('isIrregular', e.target.checked)}
-                            color="warning"
-                            size="small"
-                            disabled={!isEditing}
-                          />
                         </TableCell>
                         <TableCell sx={{ width: '10%' }}>
                           <Box display="flex" gap={0.5} flexWrap="wrap" alignItems="center">
@@ -733,9 +717,9 @@ const StudentManagement = () => {
                   
                   {filteredStudents.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
                         <Typography variant="body2" color="text.secondary">
-                          No students in {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year
+                          {tabValue === 4 ? 'No irregular students' : `No students in ${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year`}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -826,7 +810,6 @@ const StudentManagement = () => {
                       <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Course Title</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '8%' }}>Units</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Prerequisites</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Status</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '10%' }}>Grade</TableCell>
                     </TableRow>
                   </TableHead>
@@ -880,44 +863,8 @@ const StudentManagement = () => {
                           <TableCell>
                             <FormControl size="small" sx={{ minWidth: 100, maxWidth: 120 }}>
                               <Select
-                                value={isCourseCompleted(course.courseCode) ? 'completed' : 'not-completed'}
-                                onChange={(e) => handleUpdateStudentCourse(course.courseCode, e.target.value === 'completed')}
-                                sx={{ 
-                                  bgcolor: isCourseFailed(course.courseCode) ? '#ffebee' : 
-                                         isCourseCompleted(course.courseCode) ? '#e8f5e9' : '#fff3e0',
-                                  '& .MuiSelect-select': {
-                                    color: isCourseFailed(course.courseCode) ? '#d32f2f' : 
-                                          isCourseCompleted(course.courseCode) ? '#2e7d32' : '#f57c00',
-                                    fontSize: '0.8rem',
-                                    padding: '4px 8px'
-                                  }
-                                }}
-                              >
-                                <MenuItem value="completed" sx={{ color: '#2e7d32', fontSize: '0.8rem' }}>
-                                  Completed
-                                </MenuItem>
-                                <MenuItem value="not-completed" sx={{ color: '#f57c00', fontSize: '0.8rem' }}>
-                                  Not Completed
-                                </MenuItem>
-                              </Select>
-                            </FormControl>
-                            {isCourseFailed(course.courseCode) && (
-                              <Typography variant="caption" color="error" display="block" sx={{ mt: 0.5 }}>
-                                Failed (Grade 5.0)
-                              </Typography>
-                            )}
-                            {isCourseIncomplete(course.courseCode) && (
-                              <Typography variant="caption" color="warning.main" display="block" sx={{ mt: 0.5 }}>
-                                Incomplete
-                              </Typography>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <FormControl size="small" sx={{ minWidth: 100, maxWidth: 120 }}>
-                              <Select
                                 value={editingGrades[course.courseCode] || ''}
                                 onChange={(e) => handleGradeChange(course.courseCode, e.target.value)}
-                                disabled={!isCourseCompleted(course.courseCode)}
                                 displayEmpty
                                 sx={{ 
                                   '& .MuiSelect-select': {
@@ -952,14 +899,46 @@ const StudentManagement = () => {
                                 <MenuItem value="3.0">3.0</MenuItem>
                                 <MenuItem value="5.0">5.0 (Failed)</MenuItem>
                                 <MenuItem value="INC">INC (Incomplete)</MenuItem>
+                                <MenuItem value="CRED">CRED (Credited)</MenuItem>
+                                <MenuItem value="" sx={{ color: 'error.main', fontStyle: 'italic' }}>
+                                  No Grade
+                                </MenuItem>
                               </Select>
                             </FormControl>
+                            {/* Status indicators based on grade */}
+                            {studentGrades[course.courseCode] && (
+                              <Box sx={{ mt: 0.5 }}>
+                                {studentGrades[course.courseCode] === '5.0' && (
+                                  <Typography variant="caption" color="error" display="block">
+                                    Failed
+                                  </Typography>
+                                )}
+                                {studentGrades[course.courseCode] === 'INC' && (
+                                  <Typography variant="caption" color="warning.main" display="block">
+                                    Incomplete
+                                  </Typography>
+                                )}
+                                {studentGrades[course.courseCode] === 'CRED' && (
+                                  <Typography variant="caption" color="success.main" display="block">
+                                    Credited
+                                  </Typography>
+                                )}
+                                {studentGrades[course.courseCode] && 
+                                 studentGrades[course.courseCode] !== '5.0' && 
+                                 studentGrades[course.courseCode] !== 'INC' && 
+                                 studentGrades[course.courseCode] !== 'CRED' && (
+                                  <Typography variant="caption" color="success.main" display="block">
+                                    Completed
+                                  </Typography>
+                                )}
+                              </Box>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
                     {studentCourses.filter(course => course.yearLevel === currentYear && course.semester === semester).length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                        <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                           <Typography variant="body2" color="text.secondary">
                             No courses in Year {currentYear}, {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
                           </Typography>
@@ -973,32 +952,9 @@ const StudentManagement = () => {
           ))}
         </Box>
 
-        {/* Save Grades Button */}
-        <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={handleSaveGrades}
-            disabled={loading}
-            sx={{ minWidth: 120 }}
-          >
-            {loading ? 'Saving...' : 'Save Grades'}
-          </Button>
-        </Box>
+
       </Box>
     );
-  };
-
-  const handleOpenAddStudentDialog = () => {
-    setStudentForm({
-      name: '',
-      email: '',
-      studentNumber: '',
-      yearLevel: tabValue + 1,
-      curriculumId: '',
-      isIrregular: false
-    });
-    setStudentDialogOpen(true);
   };
 
   return (
@@ -1070,15 +1026,21 @@ const StudentManagement = () => {
 
       {/* Student Dialog */}
       <Dialog open={studentDialogOpen} onClose={() => setStudentDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Student</DialogTitle>
+        <DialogTitle>
+          {studentForm.isIrregular ? 'Add New Irregular Student' : 'Add New Student'}
+        </DialogTitle>
         <DialogContent>
+          {studentForm.isIrregular && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Irregular students can take courses from different curriculums and have access to equivalent subjects.
+            </Alert>
+          )}
           <TextField
             fullWidth
             label="Student Number"
             value={studentForm.studentNumber || ''}
             onChange={(e) => setStudentForm({ ...studentForm, studentNumber: e.target.value })}
             margin="normal"
-            required
           />
           <TextField
             fullWidth
@@ -1095,7 +1057,6 @@ const StudentManagement = () => {
             value={studentForm.email || ''}
             onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
             margin="normal"
-            required
           />
           <FormControl fullWidth margin="normal">
             <InputLabel>Year Level</InputLabel>
@@ -1121,87 +1082,22 @@ const StudentManagement = () => {
               ))}
             </Select>
           </FormControl>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={studentForm.isIrregular}
-                onChange={e => setStudentForm({ ...studentForm, isIrregular: e.target.checked })}
-                color="primary"
-              />
-            }
-            label="Irregular"
-          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setStudentDialogOpen(false)}>Cancel</Button>
           <Button 
             onClick={handleAddStudent} 
             variant="contained" 
-            disabled={loading || !studentForm.name || !studentForm.email || !studentForm.curriculumId || !studentForm.studentNumber}
+            disabled={loading || !studentForm.name || !studentForm.curriculumId}
           >
-            Add Student
+            Add {studentForm.isIrregular ? 'Irregular ' : ''}Student
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Course Management Dialog */}
-      <Dialog 
-        open={courseManagementDialogOpen} 
-        onClose={() => setCourseManagementDialogOpen(false)} 
-        maxWidth="md" 
-        fullWidth
-      >
-        <DialogTitle>
-          Manage Courses - {selectedStudent?.name}
-        </DialogTitle>
-        <DialogContent>
-          {selectedStudent && (
-            <Box>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Check the courses that {selectedStudent.name} has completed:
-              </Typography>
-              
-              {[1, 2, 3, 4].map(year => (
-                <Accordion key={year}>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography variant="h6">Year {year}</Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    {[1, 2].map(semester => (
-                      <Box key={semester} mb={2}>
-                        <Typography variant="subtitle1" gutterBottom>
-                          Semester {semester}
-                        </Typography>
-                        <List>
-                          {studentCourses
-                            .filter(course => course.yearLevel === year && course.semester === semester)
-                            .map((course) => (
-                              <ListItem key={course.id} dense>
-                                <Checkbox
-                                  checked={isCourseCompleted(course.courseCode)}
-                                  onChange={(e) => handleUpdateStudentCourse(course.courseCode, e.target.checked)}
-                                />
-                                <ListItemText
-                                  primary={`${course.courseCode} - ${course.courseTitle}`}
-                                  secondary={`${course.units} units`}
-                                />
-                              </ListItem>
-                            ))}
-                        </List>
-                      </Box>
-                    ))}
-                  </AccordionDetails>
-                </Accordion>
-              ))}
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCourseManagementDialogOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+
     </Box>
   );
 };
 
-export default StudentManagement; 
+export default StudentManagement;

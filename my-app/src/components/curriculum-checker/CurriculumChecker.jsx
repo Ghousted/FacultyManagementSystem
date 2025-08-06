@@ -22,10 +22,21 @@ import PeopleIcon from '@mui/icons-material/People';
 import CurriculumMaker from './CurriculumMaker';
 import StudentManagement from './StudentManagement';
 import CurriculumCheckerMain from './CurriculumCheckerMain';
+import Logo from '../../assets/logo.png';
 
-const CurriculumChecker = ({ onBackToDashboard }) => {
+const CurriculumChecker = ({ onBackToDashboard, signout }) => {
   const [currentView, setCurrentView] = useState('main'); // 'main', 'curriculum-maker', 'student-management', 'curriculum-checker'
   const [tabValue, setTabValue] = useState(0);
+
+  // Update sign out handler to use signout prop
+  const handleSignOut = async () => {
+    try {
+      await signout();
+      if (onBackToDashboard) onBackToDashboard();
+    } catch (error) {
+      alert("Sign out failed: " + error.message);
+    }
+  };
 
   const handleFeatureSelect = (feature) => {
     setCurrentView(feature);
@@ -38,47 +49,57 @@ const CurriculumChecker = ({ onBackToDashboard }) => {
   // Render specific feature
   if (currentView === 'curriculum-maker') {
     return (
-      <Box minHeight="100vh" bgcolor="#f5f6fa">
-        <AppBar position="static" sx={{ bgcolor: 'royalblue' }} elevation={1}>
-          <Toolbar>
-            <IconButton 
-              edge="start" 
-              color="inherit" 
-              onClick={handleBackToMain}
-              sx={{ mr: 2 }}
-            >
-              <ArrowBackIcon />
-            </IconButton>
-            <AssignmentIcon sx={{ mr: 2 }} />
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
-              Curriculum Maker
-            </Typography>
-          </Toolbar>
-        </AppBar>
-        <CurriculumMaker />
+      <Box >
+        <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa' }}>
+              <Toolbar>
+                <Box
+                  component="img"
+                  src={Logo}
+                  alt="Logo"
+                  sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
+                  onClick={onBackToDashboard}
+                />
+                <Typography 
+                  variant="h5" 
+                  sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
+                  onClick={onBackToDashboard}
+                >
+                  College of Computer Studies
+                </Typography>
+                <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
+                  Sign Out
+                </Button>
+              </Toolbar>
+            </AppBar>
+        <CurriculumMaker onBack={handleBackToMain} />
       </Box>
     );
   }
 
   if (currentView === 'student-management') {
     return (
-      <Box minHeight="100vh" bgcolor="#f5f6fa">
-        <AppBar position="static" sx={{ bgcolor: 'royalblue' }} elevation={1}>
-          <Toolbar>
-            <IconButton 
-              edge="start" 
-              color="inherit" 
-              onClick={handleBackToMain}
-              sx={{ mr: 2 }}
-            >
-              <ArrowBackIcon />
-            </IconButton>
-            <PeopleIcon sx={{ mr: 2 }} />
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
-              Student Management
-            </Typography>
-          </Toolbar>
-        </AppBar>
+      <Box>
+        <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa' }}>
+              <Toolbar>
+                <Box
+                  component="img"
+                  src={Logo}
+                  alt="Logo"
+                  sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
+                  onClick={onBackToDashboard}
+                />
+                <Typography 
+                  variant="h5" 
+                  sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
+                  onClick={onBackToDashboard}
+                >
+                  College of Computer Studies
+                </Typography>
+                <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
+                  Sign Out
+                </Button>
+              </Toolbar>
+            </AppBar>
         <StudentManagement />
       </Box>
     );
@@ -86,8 +107,8 @@ const CurriculumChecker = ({ onBackToDashboard }) => {
 
   if (currentView === 'curriculum-checker') {
     return (
-      <Box minHeight="100vh" bgcolor="#f5f6fa">
-        <AppBar position="static" sx={{ bgcolor: 'royalblue' }} elevation={1}>
+      <Box minHeight="100vh" bgcolor="#f5f6fa" p={3}>
+        <AppBar position="absolute" sx={{ bgcolor: 'royalblue' }}>
           <Toolbar>
             <IconButton 
               edge="start" 
@@ -98,7 +119,11 @@ const CurriculumChecker = ({ onBackToDashboard }) => {
               <ArrowBackIcon />
             </IconButton>
             <AssessmentIcon sx={{ mr: 2 }} />
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
+            <Typography 
+              variant="h6" 
+              sx={{ flexGrow: 1, cursor: 'pointer' }}
+              onClick={onBackToDashboard}
+            >
               Curriculum Checker
             </Typography>
           </Toolbar>
@@ -110,30 +135,35 @@ const CurriculumChecker = ({ onBackToDashboard }) => {
 
   // Render main menu
   return (
-    <Box minHeight="100vh" bgcolor="#f5f6fa">
-      <AppBar position="static" sx={{ bgcolor: 'royalblue' }} elevation={1}>
-        <Toolbar>
-          <IconButton 
-            edge="start" 
-            color="inherit" 
-            onClick={onBackToDashboard}
-            sx={{ mr: 2 }}
-          >
-            <ArrowBackIcon />
-          </IconButton>
-          <SchoolIcon sx={{ mr: 2 }} />
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Curriculum Checker System
-          </Typography>
-        </Toolbar>
-      </AppBar>
+    <Box>
+      <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa' }}>
+              <Toolbar>
+                <Box
+                  component="img"
+                  src={Logo}
+                  alt="Logo"
+                  sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
+                  onClick={onBackToDashboard}
+                />
+                <Typography 
+                  variant="h5" 
+                  sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
+                  onClick={onBackToDashboard}
+                >
+                  College of Computer Studies
+                </Typography>
+                <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
+                  Sign Out
+                </Button>
+              </Toolbar>
+            </AppBar>
       
-      <Box sx={{ p: 4 }}>
-        <Typography variant="h3" fontWeight={700} mb={2} align="center" color="primary">
+    <Box sx= {{ marginTop: 12}}>
+        <Typography variant="h3" fontWeight={700} mb={2} align="center" mt={3} color="primary">
           Curriculum Management System
         </Typography>
         
-        <Typography variant="h6" color="text.secondary" mb={6} align="center" sx={{ maxWidth: 600, mx: 'auto' }}>
+        <Typography variant="h6" color="text.secondary" mb={4} align="center" sx={{ maxWidth: 600, mx: 'auto' }}>
           Review and validate curriculum requirements, course mappings, and academic compliance.
         </Typography>
         
@@ -143,7 +173,7 @@ const CurriculumChecker = ({ onBackToDashboard }) => {
           gap: 4, 
           flexWrap: 'wrap',
           maxWidth: 1200,
-          mx: 'auto'
+          mx: 'auto',
         }}>
           <Card 
             elevation={0}
@@ -152,7 +182,8 @@ const CurriculumChecker = ({ onBackToDashboard }) => {
               height: 280,
               cursor: 'pointer',
               transition: 'all 0.3s ease',
-              border: '2px solid transparent',
+              border: '2px solid rgba(176, 176, 176, 1)',
+              borderRadius: 4,
               bgcolor: 'white',
               '&:hover': {
                 transform: 'translateY(-8px)',
@@ -169,6 +200,7 @@ const CurriculumChecker = ({ onBackToDashboard }) => {
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'space-between'
+
             }}>
               <Box>
                 <AssignmentIcon sx={{ fontSize: 60, color: '#1976d2', mb: 3 }} />
@@ -192,7 +224,8 @@ const CurriculumChecker = ({ onBackToDashboard }) => {
               height: 280,
               cursor: 'pointer',
               transition: 'all 0.3s ease',
-              border: '2px solid transparent',
+              border: '2px solid rgba(176, 176, 176, 1)',
+              borderRadius: 4,
               bgcolor: 'white',
               '&:hover': {
                 transform: 'translateY(-8px)',
@@ -232,7 +265,8 @@ const CurriculumChecker = ({ onBackToDashboard }) => {
               height: 280,
               cursor: 'pointer',
               transition: 'all 0.3s ease',
-              border: '2px solid transparent',
+              border: '2px solid rgba(176, 176, 176, 1)',
+              borderRadius: 4,
               bgcolor: 'white',
               '&:hover': {
                 transform: 'translateY(-8px)',
@@ -270,4 +304,4 @@ const CurriculumChecker = ({ onBackToDashboard }) => {
   );
 };
 
-export default CurriculumChecker; 
+export default CurriculumChecker;

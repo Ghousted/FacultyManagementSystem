@@ -59,15 +59,18 @@ const CurriculumCheckerMain = () => {
   }, [currentUser]);
 
   useEffect(() => {
-    // Filter students based on search term and year level
-    let filtered = students.filter(student => student.yearLevel === (tabValue + 1));
-    
+    // Filter students based on search term and year level or irregular status
+    let filtered;
+    if (tabValue === 4) {
+      filtered = students.filter(student => student.isIrregular);
+    } else {
+      filtered = students.filter(student => student.yearLevel === (tabValue + 1) && !student.isIrregular);
+    }
     if (searchTerm) {
       filtered = filtered.filter(student =>
         student.name.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
-    
     setFilteredStudents(filtered);
   }, [students, searchTerm, tabValue]);
 
@@ -183,6 +186,8 @@ const CurriculumCheckerMain = () => {
         return 'Failed';
       case 'incomplete':
         return 'Incomplete';
+      case 'unavailable':
+        return 'Not Available';
       default:
         return 'Not Available';
     }
@@ -200,7 +205,7 @@ const CurriculumCheckerMain = () => {
     // Get grades for those courses
     const semesterGrades = semesterCourses
       .map(courseCode => student.grades[courseCode])
-      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC');
+      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC' && grade !== 'CRED');
     
     if (semesterGrades.length === 0) return false;
     
@@ -223,7 +228,7 @@ const CurriculumCheckerMain = () => {
     // Get grades for those courses
     const yearGrades = yearCourses
       .map(courseCode => student.grades[courseCode])
-      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC');
+      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC' && grade !== 'CRED');
     
     if (yearGrades.length === 0) return { eligible: false, percentage: 0 };
     
@@ -250,6 +255,13 @@ const CurriculumCheckerMain = () => {
     if (!student || !student.grades) return false;
     const grade = student.grades[courseCode];
     return grade === 'INC';
+  };
+
+  // Check if a course is credited
+  const isCourseCredited = (student, courseCode) => {
+    if (!student || !student.grades) return false;
+    const grade = student.grades[courseCode];
+    return grade === 'CRED';
   };
 
   // Helper: For irregular students, process equivalents
@@ -329,9 +341,7 @@ const CurriculumCheckerMain = () => {
 
   const renderStudentList = () => (
     <Box>
-      <Typography variant="h5" fontWeight={600} gutterBottom sx={{ mb: 3 }}>
-        Search Students
-      </Typography>
+
       
       <TextField
         fullWidth
@@ -345,7 +355,7 @@ const CurriculumCheckerMain = () => {
             </InputAdornment>
           ),
         }}
-        sx={{ mb: 3 }}
+        sx={{ mb: 2 }}
         size="small"
       />
 
@@ -354,12 +364,13 @@ const CurriculumCheckerMain = () => {
           {[1, 2, 3, 4].map(year => (
             <Tab key={year} label={`${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year`} />
           ))}
+          <Tab label="Irregular Students" />
         </Tabs>
       </Box>
 
       <Box sx={{ 
         display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', 
+        gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', 
         gap: 3 
       }}>
         {filteredStudents.map((student) => {
@@ -367,33 +378,33 @@ const CurriculumCheckerMain = () => {
             <Card 
               key={student.id}
               elevation={0}
-              sx={{ 
+              sx={{
                 cursor: 'pointer',
                 transition: 'all 0.3s ease',
                 border: '1px solid #e0e0e0',
-                bgcolor: 'white',
+             
                 '&:hover': {
-                  transform: 'translateY(-4px)',
-                  boxShadow: '0 8px 16px rgba(0,0,0,0.1)',
+                  boxShadow: '0 8px 24px rgba(25, 118, 210, 0.10)',
                   border: '1px solid #1976d2',
                 }
               }}
               onClick={() => handleStudentSelect(student)}
             >
               <CardContent sx={{ p: 3 }}>
-                <Typography variant="h6" fontWeight={600} gutterBottom color="primary">
-                  {student.name}
-                </Typography>
+                <Box display="flex" alignItems="center" gap={1} mb={1}>
+                  <Typography variant="h6" fontWeight={700} color="primary">
+                    {student.name}
+                  </Typography>
+                </Box>
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year
-                  {student.isIrregular ? ' • Irregular' : ''} • {student.completedCourses?.length || 0} courses completed
+                  {' • '}{student.completedCourses?.length || 0} courses completed
                 </Typography>
-                
-                <Box mt={2}>
-                  <Chip 
-                    label={`${student.completedCourses?.length || 0} courses completed`} 
-                    size="small" 
-                    color="primary" 
+                <Box mt={2} display="flex" gap={1}>
+                  <Chip
+                    label={`${student.completedCourses?.length || 0} courses completed`}
+                    size="small"
+                    color="primary"
                     variant="outlined"
                   />
                 </Box>
@@ -406,7 +417,7 @@ const CurriculumCheckerMain = () => {
       {filteredStudents.length === 0 && searchTerm && (
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Typography variant="h6" color="text.secondary" gutterBottom>
-            No students found matching "{searchTerm}" in {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year
+            No students found matching "{searchTerm}" in {tabValue === 4 ? 'Irregular Students' : tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Try adjusting your search terms
@@ -417,7 +428,7 @@ const CurriculumCheckerMain = () => {
       {filteredStudents.length === 0 && !searchTerm && (
         <Box sx={{ textAlign: 'center', py: 8 }}>
           <Typography variant="h6" color="text.secondary" gutterBottom>
-            No students in {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year
+            {tabValue === 4 ? 'No irregular students' : `No students in ${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year`}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Add students in Student Management to get started
@@ -436,8 +447,8 @@ const CurriculumCheckerMain = () => {
 
     return (
       <Box>
-        <Typography variant="h4" fontWeight={700} gutterBottom color="primary">
-          {student.name}'s Curriculum
+        <Typography variant="h5" fontWeight={700} gutterBottom color="primary">
+          {student.name}
         </Typography>
         <Typography variant="h6" color="text.secondary" gutterBottom>
           {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year • {student.completedCourses?.length || 0} courses completed
@@ -450,13 +461,13 @@ const CurriculumCheckerMain = () => {
             const deansLister2ndSem = calculateDeansListerEligibility(student, 2, year);
             
             return (
-              <Accordion key={year} sx={{ mb: 2, border: '1px solid #e0e0e0' }}>
+              <Accordion key={year} sx={{ border: '1px solid #e0e0e0', borderRadius: 0 }}>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                   <Typography variant="h6" fontWeight={600}>{year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year</Typography>
                 </AccordionSummary>
                 <AccordionDetails>
                   {/* Year-specific Eligibility Summary */}
-                  <Box sx={{ mb: 3, p: 2, bgcolor: '#f8f9fa', borderRadius: 2, border: '1px solid #e0e0e0' }}>
+                  <Box sx={{ mb:2,  p: 2, bgcolor: '#f8f9fa', border: '1px solid #e0e0e0', borderRadius: 2 }}>
                     <Typography variant="h6" fontWeight={600} gutterBottom>
                       Academic Eligibility Summary - {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
                     </Typography>
@@ -502,7 +513,7 @@ const CurriculumCheckerMain = () => {
                       <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 600, mb: 2 }}>
                         {semester === 1 ? '1st' : '2nd'} Semester
                       </Typography>
-                      <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                      <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 2, overflow: 'hidden' }}>
                         <Table size="small">
                           <TableHead>
                             <TableRow sx={{ bgcolor: '#f5f5f5' }}>
@@ -514,7 +525,7 @@ const CurriculumCheckerMain = () => {
                               <TableCell sx={{ fontWeight: 600 }}>Grade</TableCell>
                             </TableRow>
                           </TableHead>
-                          <TableBody>
+                          <TableBody sx={{ cursor: 'pointer' }}>
                             {processedCourses
                               .filter(course => course.yearLevel === year && course.semester === semester)
                               .map((course) => (
@@ -528,7 +539,7 @@ const CurriculumCheckerMain = () => {
                                     '&:hover': { 
                                       bgcolor: isCourseFailed(student, course.courseCode) ? '#ffcdd2' :
                                               isCourseIncomplete(student, course.courseCode) ? '#ffe0b2' :
-                                              course.status === 'completed' ? '#c8e6c9' : 
+                                              course.status === 'completed' ? '#d6fcd8ff' : 
                                               course.status === 'blocked' ? '#ffcdd2' : '#f5f5f5' 
                                     }
                                   }}
@@ -581,6 +592,7 @@ const CurriculumCheckerMain = () => {
                                         size="small"
                                         color={
                                           student.grades[course.courseCode] === 'INC' ? "warning" :
+                                          student.grades[course.courseCode] === 'CRED' ? "success" :
                                           parseFloat(student.grades[course.courseCode]) >= 5.0 ? "error" :
                                           parseFloat(student.grades[course.courseCode]) <= 2.1 ? "success" : 
                                           parseFloat(student.grades[course.courseCode]) <= 2.5 ? "primary" : "error"
@@ -605,7 +617,7 @@ const CurriculumCheckerMain = () => {
             );
           })}
           {/* Place the available courses accordion here, outside the year accordions */}
-          <Accordion sx={{ mb: 2, border: '1px solid #1976d2' }}>
+          <Accordion sx={{ mb: 2, border: '1px solid #1976d2', borderRadius: 0 }}>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography variant="h6" fontWeight={700} color="primary">
                 Available Courses This Term
@@ -626,7 +638,7 @@ const CurriculumCheckerMain = () => {
 
           {/* Equivalent Courses from Other Curriculums (for irregular students only) */}
           {student.isIrregular && (
-            <Accordion sx={{ mb: 2, border: '1px solid #ff9800' }}>
+            <Accordion sx={{ mb: 2, border: '1px solid #ff9800', borderRadius: 0 }}>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                 <Typography variant="h6" fontWeight={700} color="warning">
                   Equivalent Courses from Other Curriculums
@@ -664,7 +676,7 @@ const CurriculumCheckerMain = () => {
           )}
         </Box>
         
-        <Box mt={4} p={3} bgcolor="#f8f9fa" borderRadius={2} border="1px solid #e0e0e0">
+        <Box mt={4} p={3} bgcolor="#f8f9fa" border="1px solid #e0e0e0">
           <Typography variant="h6" fontWeight={600} gutterBottom>
             Legend
           </Typography>
@@ -749,9 +761,7 @@ const CurriculumCheckerMain = () => {
 
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Typography variant="h4" fontWeight={700} gutterBottom sx={{ p: 3, pb: 1 }}>
-        Curriculum Checker
-      </Typography>
+    
       
       {!currentUser && (
         <Alert severity="info" sx={{ mx: 3, mb: 2 }}>
@@ -763,21 +773,17 @@ const CurriculumCheckerMain = () => {
       {success && <Alert severity="success" sx={{ mx: 3, mb: 2 }}>{success}</Alert>}
       
       {currentUser ? (
-        <Box sx={{ flex: 1, p: 3, pt: 0 }}>
+        <Box sx={{ flex: 1,  pt: 0 }}>
           <Box sx={{ 
-            p: 3, 
-            border: '1px solid #e0e0e0', 
-            borderRadius: 1, 
-            bgcolor: '#fafafa', 
-            height: '100%',
-            overflow: 'auto'
+            overflow: 'auto',
+            marginTop: 3,
           }}>
             {renderStudentList()}
           </Box>
         </Box>
       ) : (
         <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Box sx={{ p: 4, textAlign: 'center', border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa' }}>
+          <Box sx={{ p: 4, textAlign: 'center', border: '1px solid #e0e0e0',  bgcolor: '#fafafa' }}>
             <Typography variant="h6" color="text.secondary">
               Sign in to access curriculum checking features
             </Typography>
@@ -791,19 +797,42 @@ const CurriculumCheckerMain = () => {
         onClose={() => setCurriculumDialogOpen(false)} 
         maxWidth="lg" 
         fullWidth
+        PaperProps={{
+          sx: {
+            
+            boxShadow: 8,    // Optional: adds a modern shadow
+          }
+        }}
       >
-        <DialogTitle>
+        <DialogTitle 
+          variant='h5' 
+          sx={{ 
+            fontWeight: 600, 
+            color: 'white', 
+            backgroundColor: 'royalblue',
+            borderBottom: '1px solid #e0e0e0',
+          
+            px: 4, // Padding for better look
+            py: 2
+          }}
+        >
           Curriculum Status
         </DialogTitle>
-        <DialogContent>
+        <DialogContent 
+          sx={{ 
+            marginTop: 2,
+          
+            px: 4, // Consistent padding
+            py: 2,
+            background: '#fff'
+          }}
+        >
           {renderCurriculumView()}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCurriculumDialogOpen(false)}>Close</Button>
-        </DialogActions>
+       
       </Dialog>
     </Box>
   );
 };
 
-export default CurriculumCheckerMain; 
+export default CurriculumCheckerMain;

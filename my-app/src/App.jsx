@@ -18,7 +18,7 @@ function App() {
   }
 
   return (
-    <div className="App">
+    <div className="">
       {currentUser ? <Dashboard /> : <AuthContainer />}
     </div>
   )

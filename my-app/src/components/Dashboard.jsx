@@ -16,6 +16,7 @@ import SchoolIcon from '@mui/icons-material/School';
 import PaymentIcon from '@mui/icons-material/Payment';
 import CurriculumChecker from './curriculum-checker/CurriculumChecker';
 import PayablesSystem from './payables-system/PayablesSystem';
+import Logo from '../assets/logo.png';
 
 const Dashboard = () => {
   const { currentUser, signout } = useAuth();
@@ -48,24 +49,35 @@ const Dashboard = () => {
 
   // Render the main dashboard
   return (
-    <Box minHeight="100vh" bgcolor="#f5f6fa">
-      <AppBar position="static" sx={{ bgcolor: 'royalblue' }} elevation={1}>
+    <Box >
+      <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa' }}>
         <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Dashboard
+          <Box
+            component="img"
+            src={Logo}
+            alt="Logo"
+            sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
+            onClick={handleBackToDashboard}
+          />
+          <Typography 
+            variant="h5" 
+            sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
+            onClick={handleBackToDashboard}
+          >
+            College of Computer Studies
           </Typography>
-          <Button color="primary" variant="contained" onClick={handleSignOut}>
+          <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
             Sign Out
           </Button>
         </Toolbar>
       </AppBar>
       
-      <Box sx={{ p: 4 }}>
-        <Typography variant="h3" fontWeight={700} mb={2} align="center" color="primary">
+      <Box sx={{ p: 4, marginTop: '64px', textAlign: 'center' }}>
+        <Typography variant="h3" fontWeight={700} mb={1} align="center" color="primary">
           Welcome, {currentUser?.displayName || currentUser?.email}!
         </Typography>
         
-        <Typography variant="h6" color="text.secondary" mb={6} align="center" sx={{ maxWidth: 600, mx: 'auto' }}>
+        <Typography variant="h6" color="text.secondary" mb={4} align="center" sx={{ maxWidth: 600, mx: 'auto' }}>
           Select a system to manage your institution's curriculum and financial operations.
         </Typography>
         
@@ -84,10 +96,11 @@ const Dashboard = () => {
               height: 300,
               cursor: 'pointer',
               transition: 'all 0.3s ease',
-              border: '2px solid transparent',
+              border: '2px solid rgba(176, 176, 176, 1)',
               bgcolor: 'white',
+              borderRadius: 2,
               '&:hover': {
-                transform: 'translateY(-8px)',
+                transform: 'translateY(-4px)',
                 boxShadow: '0 12px 24px rgba(0,0,0,0.15)',
                 border: '2px solid #1976d2',
               }
@@ -100,7 +113,7 @@ const Dashboard = () => {
               height: '100%',
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: 'space-between'
+              justifyContent: 'space-between',
             }}>
               <Box>
                 <SchoolIcon sx={{ fontSize: 70, color: '#1976d2', mb: 3 }} />
@@ -124,10 +137,11 @@ const Dashboard = () => {
               height: 300,
               cursor: 'pointer',
               transition: 'all 0.3s ease',
-              border: '2px solid transparent',
+              border: '2px solid rgba(176, 176, 176, 1)',
               bgcolor: 'white',
+              borderRadius: 2,
               '&:hover': {
-                transform: 'translateY(-8px)',
+                transform: 'translateY(-4px)',
                 boxShadow: '0 12px 24px rgba(0,0,0,0.15)',
                 border: '2px solid #2e7d32',
               }
@@ -162,4 +176,4 @@ const Dashboard = () => {
   );
 };
 
-export default Dashboard; 
+export default Dashboard;

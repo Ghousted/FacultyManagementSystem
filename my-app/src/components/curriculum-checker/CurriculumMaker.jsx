@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Paper,
@@ -34,16 +34,22 @@ import {
   TableCell,
   Autocomplete,
   Checkbox,
+  Menu,
+  ListItemIcon,
+  Snackbar,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { createCurriculum, getCurriculums, addCourse, getCoursesByCurriculum, getAllCourses } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { doc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { doc, deleteDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
+import Logo from '../../assets/logo.png';
 
-const CurriculumMaker = () => {
+const CurriculumMaker = ({ onBack }) => {
   const { currentUser, isOnline } = useAuth();
   const [curriculums, setCurriculums] = useState([]);
   const [selectedCurriculum, setSelectedCurriculum] = useState(null);
@@ -76,6 +82,16 @@ const CurriculumMaker = () => {
   const [selectedSemester, setSelectedSemester] = useState(1);
   const [tabValue, setTabValue] = useState(0);
 
+  // Menu and modal states
+  const [menuAnchorEl, setMenuAnchorEl] = useState(null);
+  const [selectedCurriculumForMenu, setSelectedCurriculumForMenu] = useState(null);
+  const [editCurriculumDialogOpen, setEditCurriculumDialogOpen] = useState(false);
+  const [deleteCurriculumDialogOpen, setDeleteCurriculumDialogOpen] = useState(false);
+  const [editingCurriculumData, setEditingCurriculumData] = useState({ name: '', description: '', yearLevels: [1, 2, 3, 4] });
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
+
   // Editing states
   const [editingCourse, setEditingCourse] = useState(null);
   const [editingData, setEditingData] = useState({});
@@ -91,33 +107,7 @@ const CurriculumMaker = () => {
   const [selectedEquivalent, setSelectedEquivalent] = useState([]);
   const [allCourses, setAllCourses] = useState([]);
 
-  useEffect(() => {
-    if (currentUser) {
-      loadCurriculums();
-      loadAllCourses();
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (selectedCurriculum && currentUser) {
-      loadCourses(selectedCurriculum.id);
-    }
-  }, [selectedCurriculum, currentUser]);
-
-  useEffect(() => {
-    setSelectedYear(tabValue + 1);
-  }, [tabValue]);
-
-  useEffect(() => {
-    if (success) {
-      const timer = setTimeout(() => {
-        setSuccess('');
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [success]);
-
-  const loadCurriculums = async () => {
+  const loadCurriculums = useCallback(async () => {
     if (!currentUser) {
       setError('Please sign in to access curriculum data');
       return;
@@ -135,9 +125,9 @@ const CurriculumMaker = () => {
       setError(result.error);
     }
     setLoading(false);
-  };
+  }, [currentUser, isOnline]);
 
-  const loadCourses = async (curriculumId) => {
+  const loadCourses = useCallback(async (curriculumId) => {
     if (!currentUser) {
       setError('Please sign in to access course data');
       return;
@@ -155,16 +145,149 @@ const CurriculumMaker = () => {
       setError(result.error);
     }
     setLoading(false);
-  };
+  }, [currentUser, isOnline]);
 
-  const loadAllCourses = async () => {
+  const loadAllCourses = useCallback(async () => {
     const result = await getAllCourses();
     if (result.success) setAllCourses(result.data);
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      loadCurriculums();
+      loadAllCourses();
+    }
+  }, [currentUser, loadCurriculums, loadAllCourses]);
+
+  useEffect(() => {
+    if (selectedCurriculum && currentUser) {
+      loadCourses(selectedCurriculum.id);
+    }
+  }, [selectedCurriculum, currentUser, loadCourses]);
+
+  useEffect(() => {
+    setSelectedYear(tabValue + 1);
+  }, [tabValue]);
+
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => {
+        setSuccess('');
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [success]);
+
+  // Helper function to show snackbar messages
+  const showMessage = (message, severity = 'success') => {
+    setSnackbarMessage(message);
+    setSnackbarSeverity(severity);
+    setSnackbarOpen(true);
+  };
+
+  // Menu handlers
+  const handleMenuOpen = (event, curriculum) => {
+    event.stopPropagation();
+    setMenuAnchorEl(event.currentTarget);
+    setSelectedCurriculumForMenu(curriculum);
+  };
+
+  const handleMenuClose = () => {
+    setMenuAnchorEl(null);
+    setSelectedCurriculumForMenu(null);
+  };
+
+  const handleEditCurriculum = () => {
+    setEditingCurriculumData({
+      name: selectedCurriculumForMenu.name,
+      description: selectedCurriculumForMenu.description,
+      yearLevels: selectedCurriculumForMenu.yearLevels
+    });
+    setEditCurriculumDialogOpen(true);
+    setMenuAnchorEl(null); // Only close the menu, don't clear selectedCurriculumForMenu
+  };
+
+  const handleDeleteCurriculumClick = () => {
+    setDeleteCurriculumDialogOpen(true);
+    setMenuAnchorEl(null); // Only close the menu, don't clear selectedCurriculumForMenu
+  };
+
+  const handleUpdateCurriculum = async () => {
+    if (!currentUser) {
+      showMessage('Please sign in to update curriculum', 'error');
+      return;
+    }
+    if (!selectedCurriculumForMenu) {
+      showMessage('No curriculum selected for update', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      const curriculumRef = doc(db, 'curriculums', selectedCurriculumForMenu.id);
+      await updateDoc(curriculumRef, {
+        ...editingCurriculumData,
+        updatedAt: new Date()
+      });
+      
+      showMessage('Curriculum updated successfully!');
+      setEditCurriculumDialogOpen(false);
+      // Clear the menu state after successful update
+      setSelectedCurriculumForMenu(null);
+      await loadCurriculums();
+    } catch (error) {
+      showMessage('Failed to update curriculum: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmDeleteCurriculum = async () => {
+    if (!currentUser) {
+      showMessage('Please sign in to delete a curriculum', 'error');
+      return;
+    }
+    if (!selectedCurriculumForMenu) {
+      showMessage('No curriculum selected for deletion', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      // Delete all courses associated with this curriculum first
+      const coursesToDelete = courses.filter(course => course.curriculumId === selectedCurriculumForMenu.id);
+      const batch = writeBatch(db);
+      
+      coursesToDelete.forEach(course => {
+        const courseRef = doc(db, 'courses', course.id);
+        batch.delete(courseRef);
+      });
+      
+      // Delete the curriculum
+      const curriculumRef = doc(db, 'curriculums', selectedCurriculumForMenu.id);
+      batch.delete(curriculumRef);
+      
+      await batch.commit();
+      showMessage('Curriculum and all associated courses deleted successfully!');
+      
+      // Clear selected curriculum if it was the one deleted
+      if (selectedCurriculum?.id === selectedCurriculumForMenu.id) {
+        setSelectedCurriculum(null);
+      }
+      
+      setDeleteCurriculumDialogOpen(false);
+      // Clear the menu state after successful deletion
+      setSelectedCurriculumForMenu(null);
+      await loadCurriculums();
+      await loadAllCourses(); // Reload all courses since some may have been deleted
+    } catch (error) {
+      showMessage('Failed to delete curriculum: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCreateCurriculum = async () => {
     if (!currentUser) {
-      setError('Please sign in to create a curriculum');
+      showMessage('Please sign in to create a curriculum', 'error');
       return;
     }
     setLoading(true);
@@ -172,15 +295,15 @@ const CurriculumMaker = () => {
     try {
       const result = await createCurriculum(curriculumForm);
       if (result.success) {
-        setSuccess('Curriculum created successfully!');
+        showMessage('Curriculum created successfully!');
         setCurriculumForm({ name: '', description: '', yearLevels: [1, 2, 3, 4] });
         setCurriculumDialogOpen(false);
         await loadCurriculums();
       } else {
-        setError(result.error);
+        showMessage(result.error, 'error');
       }
     } catch (error) {
-      setError('Failed to create curriculum: ' + error.message);
+      showMessage('Failed to create curriculum: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -188,11 +311,11 @@ const CurriculumMaker = () => {
 
   const handleAddCourse = async () => {
     if (!currentUser) {
-      setError('Please sign in to add a course');
+      showMessage('Please sign in to add a course', 'error');
       return;
     }
     if (!selectedCurriculum) {
-      setError('Please select a curriculum first');
+      showMessage('Please select a curriculum first', 'error');
       return;
     }
     setLoading(true);
@@ -210,16 +333,16 @@ const CurriculumMaker = () => {
         { ...courseForm, equivalentSubjectId: eqId }
       );
       if (result.success) {
-        setSuccess('Course added successfully!');
+        showMessage('Course added successfully!');
         setCourseForm({ courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true, equivalentSubjectId: '' });
         setSelectedEquivalent([]);
         setCourseDialogOpen(false);
         await loadCourses(selectedCurriculum.id);
       } else {
-        setError(result.error);
+        showMessage(result.error, 'error');
       }
     } catch (error) {
-      setError('Failed to add course: ' + error.message);
+      showMessage('Failed to add course: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -254,7 +377,7 @@ const CurriculumMaker = () => {
 
   const handleSaveCourse = async () => {
     if (!currentUser) {
-      setError('Please sign in to save changes');
+      showMessage('Please sign in to save changes', 'error');
       return;
     }
     if (!editingCourse || !hasChanges) return;
@@ -287,7 +410,7 @@ const CurriculumMaker = () => {
       }
       
       await batch.commit();
-      setSuccess('Course updated successfully!');
+      showMessage('Course updated successfully!');
       setEditingCourse(null);
       setEditingData({});
       setEditingEquivalents([]);
@@ -295,7 +418,7 @@ const CurriculumMaker = () => {
       await loadCourses(selectedCurriculum.id);
       await loadAllCourses(); // Reload all courses to update the equivalents display
     } catch (error) {
-      setError('Failed to update course: ' + error.message);
+      showMessage('Failed to update course: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -303,7 +426,7 @@ const CurriculumMaker = () => {
 
   const handleDeleteCourse = async (courseId) => {
     if (!currentUser) {
-      setError('Please sign in to delete a course');
+      showMessage('Please sign in to delete a course', 'error');
       return;
     }
     if (!window.confirm('Are you sure you want to delete this course?')) return;
@@ -311,49 +434,10 @@ const CurriculumMaker = () => {
     setError('');
     try {
       await deleteDoc(doc(db, 'courses', courseId));
-      setSuccess('Course deleted successfully!');
+      showMessage('Course deleted successfully!');
       await loadCourses(selectedCurriculum.id);
     } catch (error) {
-      setError('Failed to delete course: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteCurriculum = async (curriculumId) => {
-    if (!currentUser) {
-      setError('Please sign in to delete a curriculum');
-      return;
-    }
-    if (!window.confirm('Are you sure you want to delete this curriculum? This will also delete all associated courses and cannot be undone.')) return;
-    setLoading(true);
-    setError('');
-    try {
-      // Delete all courses associated with this curriculum first
-      const coursesToDelete = courses.filter(course => course.curriculumId === curriculumId);
-      const batch = writeBatch(db);
-      
-      coursesToDelete.forEach(course => {
-        const courseRef = doc(db, 'courses', course.id);
-        batch.delete(courseRef);
-      });
-      
-      // Delete the curriculum
-      const curriculumRef = doc(db, 'curriculums', curriculumId);
-      batch.delete(curriculumRef);
-      
-      await batch.commit();
-      setSuccess('Curriculum and all associated courses deleted successfully!');
-      
-      // Clear selected curriculum if it was the one deleted
-      if (selectedCurriculum?.id === curriculumId) {
-        setSelectedCurriculum(null);
-      }
-      
-      await loadCurriculums();
-      await loadAllCourses(); // Reload all courses since some may have been deleted
-    } catch (error) {
-      setError('Failed to delete curriculum: ' + error.message);
+      showMessage('Failed to delete course: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -376,15 +460,15 @@ const CurriculumMaker = () => {
 
   const handleAddNewCourse = async (semester) => {
     if (!currentUser) {
-      setError('Please sign in to add a course');
+      showMessage('Please sign in to add a course', 'error');
       return;
     }
     if (!selectedCurriculum) {
-      setError('Please select a curriculum first');
+      showMessage('Please select a curriculum first', 'error');
       return;
     }
-    if (!newCourseData[semester].courseCode || !newCourseData[semester].courseTitle || !newCourseData[semester].units) {
-      setError('Please fill in all required fields (Course Code, Title, and Units)');
+    if (!newCourseData[semester]?.courseCode || !newCourseData[semester]?.courseTitle || !newCourseData[semester]?.units) {
+      showMessage('Please fill in all required fields (Course Code, Title, and Units)', 'error');
       return;
     }
     setLoading(true);
@@ -397,17 +481,17 @@ const CurriculumMaker = () => {
         newCourseData[semester]
       );
       if (result.success) {
-        setSuccess('Course added successfully!');
+        showMessage('Course added successfully!');
         setNewCourseData(prev => ({
           ...prev,
           [semester]: { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true }
         }));
         await loadCourses(selectedCurriculum.id);
       } else {
-        setError(result.error);
+        showMessage(result.error, 'error');
       }
     } catch (error) {
-      setError('Failed to add course: ' + error.message);
+      showMessage('Failed to add course: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -423,51 +507,88 @@ const CurriculumMaker = () => {
   };
 
   const renderCurriculumList = () => (
-    <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h5" fontWeight="bold">Select a Curriculum</Typography>
+    <Box sx={{ marginTop: 7}}>
+      {/* Header Box with White Background */}
+      <Box 
+        sx={{ 
+          bgcolor: 'white', 
+          color: 'black', 
+          p: 4, 
+          borderRadius: 2, 
+          mb: 3,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          border: '1px solid #e0e0e0',
+          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 1000
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <IconButton 
+            edge="start" 
+            onClick={onBack}
+            sx={{ 
+              mr: 3,
+              borderRadius: '50%',
+              backgroundColor: 'royalblue',
+              color: 'white',
+              '&:hover': {
+                backgroundColor: '#4169e1'
+              }
+            }}
+          >
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight="bold">
+            Curriculum Maker
+          </Typography>
+        </Box>
         <Button
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => setCurriculumDialogOpen(true)}
+          sx={{ 
+            bgcolor: 'royalblue', 
+            color: 'white',
+            '&:hover': {
+              bgcolor: '#4169e1'
+            }
+          }}
         >
-          Create New Curriculum
+          Create
         </Button>
       </Box>
-      
-      <Box sx={{ maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' }}>
+
+      <Box>
         <Grid container spacing={2}>
           {curriculums.map((curriculum) => (
             <Grid item xs={12} sm={6} md={4} lg={3} key={curriculum.id}>
               <Box 
                 sx={{ 
                   p: 3, 
-                  border: '1px solid #e0e0e0', 
-                  borderRadius: 1,
+                  border: '2px solid #e0e0e0', 
+                  borderRadius: 2,
                   cursor: 'pointer',
                   bgcolor: selectedCurriculum?.id === curriculum.id ? '#e3f2fd' : 'white',
                   '&:hover': { 
-                    bgcolor: '#f5f5f5',
                     borderColor: 'primary.main',
-                    transform: 'translateY(-2px)',
-                    transition: 'all 0.2s ease-in-out'
+            
                   },
                   position: 'relative'
                 }}
                 onClick={() => setSelectedCurriculum(curriculum)}
               >
-                {/* Delete Button */}
+                {/* Three Dots Menu */}
                 <IconButton
                   size="small"
-                  color="error"
-                  onClick={(e) => {
-                    e.stopPropagation(); // Prevent triggering the card click
-                    handleDeleteCurriculum(curriculum.id);
-                  }}
+                  onClick={(e) => handleMenuOpen(e, curriculum)}
                   disabled={loading}
                   sx={{
                     position: 'absolute',
-                    top: 8,
+                    top: 23,
                     right: 8,
                     bgcolor: 'rgba(255, 255, 255, 0.9)',
                     '&:hover': {
@@ -475,15 +596,13 @@ const CurriculumMaker = () => {
                     }
                   }}
                 >
-                  <DeleteIcon fontSize="small" />
+                  <MoreVertIcon fontSize="small" />
                 </IconButton>
                 
-                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                <Typography variant="h6" fontWeight="bold" gutterBottom mb={7}>
                   {curriculum.name}
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, minHeight: 40 }}>
-                  {curriculum.description}
-                </Typography>
+            
                 <Box>
                   {curriculum.yearLevels.map(year => (
                     <Chip 
@@ -524,34 +643,9 @@ const CurriculumMaker = () => {
     if (!selectedCurriculum) return null;
 
     return (
+      
       <Box>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-          <Typography variant="h5" fontWeight="bold">
-            {selectedCurriculum.name} - Course Management
-          </Typography>
-          <Box display="flex" gap={1}>
-            {hasChanges && (
-              <Button
-                variant="contained"
-                color="success"
-                onClick={handleSaveCourse}
-                disabled={loading}
-              >
-                Save Changes
-              </Button>
-            )}
-            {editingCourse && (
-              <Button
-                variant="outlined"
-                onClick={handleCancelEdit}
-                disabled={loading}
-              >
-                Cancel
-              </Button>
-            )}
-          </Box>
-        </Box>
-
+      
         <Box sx={{ mb: 2 }}>
           <Tabs value={tabValue} onChange={(e, newValue) => {
             setTabValue(newValue);
@@ -563,24 +657,24 @@ const CurriculumMaker = () => {
           </Tabs>
         </Box>
 
-        <Box sx={{ maxHeight: 'calc(100vh - 300px)', overflowY: 'auto' }}>
+        <Box>
           {([1, 2, (selectedYear === 3 ? 3 : null)].filter(Boolean)).map(semester => (
-            <Box key={semester} mb={4}>
+            <Box key={semester} mb={4} mt={2}>
               <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold' }}>
                 {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
               </Typography>
               
-              <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 1 }}>
+              <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 2}}>
                 <Table size="small">
                   <TableHead>
-                    <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-                      <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Course Code</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Course Title</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '10%' }}>Units</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '25%' }}>Prerequisites</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Equivalent Subjects</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '10%' }}>Available</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '15%' }}>Actions</TableCell>
+                    <TableRow sx={{ bgcolor: 'royalblue' }}>
+                      <TableCell sx={{ fontWeight: 'bold', width: '15%', color: 'white' }}>Course Code</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '35%', color: 'white' }}>Course Title</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '10%',  color: 'white' }}>Units</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '25%', color: 'white' }}>Prerequisites</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '15%',  color: 'white' }}>Equivalent Subjects</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '10%',  color: 'white' }}>Available</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '15%', color: 'white' }}>Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -638,7 +732,7 @@ const CurriculumMaker = () => {
                               </Typography>
                             )}
                           </TableCell>
-                                                    <TableCell>
+                          <TableCell>
                             {isEditing ? (
                               <Autocomplete
                                 multiple
@@ -757,33 +851,51 @@ const CurriculumMaker = () => {
                           <TableCell>
                             <Box display="flex" gap={1}>
                               {isEditing ? (
-                                <IconButton 
-                                  size="small" 
-                                  color="success" 
-                                  onClick={handleSaveCourse}
-                                  disabled={!hasChanges || loading}
-                                  sx={{ p: 0.5 }}
-                                >
-                                  <Typography variant="caption">Save</Typography>
-                                </IconButton>
+                                <>
+                                  <Button 
+                                    size="small" 
+                                    variant="contained"
+                                    color={hasChanges ? "success" : "inherit"}
+                                    onClick={hasChanges ? handleSaveCourse : handleCancelEdit}
+                                    disabled={loading}
+                                    sx={{ 
+                                      minWidth: 60,
+                                      textTransform: 'none',
+                                      fontSize: '0.75rem'
+                                    }}
+                                  >
+                                    {hasChanges ? "Save" : "Cancel"}
+                                  </Button>
+                                </>
                               ) : (
-                                <IconButton 
+                                <Button 
                                   size="small" 
+                                  variant="contained"
+                                  color="success"
                                   onClick={() => handleEditCourse(course)}
-                                  sx={{ p: 0.5 }}
+                                  sx={{ 
+                                    minWidth: 60,
+                                    textTransform: 'none',
+                                    fontSize: '0.75rem'
+                                  }}
                                 >
-                                  <EditIcon fontSize="small" />
-                                </IconButton>
+                                  Edit
+                                </Button>
                               )}
-                              <IconButton 
+                              <Button 
                                 size="small" 
+                                variant="contained"
                                 color="error" 
                                 onClick={() => handleDeleteCourse(course.id)}
                                 disabled={loading}
-                                sx={{ p: 0.5 }}
+                                sx={{ 
+                                  minWidth: 60,
+                                  textTransform: 'none',
+                                  fontSize: '0.75rem'
+                                }}
                               >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
+                                Delete
+                              </Button>
                             </Box>
                           </TableCell>
                         </TableRow>
@@ -796,7 +908,7 @@ const CurriculumMaker = () => {
                         <TextField
                           size="small"
                           placeholder="Course Code"
-                          value={newCourseData[semester].courseCode}
+                          value={newCourseData[semester]?.courseCode || ''}
                           onChange={(e) => handleNewCourseInputChange('courseCode', e.target.value, semester)}
                           sx={{ minWidth: 100 }}
                         />
@@ -805,7 +917,7 @@ const CurriculumMaker = () => {
                         <TextField
                           size="small"
                           placeholder="Course Title"
-                          value={newCourseData[semester].courseTitle}
+                          value={newCourseData[semester]?.courseTitle || ''}
                           onChange={(e) => handleNewCourseInputChange('courseTitle', e.target.value, semester)}
                           fullWidth
                         />
@@ -815,7 +927,7 @@ const CurriculumMaker = () => {
                           size="small"
                           type="number"
                           placeholder="Units"
-                          value={newCourseData[semester].units}
+                          value={newCourseData[semester]?.units || ''}
                           onChange={(e) => handleNewCourseInputChange('units', e.target.value, semester)}
                           sx={{ width: 60 }}
                         />
@@ -825,11 +937,14 @@ const CurriculumMaker = () => {
                           multiple
                           size="small"
                           options={getAllCourseCodes()}
-                          value={newCourseData[semester].prerequisites}
+                          value={newCourseData[semester]?.prerequisites || []}
                           onChange={(event, newValue) => {
                             setNewCourseData(prev => ({ 
                               ...prev, 
-                              [semester]: { ...prev[semester], prerequisites: newValue } 
+                              [semester]: { 
+                                ...(prev[semester] || { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true }), 
+                                prerequisites: newValue 
+                              } 
                             }));
                           }}
                           renderInput={(params) => (
@@ -865,7 +980,6 @@ const CurriculumMaker = () => {
                               label="Equivalent Subjects"
                               margin="normal"
                               size="small"
-                              helperText="Select equivalent subjects by course code"
                             />
                           )}
                           renderTags={(value, getTagProps) =>
@@ -883,7 +997,7 @@ const CurriculumMaker = () => {
                       </TableCell>
                       <TableCell>
                         <Checkbox
-                          checked={newCourseData[semester].isAvailable}
+                          checked={newCourseData[semester]?.isAvailable ?? true}
                           onChange={e => handleNewCourseInputChange('isAvailable', e.target.checked, semester)}
                           color="primary"
                         />
@@ -894,7 +1008,7 @@ const CurriculumMaker = () => {
                           size="small"
                           color="success"
                           onClick={() => handleAddNewCourse(semester)}
-                          disabled={loading || !newCourseData[semester].courseCode || !newCourseData[semester].courseTitle || !newCourseData[semester].units}
+                          disabled={loading || !newCourseData[semester]?.courseCode || !newCourseData[semester]?.courseTitle || !newCourseData[semester]?.units}
                           sx={{ minWidth: 60 }}
                         >
                           Add
@@ -918,11 +1032,7 @@ const CurriculumMaker = () => {
   };
 
   return (
-    <Box p={3} sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Typography variant="h4" gutterBottom>
-        Curriculum Maker
-      </Typography>
-      
+    <Box p={3} sx={{ display: 'flex', flexDirection: 'column' }}>
       {!currentUser && (
         <Alert severity="info" sx={{ mb: 2 }}>
           Please sign in to access the Curriculum Maker
@@ -937,35 +1047,40 @@ const CurriculumMaker = () => {
           {!selectedCurriculum ? (
             // Show curriculum list when no curriculum is selected
             <Box sx={{ flex: 1 }}>
-              <Box sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa', height: '100%' }}>
-                {renderCurriculumList()}
-              </Box>
+              {renderCurriculumList()}
             </Box>
           ) : (
             // Show full screen course tables when curriculum is selected
             <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <Box sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa' }}>
+              <Box sx={{ mb: 2, mt:7, p: 3, border: '1px solid #e0e0e0', borderRadius: 2, bgcolor: 'white' }}>
                 <Box display="flex" justifyContent="space-between" alignItems="center">
-                  <Typography variant="h6">Selected Curriculum</Typography>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => setSelectedCurriculum(null)}
-                  >
-                    Back to Curriculums
-                  </Button>
-                </Box>
-                <Box sx={{ mt: 1 }}>
-                  <Typography variant="subtitle1" fontWeight="bold">
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <IconButton 
+                      onClick={() => setSelectedCurriculum(null)}
+                      sx={{ 
+                        mr: 4,
+                        borderRadius: '50%',
+                        backgroundColor: 'royalblue',
+                        color: 'white',
+                        '&:hover': {
+                          backgroundColor: '#4169e1'
+                        }
+                      }}
+                    >
+                      <ArrowBackIcon />
+                    </IconButton>
+                    <Box>
+                      <Typography variant="h6">Curriculum</Typography>
+                    <Typography variant="subtitle1" fontWeight="bold">
                     {selectedCurriculum.name}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {selectedCurriculum.description}
-                  </Typography>
+                    </Box>
+                  </Box>
                 </Box>
+
               </Box>
               
-              <Box sx={{ flex: 1, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa', overflow: 'hidden' }}>
+              <Box>
                 {renderCourseTables()}
               </Box>
             </Box>
@@ -980,6 +1095,109 @@ const CurriculumMaker = () => {
           </Box>
         </Box>
       )}
+
+      {/* Three Dots Menu */}
+      <Menu
+        anchorEl={menuAnchorEl}
+        open={Boolean(menuAnchorEl)}
+        onClose={handleMenuClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+      >
+        <MenuItem onClick={handleEditCurriculum}>
+          <ListItemIcon>
+            <EditIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Edit</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={handleDeleteCurriculumClick}>
+          <ListItemIcon>
+            <DeleteIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Delete</ListItemText>
+        </MenuItem>
+      </Menu>
+
+      {/* Success/Error Snackbar */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={() => setSnackbarOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      >
+        <Alert 
+          onClose={() => setSnackbarOpen(false)} 
+          severity={snackbarSeverity}
+          sx={{ width: '100%' }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
+
+      {/* Edit Curriculum Dialog */}
+      <Dialog open={editCurriculumDialogOpen} onClose={() => {
+        setEditCurriculumDialogOpen(false);
+        // Don't clear selectedCurriculumForMenu here - only clear it after successful update
+      }} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Curriculum</DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          <TextField
+            fullWidth
+            label="Curriculum Name"
+            value={editingCurriculumData.name}
+            onChange={(e) => setEditingCurriculumData({ ...editingCurriculumData, name: e.target.value })}
+            margin="normal"
+            size="small"
+          />
+          <TextField
+            fullWidth
+            label="Description"
+            value={editingCurriculumData.description}
+            onChange={(e) => setEditingCurriculumData({ ...editingCurriculumData, description: e.target.value })}
+            margin="normal"
+            multiline
+            rows={3}
+            size="small"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setEditCurriculumDialogOpen(false);
+            // Don't clear selectedCurriculumForMenu here
+          }}>Cancel</Button>
+          <Button onClick={handleUpdateCurriculum} variant="contained" disabled={loading}>
+            Update
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteCurriculumDialogOpen} onClose={() => {
+        setDeleteCurriculumDialogOpen(false);
+        // Don't clear selectedCurriculumForMenu here
+      }} maxWidth="sm">
+        <DialogTitle>Confirm Delete</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete "{selectedCurriculumForMenu?.name}"? This will also delete all associated courses and cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setDeleteCurriculumDialogOpen(false);
+            // Don't clear selectedCurriculumForMenu here
+          }}>Cancel</Button>
+          <Button onClick={handleConfirmDeleteCurriculum} variant="contained" color="error" disabled={loading}>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Curriculum Dialog */}
       <Dialog open={curriculumDialogOpen} onClose={() => setCurriculumDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -1116,4 +1334,4 @@ const CurriculumMaker = () => {
   );
 };
 
-export default CurriculumMaker; 
+export default CurriculumMaker;
