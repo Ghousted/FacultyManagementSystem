@@ -32,6 +32,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 import { 
   addStudent, 
@@ -44,7 +45,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
-const StudentManagement = () => {
+const StudentManagement = ({ onBack }) => {
   const { currentUser } = useAuth();
   const [students, setStudents] = useState([]);
   const [curriculums, setCurriculums] = useState([]);
@@ -466,29 +467,7 @@ const StudentManagement = () => {
         </Tabs>
       </Box>
       
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h6">
-          {tabValue === 4 ? 'Irregular Students' : `Students in ${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year`}
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            setStudentForm({ 
-              name: '', 
-              email: '', 
-              studentNumber: '', 
-              yearLevel: tabValue === 4 ? 1 : tabValue + 1, 
-              curriculumId: '', 
-              isIrregular: tabValue === 4 
-            });
-            setStudentDialogOpen(true);
-          }}
-          size="small"
-        >
-          Add {tabValue === 4 ? 'Irregular ' : ''}Student
-        </Button>
-      </Box>
+ 
       
       <Box sx={{ maxHeight: 'calc(100vh - 300px)', overflowY: 'auto', overflowX: 'hidden' }}>
         {(() => {
@@ -539,7 +518,7 @@ const StudentManagement = () => {
                       setStudentDialogOpen(true);
                     }}
                   >
-                    Add {tabValue === 4 ? 'Irregular ' : ''}Student
+                    Add {tabValue === 4 ? 'Irregular ' : ''}
                   </Button>
                 )}
               </Box>
@@ -547,21 +526,20 @@ const StudentManagement = () => {
           }
           
           return (
-            <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 1, width: '100%' }}>
-              <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+            <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 2, width: '100%', maxHeight: 'calc(100vh - 400px)', overflow: 'auto' }}>
+              <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }} stickyHeader>
                 <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ width: '5%' }}>#</TableCell>
-                    <TableCell sx={{ width: '20%' }}>Student Number</TableCell>
-                    <TableCell sx={{ width: '20%' }}>Name</TableCell>
-                    <TableCell sx={{ width: '20%' }}>Email</TableCell>
-                    <TableCell sx={{ width: '10%' }}>Year Level</TableCell>
-                    <TableCell sx={{ width: '15%' }}>Curriculum</TableCell>
-                    <TableCell sx={{ width: '10%' }}>Actions</TableCell>
+                  <TableRow sx={{ bgcolor: 'royalblue' }}>
+                    <TableCell sx={{ width: '20%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Student Number</TableCell>
+                    <TableCell sx={{ width: '20%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Name</TableCell>
+                    <TableCell sx={{ width: '20%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Email</TableCell>
+                    <TableCell sx={{ width: '10%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Year Level</TableCell>
+                    <TableCell sx={{ width: '15%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Curriculum</TableCell>
+                    <TableCell sx={{ width: '10%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredStudents.map((student, index) => {
+                  {filteredStudents.map((student) => {
                     const isEditing = editingStudent === student.id;
                     const data = isEditing ? editingData : student;
                     
@@ -574,11 +552,7 @@ const StudentManagement = () => {
                         }}
                         onClick={() => !isEditing && setSelectedStudent(student)}
                       >
-                        <TableCell sx={{ width: '5%' }}>
-                          <Typography variant="body2" color="text.secondary">
-                            {index + 1}
-                          </Typography>
-                        </TableCell>
+                       
                         <TableCell sx={{ width: '20%' }}>
                           {isEditing ? (
                             <TextField
@@ -741,7 +715,7 @@ const StudentManagement = () => {
     const isThirdYearTab = tabValue === 2;
 
     return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', }}>
         <Typography variant="h5" fontWeight="bold" sx={{ flexShrink: 0 }}>
           {selectedStudent.name} - Course Management
         </Typography>
@@ -958,10 +932,71 @@ const StudentManagement = () => {
   };
 
   return (
-    <Box p={3} sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Typography variant="h4" gutterBottom>
-        Student Management
-      </Typography>
+    <Box p={3} sx={{ display: 'flex', flexDirection: 'column' }}>
+      {/* Header Box with White Background */}
+      <Box 
+        sx={{ 
+          bgcolor: 'white', 
+          color: 'black', 
+          p: 4, 
+          borderRadius: 2, 
+          mb: 3,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          border: '1px solid #e0e0e0',
+          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 1000,
+          marginTop: 7
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <IconButton 
+            edge="start" 
+            onClick={onBack}
+            sx={{ 
+              mr: 3,
+              borderRadius: '50%',
+              backgroundColor: 'royalblue',
+              color: 'white',
+              '&:hover': {
+                backgroundColor: '#4169e1'
+              }
+            }}
+          >
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight="bold">
+            Student Management
+          </Typography>
+        </Box>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => {
+            setStudentForm({ 
+              name: '', 
+              email: '', 
+              studentNumber: '', 
+              yearLevel: tabValue === 4 ? 1 : tabValue + 1, 
+              curriculumId: '', 
+              isIrregular: tabValue === 4 
+            });
+            setStudentDialogOpen(true);
+          }}
+          sx={{ 
+            bgcolor: 'royalblue', 
+            color: 'white',
+            '&:hover': {
+              bgcolor: '#4169e1'
+            }
+          }}
+        >
+          Add Student
+        </Button>
+      </Box>
       
       {!currentUser && (
         <Alert severity="info" sx={{ mb: 2 }}>
@@ -977,7 +1012,7 @@ const StudentManagement = () => {
           {!selectedStudent ? (
             // Show student list when no student is selected
             <Box sx={{ flex: 1 }}>
-              <Box sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa', height: '100%' }}>
+              <Box >
                 {renderStudentList()}
               </Box>
             </Box>

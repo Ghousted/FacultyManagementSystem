@@ -30,13 +30,15 @@ import {
   MenuItem,
   Tabs,
   Tab,
+  IconButton,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAllCourses } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
 
-const CurriculumCheckerMain = () => {
+const CurriculumCheckerMain = ({ onBack }) => {
   const { currentUser } = useAuth();
   const [students, setStudents] = useState([]);
   const [filteredStudents, setFilteredStudents] = useState([]);
@@ -340,24 +342,49 @@ const CurriculumCheckerMain = () => {
   };
 
   const renderStudentList = () => (
-    <Box>
-
-      
-      <TextField
-        fullWidth
-        placeholder="Search by student name..."
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchIcon />
-            </InputAdornment>
-          ),
+    <Box sx={{ marginTop: 6}}>
+<Box 
+        sx={{ 
+          bgcolor: 'white', 
+          color: 'black', 
+          p: 4, 
+          borderRadius: 2, 
+          mb: 3,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          border: '1px solid #e0e0e0',
+          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 1000,
+          marginTop: 7
         }}
-        sx={{ mb: 2 }}
-        size="small"
-      />
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <IconButton 
+            edge="start" 
+            onClick={onBack}
+            sx={{ 
+              mr: 3,
+              borderRadius: '50%',
+              backgroundColor: 'royalblue',
+              color: 'white',
+              '&:hover': {
+                backgroundColor: '#4169e1'
+              }
+            }}
+          >
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight="bold">
+            Curriculum Checker
+          </Typography>
+        </Box>
+        
+      </Box>
+      
+   
 
       <Box sx={{ mb: 3 }}>
         <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
@@ -811,11 +838,27 @@ const CurriculumCheckerMain = () => {
             color: 'white', 
             backgroundColor: 'royalblue',
             borderBottom: '1px solid #e0e0e0',
-          
+            display: 'flex',
+            alignItems: 'center',
             px: 4, // Padding for better look
             py: 2
           }}
         >
+          <IconButton 
+            edge="start" 
+            onClick={() => setCurriculumDialogOpen(false)}
+            sx={{ 
+              mr: 2,
+              borderRadius: '50%',
+              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              color: 'white',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.2)'
+              }
+            }}
+          >
+            <ArrowBackIcon />
+          </IconButton>
           Curriculum Status
         </DialogTitle>
         <DialogContent 

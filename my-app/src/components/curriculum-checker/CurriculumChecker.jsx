@@ -100,42 +100,43 @@ const CurriculumChecker = ({ onBackToDashboard, signout }) => {
                 </Button>
               </Toolbar>
             </AppBar>
-        <StudentManagement />
+        <StudentManagement onBack={handleBackToMain} />
       </Box>
     );
   }
 
   if (currentView === 'curriculum-checker') {
     return (
-      <Box minHeight="100vh" bgcolor="#f5f6fa" p={3}>
-        <AppBar position="absolute" sx={{ bgcolor: 'royalblue' }}>
-          <Toolbar>
-            <IconButton 
-              edge="start" 
-              color="inherit" 
-              onClick={handleBackToMain}
-              sx={{ mr: 2 }}
-            >
-              <ArrowBackIcon />
-            </IconButton>
-            <AssessmentIcon sx={{ mr: 2 }} />
-            <Typography 
-              variant="h6" 
-              sx={{ flexGrow: 1, cursor: 'pointer' }}
-              onClick={onBackToDashboard}
-            >
-              Curriculum Checker
-            </Typography>
-          </Toolbar>
-        </AppBar>
-        <CurriculumCheckerMain />
+      <Box px={3}>
+       <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa' }}>
+              <Toolbar>
+                <Box
+                  component="img"
+                  src={Logo}
+                  alt="Logo"
+                  sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
+                  onClick={onBackToDashboard}
+                />
+                <Typography 
+                  variant="h5" 
+                  sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
+                  onClick={onBackToDashboard}
+                >
+                  College of Computer Studies
+                </Typography>
+                <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
+                  Sign Out
+                </Button>
+              </Toolbar>
+            </AppBar>
+        <CurriculumCheckerMain onBack={handleBackToMain} />
       </Box>
     );
   }
 
   // Render main menu
   return (
-    <Box>
+    <Box sx={{ padding: 3}}>
       <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa' }}>
               <Toolbar>
                 <Box
@@ -158,14 +159,40 @@ const CurriculumChecker = ({ onBackToDashboard, signout }) => {
               </Toolbar>
             </AppBar>
       
-    <Box sx= {{ marginTop: 12}}>
-        <Typography variant="h3" fontWeight={700} mb={2} align="center" mt={3} color="primary">
-          Curriculum Management System
-        </Typography>
-        
-        <Typography variant="h6" color="text.secondary" mb={4} align="center" sx={{ maxWidth: 600, mx: 'auto' }}>
-          Review and validate curriculum requirements, course mappings, and academic compliance.
-        </Typography>
+    <Box sx= {{ marginTop: 7.5}}>
+        <Box sx={{ 
+          backgroundColor: 'white',
+          padding: 3,
+          borderRadius: 2,
+          boxShadow: 3,
+          border: '1px solid #e0e0e0',
+          mb: 3,
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <IconButton
+              onClick={onBackToDashboard}
+              sx={{ 
+                color: 'white',
+                backgroundColor: 'royalblue',
+                '&:hover': { 
+                  backgroundColor: 'rgba(65, 105, 225, 0.8)',
+                  color: 'white'
+                }
+              }}
+            >
+              <ArrowBackIcon />
+            </IconButton>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Typography variant="h5" sx={{ color: 'royalblue', fontWeight: 700}}>
+                Curriculum Management System
+              </Typography>
+              <Typography variant="subtitle1" color="text.secondary">
+                Review and validate curriculum requirements, course mappings, and academic compliance for the institution
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+ 
         
         <Box sx={{ 
           display: 'flex', 

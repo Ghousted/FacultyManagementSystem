@@ -28,9 +28,6 @@ import {
   InputAdornment,
   AppBar,
   Toolbar,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   Divider,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -43,7 +40,6 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
 import UndoIcon from '@mui/icons-material/Undo';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { getStudents } from '../../models/curriculumModels';
 import { 
   createPayable, 
@@ -52,11 +48,11 @@ import {
   deletePayable
 } from '../../models/payablesModels';
 import { useAuth } from '../../contexts/AuthContext';
+import Logo from '../../assets/logo.png'; // Adjust the path as necessary
 
 const PayablesSystem = ({ onBackToDashboard }) => {
   const { currentUser, signout } = useAuth(); // <-- add signout here
   const [students, setStudents] = useState([]);
-  const [selectedStudent, setSelectedStudent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -82,7 +78,6 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
   // Payable management states
   const [payables, setPayables] = useState({}); // {yearLevel: [payables]} - year-specific payables
-  const [editingPayables, setEditingPayables] = useState({});
   const [editingMode, setEditingMode] = useState(false);
   const [addPayableDialogOpen, setAddPayableDialogOpen] = useState(false);
   const [newPayableForm, setNewPayableForm] = useState({
@@ -92,9 +87,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     paidAmount: '0'
   });
 
-  // Add state for horizontal pagination
-  const [payablePage, setPayablePage] = useState(0);
-  const payablesPerPage = 2; // Number of payables to show at a time
+  // Student modal states
+  const [selectedStudentModal, setSelectedStudentModal] = useState(null);
+  const [studentModalOpen, setStudentModalOpen] = useState(false);
 
   const loadStudents = useCallback(async () => {
     if (!currentUser) {
@@ -142,7 +137,6 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           yearSpecificPayables[yearLevel].push(safePayable);
         });
         setPayables(yearSpecificPayables);
-        setEditingPayables(yearSpecificPayables);
       } else {
         setError(result.error);
       }
@@ -191,27 +185,6 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       paidAmount: '0'
     });
     setAddPayableDialogOpen(true);
-  };
-
-  const handleStudentPaymentChange = (payableId, studentId, field, value) => {
-    const currentYear = tabValue + 1;
-    setPayables(prev => ({
-      ...prev,
-      [currentYear]: prev[currentYear].map(payable =>
-        payable.id === payableId
-          ? {
-              ...payable,
-              studentPayments: {
-                ...payable.studentPayments,
-                [studentId]: {
-                  ...payable.studentPayments?.[studentId],
-                  [field]: value
-                }
-              }
-            }
-          : payable
-      )
-    }));
   };
 
   const handleSaveNewPayable = async () => {
@@ -272,7 +245,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   };
 
   const handleSavePayment = async () => {
-    if (!selectedStudent || !paymentForm.amount || !paymentForm.description) {
+    if (!selectedStudentModal || !paymentForm.amount || !paymentForm.description) {
       setError('Please fill in all required fields');
       return;
     }
@@ -280,7 +253,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     setLoading(true);
     try {
       // TODO: Implement payment saving logic
-      console.log('Saving payment for student:', selectedStudent.name, paymentForm);
+      console.log('Saving payment for student:', selectedStudentModal.name, paymentForm);
       setSuccess('Payment created successfully!');
       setPaymentDialogOpen(false);
     } catch (error) {
@@ -428,7 +401,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   // 5. Remove any references to the old modal-based payment workflow
 
   const renderStudentList = () => (
-    <Box>
+    <Box >
       <TextField
         fullWidth
         placeholder="Search students by name..."
@@ -469,7 +442,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
         </Box>
       </Box>
 
-      {/* Accordion List */}
+      {/* Student Cards Grid */}
       <Box>
         {(() => {
           let filteredStudents = students.filter(student => student.yearLevel === (tabValue + 1));
@@ -491,98 +464,69 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             );
           }
           const yearPayables = payables[tabValue + 1] || [];
-          return filteredStudents.map((student) => {
-            const totalBalance = calculateTotalBalance(student.id);
-            return (
-              <Accordion
-                key={student.id}
-                expanded={selectedStudent?.id === student.id}
-                onChange={() => setSelectedStudent(selectedStudent?.id === student.id ? null : student)}
-                sx={{ mb: 1 }}
-              >
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Typography fontWeight="bold">{student.name}</Typography>
-                    <Typography 
-                      variant="body2" 
-                      fontWeight="bold" 
-                      color={totalBalance > 0 ? "error" : "success"}
-                    >
-                      ₱{totalBalance.toLocaleString()}
-                    </Typography>
-                  </Box>
-                </AccordionSummary>
-                <AccordionDetails>
-                  {yearPayables.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No payables for this year level.
-                    </Typography>
-                  ) : (
-                    yearPayables.map((payable, idx) => {
-                      const studentPayment = payable.studentPayments?.[student.id] || { status: 'unpaid', paidAmount: 0 };
-                      return (
-                        <Box key={payable.id} sx={{ mb: idx < yearPayables.length - 1 ? 2 : 0 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-                            {/* Left: Payable name and amount */}
-                            <Box>
-                              <Typography variant="body2" fontWeight="bold">{payable.type}</Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                Amount: ₱{payable.amount.toLocaleString()}
-                              </Typography>
-                            </Box>
-                            {/* Right: Status, Paid Amount, Actions */}
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Chip 
-                                label={getStatusLabel(studentPayment.status)}
-                                size="small"
-                                color={getStatusColor(studentPayment.status)}
-                                variant="filled"
-                              />
-                              <TextField
-                                size="small"
-                                type="number"
-                                label="Paid Amount"
-                                value={studentPayment.paidAmount === 0 ? '' : studentPayment.paidAmount}
-                                onChange={(e) => handlePaidAmountChange(payable.id, student.id, student.yearLevel, e.target.value)}
-                                InputProps={{
-                                  startAdornment: <InputAdornment position="start">₱</InputAdornment>,
-                                  inputMode: 'numeric',
-                                  pattern: '[0-9]*',
-                                }}
-                                sx={{ width: 120 }}
-                              />
-                              <IconButton
-                                size="small"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleStartEditPayables(payable.id);
-                                }}
-                                sx={{ p: 0.5, minWidth: 'auto' }}
-                              >
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                              <IconButton
-                                size="small"
-                                color="error"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeletePayable(payable.id);
-                                }}
-                                sx={{ p: 0.5, minWidth: 'auto' }}
-                              >
-                                <CancelIcon fontSize="small" />
-                              </IconButton>
-                            </Box>
-                          </Box>
-                          {idx < yearPayables.length - 1 && <Divider sx={{ mt: 2, mb: 1 }} />}
+          return (
+            <Box sx={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+              gap: 2,
+              '@media (min-width: 900px)': {
+                gridTemplateColumns: 'repeat(3, 1fr)'
+              }
+            }}>
+              {filteredStudents.map((student) => {
+                const totalBalance = calculateTotalBalance(student.id);
+                return (
+                  <Card 
+                    key={student.id}
+                    sx={{ 
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease-in-out',
+                      '&:hover': {
+                        transform: 'translateY(-2px)',
+                        boxShadow: 4
+                      },
+                      border: totalBalance > 0 ? '2px solid #f44336' : '2px solid #4caf50'
+                    }}
+                    onClick={() => {
+                      setSelectedStudentModal(student);
+                      setStudentModalOpen(true);
+                    }}
+                  >
+                    <CardContent>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Typography variant="h6" fontWeight="bold" noWrap>
+                          {student.name}
+                        </Typography>
+                        <Typography 
+                          variant="h5" 
+                          fontWeight="bold" 
+                          color={totalBalance > 0 ? "error" : "success"}
+                          textAlign="center"
+                        >
+                          ₱{totalBalance.toLocaleString()}
+                        </Typography>
+                        <Typography 
+                          variant="caption" 
+                          color="text.secondary"
+                          textAlign="center"
+                        >
+                          {totalBalance > 0 ? 'Outstanding Balance' : 'All Paid'}
+                        </Typography>
+                        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+                          <Chip 
+                            size="small"
+                            label={yearPayables.length + ' payable(s)'}
+                            color="primary"
+                            variant="outlined"
+                          />
                         </Box>
-                      );
-                    })
-                  )}
-                </AccordionDetails>
-              </Accordion>
-            );
-          });
+                      </Box>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </Box>
+          );
         })()}
       </Box>
     </Box>
@@ -599,24 +543,28 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
   return (
     <Box sx={{ padding: 3}}>
-      <AppBar position="static" sx={{ borderRadius: 2 }}>
-        <Toolbar>
-          <IconButton
-            edge="start"
-            color="inherit"
-            aria-label="back"
-            onClick={onBackToDashboard}
-          >
-            <ArrowBackIcon />
-          </IconButton>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1, margingLeft: 2 }}>
-            Payables System
-          </Typography>
-          <Button color="error" variant="contained" onClick={handleSignOut}>
-            Sign Out
-          </Button>
-        </Toolbar>
-      </AppBar>
+      <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa', }}>
+                    <Toolbar>
+                      <Box
+                        component="img"
+                        src={Logo}
+                        alt="Logo"
+                        sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
+                        onClick={onBackToDashboard}
+                      />
+                      <Typography 
+                        variant="h5" 
+                        sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
+                        onClick={onBackToDashboard}
+                      >
+                        College of Computer Studies
+                      </Typography>
+                      <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
+                        Sign Out
+                      </Button>
+                    </Toolbar>
+                  </AppBar>
+            
       
       {!currentUser && (
         <Alert severity="info" sx={{ mx: 3, mb: 2 }}>
@@ -630,10 +578,39 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {currentUser ? (
         <Box sx={{ flex: 1, pt: 0 }}>
           <Box sx={{ 
-            
-          
-            mt: 2
+             mt: 7,
+             backgroundColor: 'white',
+              padding: 3,
+              borderRadius: 2,
+              boxShadow: 3,
+              border: '1px solid #e0e0e0',
+              mb: 3,
           }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <IconButton
+                onClick={onBackToDashboard}
+                sx={{ 
+                  color: 'white',
+                  backgroundColor: 'royalblue',
+                  '&:hover': { 
+                    backgroundColor: 'rgba(65, 105, 225, 0.8)',
+                    color: 'white'
+                  }
+                }}
+              >
+                <ArrowBackIcon />
+              </IconButton>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap:1  }}>
+                <Typography variant="h5" sx={{ color:' royalblue', fontWeight: 700}}>
+                Payables Management System
+              </Typography>
+                <Typography variant="subtitle1" color="text.secondary">
+                    Manage invoices, track payments, and handle financial transactions for the institution
+                  </Typography>
+              </Box>
+            </Box>
+          </Box>
+          <Box >
             {renderStudentList()}
           </Box>
         </Box>
@@ -725,9 +702,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       >
         <DialogTitle>
           Create Payment Record
-          {selectedStudent && (
+          {selectedStudentModal && (
             <Typography variant="body2" color="text.secondary">
-              For: {selectedStudent.name}
+              For: {selectedStudentModal.name}
             </Typography>
           )}
         </DialogTitle>
@@ -796,6 +773,126 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {/* Student Payment Dialog */}
       {/* 4. Remove the Record Payment modal JSX */}
       {/* 5. Remove any references to the old modal-based payment workflow */}
+
+      {/* Student Details Modal */}
+      <Dialog 
+        open={studentModalOpen} 
+        onClose={() => {
+          setStudentModalOpen(false);
+          setSelectedStudentModal(null);
+        }} 
+        maxWidth="md" 
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box>
+              <Typography variant="h6" fontWeight="bold">
+                {selectedStudentModal?.name}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year Student - Payables Management
+              </Typography>
+            </Box>
+            <Typography 
+              variant="h6" 
+              fontWeight="bold" 
+              color={selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id) > 0 ? "error" : "success" : "inherit"}
+            >
+              Total Balance: ₱{selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id).toLocaleString() : '0'}
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 1 }}>
+            {(() => {
+              const yearPayables = payables[tabValue + 1] || [];
+              if (yearPayables.length === 0) {
+                return (
+                  <Box sx={{ textAlign: 'center', py: 4 }}>
+                    <Typography variant="body1" color="text.secondary">
+                      No payables for this year level.
+                    </Typography>
+                  </Box>
+                );
+              }
+              return yearPayables.map((payable) => {
+                const studentPayment = payable.studentPayments?.[selectedStudentModal?.id] || { status: 'unpaid', paidAmount: 0 };
+                return (
+                  <Card key={payable.id} sx={{ mb: 2, border: '1px solid #e0e0e0' }}>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                        <Box>
+                          <Typography variant="h6" fontWeight="bold">{payable.type}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Total Amount: ₱{payable.amount.toLocaleString()}
+                          </Typography>
+                        </Box>
+                        <Chip 
+                          label={getStatusLabel(studentPayment.status)}
+                          size="medium"
+                          color={getStatusColor(studentPayment.status)}
+                          variant="filled"
+                        />
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <TextField
+                          size="medium"
+                          type="number"
+                          label="Paid Amount"
+                          value={studentPayment.paidAmount === 0 ? '' : studentPayment.paidAmount}
+                          onChange={(e) => selectedStudentModal && handlePaidAmountChange(payable.id, selectedStudentModal.id, selectedStudentModal.yearLevel, e.target.value)}
+                          InputProps={{
+                            startAdornment: <InputAdornment position="start">₱</InputAdornment>,
+                            inputMode: 'numeric',
+                            pattern: '[0-9]*',
+                          }}
+                          sx={{ flex: 1 }}
+                        />
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <IconButton
+                            color="primary"
+                            onClick={() => handleStartEditPayables(payable.id)}
+                            sx={{ p: 1 }}
+                          >
+                            <EditIcon />
+                          </IconButton>
+                          <IconButton
+                            color="error"
+                            onClick={() => handleDeletePayable(payable.id)}
+                            sx={{ p: 1 }}
+                          >
+                            <CancelIcon />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                      <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Remaining: ₱{(payable.amount - (studentPayment.paidAmount || 0)).toLocaleString()}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Last updated: {new Date().toLocaleDateString()}
+                        </Typography>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                );
+              });
+            })()}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => {
+              setStudentModalOpen(false);
+              setSelectedStudentModal(null);
+            }}
+            variant="contained"
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
