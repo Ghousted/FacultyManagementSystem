@@ -506,6 +506,43 @@ const CurriculumMaker = ({ onBack }) => {
     return courses.map(course => course.courseCode).filter(Boolean);
   };
 
+  // Return true if every course in given year+semester is available
+  const areAllAvailable = (year, semester) => {
+    const list = getCoursesByYearAndSemester(year, semester);
+    if (!list || list.length === 0) return false;
+    return list.every(c => c.isAvailable !== false);
+  };
+
+  // Toggle availability for all courses in a specific year+semester (batch update)
+  const handleSelectAllAvailable = async (year, semester, checked) => {
+    if (!currentUser) {
+      showMessage('Please sign in to update availability', 'error');
+      return;
+    }
+    if (!selectedCurriculum) {
+      showMessage('Please select a curriculum first', 'error');
+      return;
+    }
+    const list = getCoursesByYearAndSemester(year, semester);
+    if (!list || list.length === 0) return;
+    setLoading(true);
+    try {
+      const batch = writeBatch(db);
+      list.forEach(course => {
+        const courseRef = doc(db, 'courses', course.id);
+        batch.update(courseRef, { isAvailable: checked, updatedAt: new Date() });
+      });
+      await batch.commit();
+      showMessage(`Courses ${checked ? 'marked available' : 'marked unavailable'} for this semester.`);
+      await loadCourses(selectedCurriculum.id);
+      await loadAllCourses();
+    } catch (error) {
+      showMessage('Failed to update availability: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const renderCurriculumList = () => (
     <Box sx={{ marginTop: 7}}>
       {/* Header Box with White Background */}
@@ -673,7 +710,17 @@ const CurriculumMaker = ({ onBack }) => {
                       <TableCell sx={{ fontWeight: 'bold', width: '10%',  color: 'white' }}>Units</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '25%', color: 'white' }}>Prerequisites</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '15%',  color: 'white' }}>Equivalent Subjects</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '10%',  color: 'white' }}>Available</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: '10%',  color: 'white' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Checkbox
+                            checked={areAllAvailable(selectedYear, semester)}
+                            onChange={(e) => handleSelectAllAvailable(selectedYear, semester, e.target.checked)}
+                            color="default"
+                            sx={{ color: 'white', '&.Mui-checked': { color: 'white' } }}
+                          />
+                          <Typography sx={{ fontWeight: 'bold', color: 'white', fontSize: 14 }}>Available</Typography>
+                        </Box>
+                      </TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: '15%', color: 'white' }}>Actions</TableCell>
                     </TableRow>
                   </TableHead>
