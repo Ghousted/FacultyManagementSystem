@@ -29,7 +29,16 @@ import {
   AppBar,
   Toolbar,
   Divider,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
+import GridViewIcon from '@mui/icons-material/GridView';
+import ListIcon from '@mui/icons-material/List';
+import SortIcon from '@mui/icons-material/Sort';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+
 import AddIcon from '@mui/icons-material/Add';
 import PaymentIcon from '@mui/icons-material/Payment';
 import ReceiptIcon from '@mui/icons-material/Receipt';
@@ -37,7 +46,6 @@ import SearchIcon from '@mui/icons-material/Search';
 import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
 import UndoIcon from '@mui/icons-material/Undo';
 import { getStudents } from '../../models/curriculumModels';
@@ -58,6 +66,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   const [success, setSuccess] = useState('');
   const [tabValue, setTabValue] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewMode, setViewMode] = useState('list'); // 'grid' or 'list'
+  const [sortBy, setSortBy] = useState('name-asc'); // 'name-asc', 'name-desc', 'balance-asc', 'balance-desc'
   
   // Payment dialog states
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
@@ -90,6 +100,13 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   // Student modal states
   const [selectedStudentModal, setSelectedStudentModal] = useState(null);
   const [studentModalOpen, setStudentModalOpen] = useState(false);
+  // Staged payment edits (not yet saved to Firestore)
+  const [stagedPayments, setStagedPayments] = useState({}); // { payableId: paidAmount }
+  const [confirmLoading, setConfirmLoading] = useState(false);
+
+  // Summary modal states
+  const [summaryModalOpen, setSummaryModalOpen] = useState(false);
+  const [summaryData, setSummaryData] = useState({ changes: [], totalCurrentBalance: 0, totalNewBalance: 0 });
 
   const loadStudents = useCallback(async () => {
     if (!currentUser) {
@@ -297,6 +314,82 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     }
   };
 
+  // Show summary of changes before confirming
+  const handleShowSummary = () => {
+    if (!selectedStudentModal) return;
+    const studentId = selectedStudentModal.id;
+    const currentYear = tabValue + 1;
+    const yearPayables = payables[currentYear] || [];
+    const changes = [];
+    let totalCurrentBalance = 0;
+    let totalNewBalance = 0;
+    Object.entries(stagedPayments).forEach(([payableId, newPaidAmount]) => {
+      const payable = yearPayables.find(p => p.id === payableId);
+      if (payable) {
+        const currentPaid = payable.studentPayments?.[studentId]?.paidAmount || 0;
+        const amount = Number(payable.amount) || 0;
+        totalCurrentBalance += Math.max(0, amount - currentPaid);
+        totalNewBalance += Math.max(0, amount - newPaidAmount);
+        changes.push({
+          payableId,
+          type: payable.type,
+          amount,
+          currentPaid,
+          newPaid: newPaidAmount
+        });
+      }
+    });
+    setSummaryData({ changes, totalCurrentBalance, totalNewBalance });
+    setSummaryModalOpen(true);
+  };
+
+  // Final confirmation: persist all stagedPayments for the selected student
+  const handleFinalConfirm = async () => {
+    if (!selectedStudentModal) return;
+    const studentId = selectedStudentModal.id;
+    setConfirmLoading(true);
+    setError('');
+    try {
+      // For each change, compute status and send update
+      for (const change of summaryData.changes) {
+        const { payableId, newPaid } = change;
+        // Find payable to get total amount
+        const currentYear = tabValue + 1;
+        const yearPayables = payables[currentYear] || [];
+        const payable = yearPayables.find(p => p.id === payableId);
+        if (!payable) continue;
+        const payableAmount = Number(payable.amount) || 0;
+        const newStatus = newPaid >= payableAmount ? 'fully_paid' : (newPaid > 0 ? 'partially_paid' : 'unpaid');
+
+        const updateObj = {
+          [`studentPayments.${studentId}.paidAmount`]: newPaid,
+          [`studentPayments.${studentId}.status`]: newStatus
+        };
+        const result = await updatePayable(payableId, updateObj);
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to update payable ' + payableId);
+        }
+      }
+
+      setSuccess('Payments confirmed successfully');
+      // Close all modals
+      setSummaryModalOpen(false);
+      setStudentModalOpen(false);
+      setSelectedStudentModal(null);
+      setStagedPayments({});
+      // reload payables to reflect persisted state
+      await loadPayables();
+    } catch (error) {
+      setError('Failed to confirm payments: ' + error.message);
+    } finally {
+      setConfirmLoading(false);
+    }
+  };
+
+  const handleDiscardStagedPayments = () => {
+    setStagedPayments({});
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'fully_paid':
@@ -323,76 +416,35 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     }
   };
 
-  const handlePaidAmountChange = useCallback(async (payableId, studentId, studentYearLevel, newValue) => {
+  // Stage paid amount changes locally. Changes will not be saved until user clicks Confirm.
+  const handleStagedPaidAmountChange = useCallback((payableId, newValue) => {
     const newPaidAmount = newValue === '' ? 0 : parseFloat(newValue) || 0;
-    
-    // Find the payable to get its amount
-    const currentYear = tabValue + 1;
-    const yearPayables = payables[currentYear] || [];
-    const payable = yearPayables.find(p => p.id === payableId);
-    if (!payable) return;
-    
-    const payableAmount = Number(payable.amount) || 0;
-    
-    // Determine new status
-    let newStatus = 'unpaid';
-    if (newPaidAmount >= payableAmount) {
-      newStatus = 'fully_paid';
-    } else if (newPaidAmount > 0) {
-      newStatus = 'partially_paid';
-    }
-
-    // Update local state
-    setPayables(prev => {
-      const updated = { ...prev };
-      const yearPayables = updated[studentYearLevel] || [];
-      updated[studentYearLevel] = yearPayables.map(p => {
-        if (p.id === payableId) {
-          return {
-            ...p,
-            studentPayments: {
-              ...p.studentPayments,
-              [studentId]: {
-                ...p.studentPayments?.[studentId],
-                paidAmount: newPaidAmount,
-                status: newStatus
-              }
-            }
-          };
-        }
-        return p;
-      });
-      return updated;
-    });
-
-    // Update Firestore
-    try {
-      const result = await updatePayable(payableId, {
-        [`studentPayments.${studentId}.paidAmount`]: newPaidAmount,
-        [`studentPayments.${studentId}.status`]: newStatus
-      });
-      if (!result.success) {
-        setError('Failed to update payment: ' + result.error);
-      }
-    } catch (error) {
-      setError('Failed to update payment: ' + error.message);
-    }
-  }, [payables, tabValue]);
+    setStagedPayments(prev => ({
+      ...prev,
+      [payableId]: newPaidAmount
+    }));
+  }, []);
 
   const calculateTotalBalance = useCallback((studentId) => {
     if (!studentId || !payables) return 0;
     const currentYear = tabValue + 1;
     const yearPayables = payables[currentYear] || [];
     return yearPayables.reduce((total, payable) => {
-      const studentPayment = payable.studentPayments?.[studentId];
-      if (studentPayment && (studentPayment.status === 'unpaid' || studentPayment.status === 'partially_paid')) {
+      const studentPayment = payable.studentPayments?.[studentId] || { status: 'unpaid', paidAmount: 0 };
+      // If there's a staged payment for this payable (and the staged edits belong to the currently selected student), use it.
+      const stagedPaid = stagedPayments?.[payable.id];
+      const paidAmount = typeof stagedPaid !== 'undefined' ? Number(stagedPaid) : Number(studentPayment.paidAmount || 0);
+      const status = typeof stagedPaid !== 'undefined'
+        ? (paidAmount >= Number(payable.amount || 0) ? 'fully_paid' : (paidAmount > 0 ? 'partially_paid' : 'unpaid'))
+        : studentPayment.status;
+
+      if (status === 'unpaid' || status === 'partially_paid') {
         const payableAmount = Number(payable.amount) || 0;
-        const paidAmount = Number(studentPayment.paidAmount) || 0;
         return total + (payableAmount - paidAmount);
       }
       return total;
     }, 0);
-  }, [payables, tabValue]);
+  }, [payables, tabValue, stagedPayments]);
 
   // 1. Remove all payment dialog/modal state and handlers (studentPaymentDialogOpen, selectedPayableForPayment, selectedStudentForPayment, studentPaymentForm, handleStudentPaymentClick, handleStudentPaymentFormChange, handleSaveStudentPayment, handleMarkAsFullyPaid, and their usages)
   // 2. In the payables table, always render the paid amount as a TextField (not just in edit mode)
@@ -402,21 +454,33 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
   const renderStudentList = () => (
     <Box >
-      <TextField
-        fullWidth
-        placeholder="Search students by name..."
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchIcon />
-            </InputAdornment>
-          ),
-        }}
-        sx={{ mb: 3 }}
-        size="small"
-      />
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+        <TextField
+          placeholder="Search students by name..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon />
+              </InputAdornment>
+            ),
+          }}
+          size="small"
+          sx={{ flex: 1 }}
+        />
+        <IconButton onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}>
+          {viewMode === 'grid' ? <ListIcon /> : <GridViewIcon />}
+        </IconButton>
+        <Button
+          variant="outlined"
+          startIcon={<AddIcon />}
+          onClick={handleAddPayable}
+          size="small"
+        >
+          Add Payables
+        </Button>
+      </Box>
 
       <Box sx={{ mb: 2 }}>
         <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
@@ -430,19 +494,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
         <Typography variant="h6">
           Students in {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year
         </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="outlined"
-            startIcon={<AddIcon />}
-            onClick={handleAddPayable}
-            size="small"
-          >
-            Add Payables
-          </Button>
-        </Box>
       </Box>
 
-      {/* Student Cards Grid */}
+      {/* Student Display */}
       <Box>
         {(() => {
           let filteredStudents = students.filter(student => student.yearLevel === (tabValue + 1));
@@ -451,6 +505,27 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               student.name.toLowerCase().includes(searchTerm.toLowerCase())
             );
           }
+          // Sort students
+          filteredStudents.sort((a, b) => {
+            const balanceA = calculateTotalBalance(a.id);
+            const balanceB = calculateTotalBalance(b.id);
+            switch (sortBy) {
+              case 'name-asc':
+                return a.name.localeCompare(b.name);
+              case 'name-desc':
+                return b.name.localeCompare(a.name);
+              case 'balance-asc':
+                return balanceA - balanceB;
+              case 'balance-desc':
+                return balanceB - balanceA;
+              case 'id-asc':
+                return a.studentNumber.localeCompare(b.studentNumber);
+              case 'id-desc':
+                return b.studentNumber.localeCompare(a.studentNumber);
+              default:
+                return 0;
+            }
+          });
           if (filteredStudents.length === 0) {
             return (
               <Box sx={{ textAlign: 'center', py: 8 }}>
@@ -464,69 +539,144 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             );
           }
           const yearPayables = payables[tabValue + 1] || [];
-          return (
-            <Box sx={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
-              gap: 2,
-              '@media (min-width: 900px)': {
-                gridTemplateColumns: 'repeat(3, 1fr)'
-              }
-            }}>
-              {filteredStudents.map((student) => {
-                const totalBalance = calculateTotalBalance(student.id);
-                return (
-                  <Card 
-                    key={student.id}
-                    sx={{ 
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease-in-out',
-                      '&:hover': {
-                        transform: 'translateY(-2px)',
-                        boxShadow: 4
-                      },
-                      border: totalBalance > 0 ? '2px solid #f44336' : '2px solid #4caf50'
-                    }}
-                    onClick={() => {
-                      setSelectedStudentModal(student);
-                      setStudentModalOpen(true);
-                    }}
-                  >
-                    <CardContent>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                        <Typography variant="h6" fontWeight="bold" noWrap>
-                          {student.name}
-                        </Typography>
-                        <Typography 
-                          variant="h5" 
-                          fontWeight="bold" 
-                          color={totalBalance > 0 ? "error" : "success"}
-                          textAlign="center"
-                        >
-                          ₱{totalBalance.toLocaleString()}
-                        </Typography>
-                        <Typography 
-                          variant="caption" 
-                          color="text.secondary"
-                          textAlign="center"
-                        >
-                          {totalBalance > 0 ? 'Outstanding Balance' : 'All Paid'}
-                        </Typography>
-                        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
-                          <Chip 
-                            size="small"
-                            label={yearPayables.length + ' payable(s)'}
-                            color="primary"
-                            variant="outlined"
-                          />
+          if (viewMode === 'grid') {
+            return (
+              <Box sx={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+                gap: 2,
+                '@media (min-width: 900px)': {
+                  gridTemplateColumns: 'repeat(3, 1fr)'
+                }
+              }}>
+                {filteredStudents.map((student) => {
+                  const totalBalance = calculateTotalBalance(student.id);
+                  return (
+                    <Card 
+                      key={student.id}
+                      sx={{ 
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease-in-out',
+                        '&:hover': {
+                          transform: 'translateY(-2px)',
+                          boxShadow: 4
+                        },
+                        border: totalBalance > 0 ? '2px solid #f44336' : '2px solid #4caf50'
+                      }}
+                      onClick={() => {
+                        setSelectedStudentModal(student);
+                        setStudentModalOpen(true);
+                        // Clear any staged payments when opening a new student modal
+                        setStagedPayments({});
+                      }}
+                    >
+                      <CardContent>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          <Typography variant="h6" fontWeight="bold" noWrap>
+                            {student.name}
+                          </Typography>
+                          <Typography 
+                            variant="h5" 
+                            fontWeight="bold" 
+                            color={totalBalance > 0 ? "error" : "success"}
+                            textAlign="center"
+                          >
+                            ₱{totalBalance.toLocaleString()}
+                          </Typography>
+                          <Typography 
+                            variant="caption" 
+                            color="text.secondary"
+                            textAlign="center"
+                          >
+                            {totalBalance > 0 ? 'Outstanding Balance' : 'All Paid'}
+                          </Typography>
+                          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
+                            <Chip 
+                              size="small"
+                              label={yearPayables.length + ' payable(s)'}
+                              color="primary"
+                              variant="outlined"
+                            />
+                          </Box>
                         </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </Box>
-          );
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </Box>
+            );
+          } else {
+            // List view
+            return (
+              <TableContainer component={Card}>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell onClick={() => setSortBy(sortBy === 'id-asc' ? 'id-desc' : 'id-asc')} sx={{ cursor: 'pointer' }}>
+                        Student ID {sortBy === 'id-asc' ? <ArrowUpwardIcon fontSize="small" /> : sortBy === 'id-desc' ? <ArrowDownwardIcon fontSize="small" /> : <SortIcon fontSize="small" />}
+                      </TableCell>
+                      <TableCell onClick={() => setSortBy(sortBy === 'name-asc' ? 'name-desc' : 'name-asc')} sx={{ cursor: 'pointer' }}>
+                        Student Name {sortBy === 'name-asc' ? <ArrowUpwardIcon fontSize="small" /> : sortBy === 'name-desc' ? <ArrowDownwardIcon fontSize="small" /> : <SortIcon fontSize="small" />}
+                      </TableCell>
+                      <TableCell align="right" onClick={() => setSortBy(sortBy === 'balance-asc' ? 'balance-desc' : 'balance-asc')} sx={{ cursor: 'pointer' }}>
+                        Total Balance {sortBy === 'balance-asc' ? <ArrowUpwardIcon fontSize="small" /> : sortBy === 'balance-desc' ? <ArrowDownwardIcon fontSize="small" /> : <SortIcon fontSize="small" />}
+                      </TableCell>
+                      <TableCell align="right">Payables Count</TableCell>
+                      <TableCell align="center">Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {filteredStudents.map((student) => {
+                      const totalBalance = calculateTotalBalance(student.id);
+                      return (
+                        <TableRow 
+                          key={student.id} 
+                          hover 
+                          sx={{ cursor: 'pointer' }}
+                          onClick={() => {
+                            setSelectedStudentModal(student);
+                            setStudentModalOpen(true);
+                            setStagedPayments({});
+                          }}
+                        >
+                          <TableCell>{student.studentNumber}</TableCell>
+                          <TableCell>{student.name}</TableCell>
+                          <TableCell align="right">
+                            <Typography 
+                              variant="body1" 
+                              fontWeight="bold" 
+                              color={totalBalance > 0 ? "error" : "success"}
+                            >
+                              ₱{totalBalance.toLocaleString()}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">{yearPayables.length}</TableCell>
+                          <TableCell align="center">
+                            <Chip 
+                              size="small"
+                              label={totalBalance > 0 ? 'Partially Paid' : 'Fully Paid'}
+                              color={totalBalance > 0 ? 'error' : 'success'}
+                              variant="outlined"
+                            />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                      <TableCell colSpan={2} align="right"><strong>Total</strong></TableCell>
+                      <TableCell align="right">
+                        <strong>₱{filteredStudents.reduce((sum, student) => sum + calculateTotalBalance(student.id), 0).toLocaleString()}</strong>
+                      </TableCell>
+                      <TableCell align="right">
+                        <strong>{yearPayables.length * filteredStudents.length}</strong>
+                      </TableCell>
+                      <TableCell align="center">-</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            );
+          }
         })()}
       </Box>
     </Box>
@@ -732,8 +882,20 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               onChange={(e) => handlePaymentInputChange('amount', e.target.value)}
               InputProps={{
                 startAdornment: <InputAdornment position="start">₱</InputAdornment>,
+                inputMode: 'numeric',
+                pattern: '[0-9]*',
+                onWheel: (e) => e.preventDefault(),
               }}
-              sx={{ mb: 2 }}
+              sx={{ 
+                mb: 2,
+                '& input[type=number]': {
+                  '-moz-appearance': 'textfield',
+                },
+                '& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button': {
+                  '-webkit-appearance': 'none',
+                  margin: 0,
+                },
+              }}
             />
             
             <TextField
@@ -775,11 +937,12 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {/* 5. Remove any references to the old modal-based payment workflow */}
 
       {/* Student Details Modal */}
-      <Dialog 
+        <Dialog 
         open={studentModalOpen} 
         onClose={() => {
           setStudentModalOpen(false);
           setSelectedStudentModal(null);
+          setStagedPayments({});
         }} 
         maxWidth="md" 
         fullWidth
@@ -840,14 +1003,24 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           size="medium"
                           type="number"
                           label="Paid Amount"
-                          value={studentPayment.paidAmount === 0 ? '' : studentPayment.paidAmount}
-                          onChange={(e) => selectedStudentModal && handlePaidAmountChange(payable.id, selectedStudentModal.id, selectedStudentModal.yearLevel, e.target.value)}
+                          value={typeof stagedPayments?.[payable.id] !== 'undefined' ? stagedPayments[payable.id] : (studentPayment.paidAmount === 0 ? '' : studentPayment.paidAmount)}
+                          onChange={(e) => selectedStudentModal && handleStagedPaidAmountChange(payable.id, e.target.value)}
                           InputProps={{
                             startAdornment: <InputAdornment position="start">₱</InputAdornment>,
                             inputMode: 'numeric',
                             pattern: '[0-9]*',
+                            onWheel: (e) => e.preventDefault(),
                           }}
-                          sx={{ flex: 1 }}
+                          sx={{ 
+                            flex: 1,
+                            '& input[type=number]': {
+                              '-moz-appearance': 'textfield',
+                            },
+                            '& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button': {
+                              '-webkit-appearance': 'none',
+                              margin: 0,
+                            },
+                          }}
                         />
                         <Box sx={{ display: 'flex', gap: 1 }}>
                           <IconButton
@@ -882,14 +1055,111 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           </Box>
         </DialogContent>
         <DialogActions>
+          <Box sx={{ display: 'flex', gap: 1, width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box>
+              <Button onClick={handleDiscardStagedPayments} disabled={Object.keys(stagedPayments).length === 0}>
+                Discard Changes
+              </Button>
+            </Box>
+            <Box>
+              <Button 
+                onClick={() => {
+                  setStudentModalOpen(false);
+                  setSelectedStudentModal(null);
+                  setStagedPayments({});
+                }}
+                variant="outlined"
+                sx={{ mr: 1 }}
+              >
+                Close
+              </Button>
+              <Button 
+                onClick={handleShowSummary} 
+                variant="contained"
+                disabled={Object.keys(stagedPayments).length === 0 || confirmLoading}
+              >
+                {confirmLoading ? 'Confirming...' : 'Confirm Changes'}
+              </Button>
+            </Box>
+          </Box>
+        </DialogActions>
+      </Dialog>
+
+      {/* Summary Modal */}
+      <Dialog 
+        open={summaryModalOpen} 
+        onClose={() => setSummaryModalOpen(false)} 
+        maxWidth="md" 
+        fullWidth
+      >
+        <DialogTitle>
+          Confirm Payment Changes
+          {selectedStudentModal && (
+            <Typography variant="body2" color="text.secondary">
+              For: {selectedStudentModal.name}
+            </Typography>
+          )}
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 1 }}>
+            <Typography variant="h6" gutterBottom>
+              Summary of Changes:
+            </Typography>
+            {summaryData.changes.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No changes to confirm.
+              </Typography>
+            ) : (
+              <Box>
+                {summaryData.changes.map((change) => (
+                  <Card key={change.payableId} sx={{ mb: 2, border: '1px solid #e0e0e0' }}>
+                    <CardContent>
+                      <Typography variant="h6" fontWeight="bold">{change.type}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Total Amount: ₱{change.amount.toLocaleString()}
+                      </Typography>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">
+                            Current Paid: ₱{change.currentPaid.toLocaleString()} (Balance: ₱{(change.amount - change.currentPaid).toLocaleString()})
+                          </Typography>
+                          <Typography variant="body2" color="primary">
+                            New Paid: ₱{change.newPaid.toLocaleString()} (Balance: ₱{(change.amount - change.newPaid).toLocaleString()})
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" color={change.newPaid > change.currentPaid ? "success.main" : change.newPaid < change.currentPaid ? "error.main" : "text.secondary"}>
+                          {change.newPaid > change.currentPaid ? `+₱${(change.newPaid - change.currentPaid).toLocaleString()}` : change.newPaid < change.currentPaid ? `-₱${(change.currentPaid - change.newPaid).toLocaleString()}` : 'No change'}
+                        </Typography>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                ))}
+                <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                  <Typography variant="h6" gutterBottom>
+                    Balance Summary:
+                  </Typography>
+                  <Typography variant="body1">
+                    Current Total Balance: ₱{summaryData.totalCurrentBalance.toLocaleString()}
+                  </Typography>
+                  <Typography variant="body1" color="primary">
+                    New Total Balance: ₱{summaryData.totalNewBalance.toLocaleString()}
+                  </Typography>
+                  
+                </Box>
+              </Box>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSummaryModalOpen(false)} variant="outlined">
+            Cancel
+          </Button>
           <Button 
-            onClick={() => {
-              setStudentModalOpen(false);
-              setSelectedStudentModal(null);
-            }}
+            onClick={handleFinalConfirm} 
             variant="contained"
+            disabled={confirmLoading}
           >
-            Close
+            {confirmLoading ? 'Confirming...' : 'Confirm All Changes'}
           </Button>
         </DialogActions>
       </Dialog>
