@@ -11,16 +11,37 @@ import {
   Container,
   Card,
   CardContent,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction,
+  IconButton,
 } from '@mui/material';
 import SchoolIcon from '@mui/icons-material/School';
 import PaymentIcon from '@mui/icons-material/Payment';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import EditIcon from '@mui/icons-material/Edit';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
 import CurriculumChecker from './curriculum-checker/CurriculumChecker';
 import PayablesSystem from './payables-system/PayablesSystem';
 import Logo from '../assets/logo.png';
 
 const Dashboard = () => {
-  const { currentUser, signout } = useAuth();
+  const { currentUser, role, signout, updateRole } = useAuth();
   const [selectedSystem, setSelectedSystem] = useState(null);
+  const [adminDialogOpen, setAdminDialogOpen] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [editingUser, setEditingUser] = useState(null);
+  const [newRole, setNewRole] = useState('');
 
   const handleSignOut = async () => {
     try {
@@ -36,6 +57,54 @@ const Dashboard = () => {
 
   const handleBackToDashboard = () => {
     setSelectedSystem(null);
+  };
+
+  // Check if user can access a system based on role
+  const canAccessSystem = (system) => {
+    if (!role) return false;
+    if (role === 'admin') return true;
+    if (role === 'payables' && system === 'Payables System') return true;
+    if (role === 'curriculum' && system === 'Curriculum Checker') return true;
+    return false;
+  };
+
+  // Admin functions
+  const handleOpenAdminPanel = async () => {
+    try {
+      const usersSnapshot = await getDocs(collection(db, 'users'));
+      const usersList = usersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setUsers(usersList);
+      setAdminDialogOpen(true);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    }
+  };
+
+  const handleEditRole = (user) => {
+    setEditingUser(user);
+    setNewRole(user.role || 'admin');
+  };
+
+  const handleSaveRole = async () => {
+    if (editingUser) {
+      const result = await updateRole(editingUser.id, newRole);
+      if (result.success) {
+        setUsers(users.map(user => 
+          user.id === editingUser.id ? { ...user, role: newRole } : user
+        ));
+        setEditingUser(null);
+        setNewRole('');
+      }
+    }
+  };
+
+  const handleCloseAdminPanel = () => {
+    setAdminDialogOpen(false);
+    setEditingUser(null);
+    setNewRole('');
   };
 
   // Render the selected system
@@ -66,6 +135,16 @@ const Dashboard = () => {
           >
             College of Computer Studies
           </Typography>
+          {role === 'admin' && (
+            <Button 
+              startIcon={<AdminPanelSettingsIcon />}
+              sx={{ mr: 2, borderRadius: 5 }} 
+              variant="outlined" 
+              onClick={handleOpenAdminPanel}
+            >
+              Admin Panel
+            </Button>
+          )}
           <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
             Sign Out
           </Button>
@@ -89,7 +168,8 @@ const Dashboard = () => {
           maxWidth: 1000,
           mx: 'auto'
         }}>
-          <Card 
+          {canAccessSystem('Curriculum Checker') && (
+            <Card 
             elevation={0}
             sx={{ 
               width: 400,
@@ -129,8 +209,10 @@ const Dashboard = () => {
               </Typography>
             </CardContent>
           </Card>
+          )}
           
-          <Card 
+          {canAccessSystem('Payables System') && (
+            <Card 
             elevation={0}
             sx={{ 
               width: 400,
@@ -170,8 +252,62 @@ const Dashboard = () => {
               </Typography>
             </CardContent>
           </Card>
+          )}
         </Box>
       </Box>
+
+      {/* Admin Panel Dialog */}
+      <Dialog open={adminDialogOpen} onClose={handleCloseAdminPanel} maxWidth="md" fullWidth>
+        <DialogTitle>User Role Management</DialogTitle>
+        <DialogContent>
+          <List>
+            {users.map((user) => (
+              <ListItem key={user.id}>
+                <ListItemText 
+                  primary={user.email || user.id}
+                  secondary={`Role: ${user.role || 'admin'}`}
+                />
+                <ListItemSecondaryAction>
+                  <IconButton edge="end" onClick={() => handleEditRole(user)}>
+                    <EditIcon />
+                  </IconButton>
+                </ListItemSecondaryAction>
+              </ListItem>
+            ))}
+          </List>
+          
+          {editingUser && (
+            <Box sx={{ mt: 2, p: 2, border: '1px solid #ddd', borderRadius: 1 }}>
+              <Typography variant="h6" gutterBottom>
+                Edit Role for {editingUser.email || editingUser.id}
+              </Typography>
+              <FormControl fullWidth sx={{ mt: 2 }}>
+                <InputLabel>Role</InputLabel>
+                <Select
+                  value={newRole}
+                  label="Role"
+                  onChange={(e) => setNewRole(e.target.value)}
+                >
+                  <MenuItem value="admin">Admin (Full Access)</MenuItem>
+                  <MenuItem value="payables">Payables System Only</MenuItem>
+                  <MenuItem value="curriculum">Curriculum Checker Only</MenuItem>
+                </Select>
+              </FormControl>
+              <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+                <Button onClick={handleSaveRole} variant="contained">
+                  Save
+                </Button>
+                <Button onClick={() => setEditingUser(null)}>
+                  Cancel
+                </Button>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseAdminPanel}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

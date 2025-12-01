@@ -6,7 +6,8 @@ import {
   sendPasswordResetEmail,
   updateProfile
 } from 'firebase/auth';
-import { auth } from '../firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 
 const AuthContext = createContext();
 
@@ -21,6 +22,7 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [offlineData, setOfflineData] = useState({
     pendingActions: [],
@@ -99,6 +101,41 @@ export const AuthProvider = ({ children }) => {
     const updatedData = { ...offlineData, ...data };
     setOfflineData(updatedData);
     localStorage.setItem('offlineData', JSON.stringify(updatedData));
+  };
+
+  // Fetch user role from Firestore
+  const fetchRole = async (user) => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        setRole(userDoc.data().role || 'admin'); // Default to admin if no role set
+      } else {
+        // Create user document with default admin role
+        await setDoc(doc(db, 'users', user.uid), { 
+          role: 'admin',
+          email: user.email || null,
+          createdAt: new Date().toISOString()
+        });
+        setRole('admin');
+      }
+    } catch (error) {
+      console.error('Error fetching role:', error);
+      setRole('admin'); // Default to admin on error
+    }
+  };
+
+  // Update user role in Firestore
+  const updateRole = async (userId, newRole) => {
+    try {
+      await setDoc(doc(db, 'users', userId), { role: newRole }, { merge: true });
+      if (userId === currentUser?.uid) {
+        setRole(newRole);
+      }
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating role:', error);
+      return { success: false, error: error.message };
+    }
   };
 
   // Add pending action for sync when online
@@ -328,10 +365,13 @@ export const AuthProvider = ({ children }) => {
         // Cache user data when online authentication succeeds
         const userData = cacheUserData(user);
         setCurrentUser(userData);
+        // Fetch user role
+        fetchRole(user);
       } else {
         // For offline functionality, preserve cached user data
         // Only clear the current user state, not the cached data
         setCurrentUser(null);
+        setRole(null);
         // Note: Both cachedCredentials AND cachedUser are preserved for offline functionality
       }
       setLoading(false);
@@ -351,10 +391,12 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     currentUser,
+    role,
     signin,
     signout,
     resetPassword,
     updateUserProfile,
+    updateRole,
     clearCachedCredentials,
     loading,
     isOnline,
