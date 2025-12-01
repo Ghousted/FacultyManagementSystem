@@ -103,6 +103,14 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   // Staged payment edits (not yet saved to Firestore)
   const [stagedPayments, setStagedPayments] = useState({}); // { payableId: paidAmount }
   const [confirmLoading, setConfirmLoading] = useState(false);
+  
+  // Individual student payable states
+  const [individualPayableDialogOpen, setIndividualPayableDialogOpen] = useState(false);
+  const [individualPayableForm, setIndividualPayableForm] = useState({
+    type: '',
+    amount: '',
+    yearLevel: ''
+  });
 
   // Summary modal states
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
@@ -149,7 +157,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           const safePayable = {
             ...payable,
             amount: Number(payable.amount) || 0,
-            studentPayments: payable.studentPayments || {}
+            studentPayments: payable.studentPayments || {},
+            isIndividual: payable.isIndividual || false,
+            studentId: payable.studentId || null,
+            studentName: payable.studentName || null
           };
           yearSpecificPayables[yearLevel].push(safePayable);
         });
@@ -194,6 +205,13 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     }));
   };
 
+  const handleIndividualPayableInputChange = (field, value) => {
+    setIndividualPayableForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
   const handleAddPayable = () => {
     setNewPayableForm({
       type: '',
@@ -202,6 +220,16 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       paidAmount: '0'
     });
     setAddPayableDialogOpen(true);
+  };
+
+  const handleAddIndividualPayable = () => {
+    if (!selectedStudentModal) return;
+    setIndividualPayableForm({
+      type: '',
+      amount: '',
+      yearLevel: selectedStudentModal.yearLevel.toString()
+    });
+    setIndividualPayableDialogOpen(true);
   };
 
   const handleSaveNewPayable = async () => {
@@ -256,6 +284,52 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       });
     } catch (error) {
       setError('Failed to save payable: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveIndividualPayable = async () => {
+    if (!individualPayableForm.type || !individualPayableForm.amount || !individualPayableForm.yearLevel) {
+      setError('Please fill in all required fields');
+      return;
+    }
+    if (!selectedStudentModal) {
+      setError('No student selected');
+      return;
+    }
+    setLoading(true);
+    try {
+      const studentPayments = {
+        [selectedStudentModal.id]: {
+          status: 'unpaid',
+          paidAmount: 0
+        }
+      };
+      const newPayableData = {
+        type: individualPayableForm.type,
+        amount: parseFloat(individualPayableForm.amount),
+        yearLevel: parseInt(individualPayableForm.yearLevel),
+        studentPayments: studentPayments,
+        isIndividual: true,
+        studentId: selectedStudentModal.id,
+        studentName: selectedStudentModal.name
+      };
+      const result = await createPayable(newPayableData, currentUser.uid);
+      if (result.success) {
+        setSuccess(`Previous balance added successfully for ${selectedStudentModal.name}!`);
+        await loadPayables();
+        setIndividualPayableDialogOpen(false);
+        setIndividualPayableForm({
+          type: '',
+          amount: '',
+          yearLevel: ''
+        });
+      } else {
+        setError(result.error);
+      }
+    } catch (error) {
+      setError('Failed to add previous balance: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -427,8 +501,18 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
   const calculateTotalBalance = useCallback((studentId) => {
     if (!studentId || !payables) return 0;
-    const currentYear = tabValue + 1;
-    const yearPayables = payables[currentYear] || [];
+    // For irregular students, use their actual year level
+    const student = students.find(s => s.id === studentId);
+    const studentYearLevel = student?.isIrregular ? student.yearLevel : (tabValue + 1);
+    const allYearPayables = payables[studentYearLevel] || [];
+    
+    // Filter payables to only include:
+    // 1. Non-individual payables (apply to everyone)
+    // 2. Individual payables specifically for this student
+    const yearPayables = allYearPayables.filter(payable => 
+      !payable.isIndividual || payable.studentId === studentId
+    );
+    
     return yearPayables.reduce((total, payable) => {
       const studentPayment = payable.studentPayments?.[studentId] || { status: 'unpaid', paidAmount: 0 };
       // If there's a staged payment for this payable (and the staged edits belong to the currently selected student), use it.
@@ -444,7 +528,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       }
       return total;
     }, 0);
-  }, [payables, tabValue, stagedPayments]);
+  }, [payables, tabValue, stagedPayments, students]);
 
   // 1. Remove all payment dialog/modal state and handlers (studentPaymentDialogOpen, selectedPayableForPayment, selectedStudentForPayment, studentPaymentForm, handleStudentPaymentClick, handleStudentPaymentFormChange, handleSaveStudentPayment, handleMarkAsFullyPaid, and their usages)
   // 2. In the payables table, always render the paid amount as a TextField (not just in edit mode)
@@ -487,19 +571,27 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           {[1, 2, 3, 4].map(year => (
             <Tab key={year} label={`${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year`} />
           ))}
+          <Tab label="Irregular Students" />
         </Tabs>
       </Box>
       
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Typography variant="h6">
-          Students in {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year
+          {tabValue === 4 ? 'Irregular Students' : `Students in ${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year`}
         </Typography>
       </Box>
 
       {/* Student Display */}
       <Box>
         {(() => {
-          let filteredStudents = students.filter(student => student.yearLevel === (tabValue + 1));
+          let filteredStudents;
+          if (tabValue === 4) {
+            // Show only irregular students
+            filteredStudents = students.filter(student => student.isIrregular);
+          } else {
+            // Show students by year level, excluding irregular students
+            filteredStudents = students.filter(student => student.yearLevel === (tabValue + 1) && !student.isIrregular);
+          }
           if (searchTerm) {
             filteredStudents = filteredStudents.filter(student => 
               student.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -530,7 +622,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             return (
               <Box sx={{ textAlign: 'center', py: 8 }}>
                 <Typography variant="h6" color="text.secondary" gutterBottom>
-                  {searchTerm ? 'No students found' : `No students in Year ${tabValue + 1}`}
+                  {searchTerm ? 'No students found' : tabValue === 4 ? 'No irregular students' : `No students in Year ${tabValue + 1}`}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {searchTerm ? 'Try adjusting your search terms' : 'No students available for payment management'}
@@ -538,7 +630,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               </Box>
             );
           }
-          const yearPayables = payables[tabValue + 1] || [];
+          // For displaying payable counts, we need to be careful:
+          // For irregular tab (4), we can't determine a single "year payables" set
+          // since irregular students can be from different years.
+          // For now, we'll compute payables per student in the rendering logic.
           if (viewMode === 'grid') {
             return (
               <Box sx={{ 
@@ -551,6 +646,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               }}>
                 {filteredStudents.map((student) => {
                   const totalBalance = calculateTotalBalance(student.id);
+                  const allYearPayables = payables[student.yearLevel] || [];
+                  const studentYearPayables = allYearPayables.filter(payable => 
+                    !payable.isIndividual || payable.studentId === student.id
+                  );
                   return (
                     <Card 
                       key={student.id}
@@ -575,6 +674,14 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           <Typography variant="h6" fontWeight="bold" noWrap>
                             {student.name}
                           </Typography>
+                          {student.isIrregular && (
+                            <Chip 
+                              label="Irregular"
+                              size="small"
+                              color="warning"
+                              sx={{ mb: 1 }}
+                            />
+                          )}
                           <Typography 
                             variant="h5" 
                             fontWeight="bold" 
@@ -593,7 +700,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
                             <Chip 
                               size="small"
-                              label={yearPayables.length + ' payable(s)'}
+                              label={studentYearPayables.length + ' payable(s)'}
                               color="primary"
                               variant="outlined"
                             />
@@ -628,6 +735,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   <TableBody>
                     {filteredStudents.map((student) => {
                       const totalBalance = calculateTotalBalance(student.id);
+                      const allYearPayables = payables[student.yearLevel] || [];
+                      const studentYearPayables = allYearPayables.filter(payable => 
+                        !payable.isIndividual || payable.studentId === student.id
+                      );
                       return (
                         <TableRow 
                           key={student.id} 
@@ -640,7 +751,19 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           }}
                         >
                           <TableCell>{student.studentNumber}</TableCell>
-                          <TableCell>{student.name}</TableCell>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              {student.name}
+                              {student.isIrregular && (
+                                <Chip 
+                                  label="Irregular"
+                                  size="small"
+                                  color="warning"
+                                  variant="outlined"
+                                />
+                              )}
+                            </Box>
+                          </TableCell>
                           <TableCell align="right">
                             <Typography 
                               variant="body1" 
@@ -650,7 +773,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                               ₱{totalBalance.toLocaleString()}
                             </Typography>
                           </TableCell>
-                          <TableCell align="right">{yearPayables.length}</TableCell>
+                          <TableCell align="right">{studentYearPayables.length}</TableCell>
                           <TableCell align="center">
                             <Chip 
                               size="small"
@@ -668,7 +791,13 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                         <strong>₱{filteredStudents.reduce((sum, student) => sum + calculateTotalBalance(student.id), 0).toLocaleString()}</strong>
                       </TableCell>
                       <TableCell align="right">
-                        <strong>{yearPayables.length * filteredStudents.length}</strong>
+                        <strong>{filteredStudents.reduce((sum, student) => {
+                          const allYearPayables = payables[student.yearLevel] || [];
+                          const studentPayables = allYearPayables.filter(payable => 
+                            !payable.isIndividual || payable.studentId === student.id
+                          );
+                          return sum + studentPayables.length;
+                        }, 0)}</strong>
                       </TableCell>
                       <TableCell align="center">-</TableCell>
                     </TableRow>
@@ -952,24 +1081,62 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             <Box>
               <Typography variant="h6" fontWeight="bold">
                 {selectedStudentModal?.name}
+                {selectedStudentModal?.isIrregular && (
+                  <Chip 
+                    label="Irregular"
+                    size="small"
+                    color="warning"
+                    sx={{ ml: 1 }}
+                  />
+                )}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year Student - Payables Management
+                {selectedStudentModal?.isIrregular 
+                  ? `Irregular Student (${selectedStudentModal.yearLevel === 1 ? '1st' : selectedStudentModal.yearLevel === 2 ? '2nd' : selectedStudentModal.yearLevel === 3 ? '3rd' : '4th'} Year Level) - Payables Management`
+                  : `${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year Student - Payables Management`
+                }
               </Typography>
             </Box>
-            <Typography 
-              variant="h6" 
-              fontWeight="bold" 
-              color={selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id) > 0 ? "error" : "success" : "inherit"}
-            >
-              Total Balance: ₱{selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id).toLocaleString() : '0'}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              <Button
+                variant="contained"
+                color="warning"
+                startIcon={<AddIcon />}
+                onClick={handleAddIndividualPayable}
+                size="medium"
+                sx={{ fontWeight: 'bold' }}
+              >
+                Add Previous Balance
+              </Button>
+              <Typography 
+                variant="h6" 
+                fontWeight="bold" 
+                color={selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id) > 0 ? "error" : "success" : "inherit"}
+              >
+                Total: ₱{selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id).toLocaleString() : '0'}
+              </Typography>
+            </Box>
           </Box>
         </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 1 }}>
             {(() => {
-              const yearPayables = payables[tabValue + 1] || [];
+              // For irregular students, show payables for their actual year level
+              const studentYearLevel = selectedStudentModal?.isIrregular ? selectedStudentModal.yearLevel : (tabValue + 1);
+              const allYearPayables = payables[studentYearLevel] || [];
+              
+              // Filter payables to only show:
+              // 1. Non-individual payables (apply to everyone)
+              // 2. Individual payables specifically for this student
+              const yearPayables = allYearPayables.filter(payable => {
+                const shouldShow = !payable.isIndividual || payable.studentId === selectedStudentModal?.id;
+                console.log('Payable:', payable.type, 'isIndividual:', payable.isIndividual, 'studentId:', payable.studentId, 'selectedStudentId:', selectedStudentModal?.id, 'shouldShow:', shouldShow);
+                return shouldShow;
+              });
+              
+              console.log('Total payables for year level', studentYearLevel, ':', allYearPayables.length);
+              console.log('Filtered payables for student', selectedStudentModal?.name, ':', yearPayables.length);
+              
               if (yearPayables.length === 0) {
                 return (
                   <Box sx={{ textAlign: 'center', py: 4 }}>
@@ -985,8 +1152,18 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   <Card key={payable.id} sx={{ mb: 2, border: '1px solid #e0e0e0' }}>
                     <CardContent>
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                        <Box>
-                          <Typography variant="h6" fontWeight="bold">{payable.type}</Typography>
+                        <Box sx={{ flex: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            <Typography variant="h6" fontWeight="bold">{payable.type}</Typography>
+                            {payable.isIndividual && (
+                              <Chip 
+                                label="Individual Charge"
+                                size="small"
+                                color="warning"
+                                variant="outlined"
+                              />
+                            )}
+                          </Box>
                           <Typography variant="body2" color="text.secondary">
                             Total Amount: ₱{payable.amount.toLocaleString()}
                           </Typography>
@@ -1160,6 +1337,104 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             disabled={confirmLoading}
           >
             {confirmLoading ? 'Confirming...' : 'Confirm All Changes'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Individual Student Payable Dialog */}
+      <Dialog 
+        open={individualPayableDialogOpen} 
+        onClose={() => {
+          setIndividualPayableDialogOpen(false);
+          setIndividualPayableForm({
+            type: '',
+            amount: '',
+            yearLevel: ''
+          });
+        }} 
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle>
+          Add Previous Balance / Custom Charge
+          {selectedStudentModal && (
+            <Typography variant="body2" color="text.secondary">
+              For: {selectedStudentModal.name}
+            </Typography>
+          )}
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 1 }}>
+            <TextField
+              fullWidth
+              label="Payable Type"
+              value={individualPayableForm.type}
+              onChange={(e) => handleIndividualPayableInputChange('type', e.target.value)}
+              placeholder="e.g., 2nd Year Balance, Laboratory Fee, etc."
+              sx={{ mb: 2 }}
+            />
+            
+            <TextField
+              fullWidth
+              label="Amount"
+              type="number"
+              value={individualPayableForm.amount}
+              onChange={(e) => handleIndividualPayableInputChange('amount', e.target.value)}
+              InputProps={{
+                startAdornment: <InputAdornment position="start">₱</InputAdornment>,
+                inputMode: 'numeric',
+                pattern: '[0-9]*',
+                onWheel: (e) => e.preventDefault(),
+              }}
+              sx={{ 
+                mb: 2,
+                '& input[type=number]': {
+                  '-moz-appearance': 'textfield',
+                },
+                '& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button': {
+                  '-webkit-appearance': 'none',
+                  margin: 0,
+                },
+              }}
+            />
+
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Year Level (when the charge was incurred)</InputLabel>
+              <Select
+                value={individualPayableForm.yearLevel}
+                onChange={(e) => handleIndividualPayableInputChange('yearLevel', e.target.value)}
+                label="Year Level (when the charge was incurred)"
+              >
+                <MenuItem value="1">1st Year</MenuItem>
+                <MenuItem value="2">2nd Year</MenuItem>
+                <MenuItem value="3">3rd Year</MenuItem>
+                <MenuItem value="4">4th Year</MenuItem>
+              </Select>
+            </FormControl>
+
+            <Alert severity="info" sx={{ mt: 2 }}>
+              This will add a payable specifically for {selectedStudentModal?.name}. 
+              Other students will not see this charge.
+            </Alert>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setIndividualPayableDialogOpen(false);
+            setIndividualPayableForm({
+              type: '',
+              amount: '',
+              yearLevel: ''
+            });
+          }}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSaveIndividualPayable} 
+            variant="contained"
+            disabled={!individualPayableForm.type || !individualPayableForm.amount || !individualPayableForm.yearLevel || loading}
+          >
+            {loading ? 'Adding...' : 'Add Previous Balance'}
           </Button>
         </DialogActions>
       </Dialog>
