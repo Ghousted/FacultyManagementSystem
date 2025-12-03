@@ -1,10 +1,20 @@
 import './App.css'
+import { useEffect, useState } from 'react';
 import { useAuth } from './contexts/AuthContext'
 import AuthContainer from './components/auth/AuthContainer'
 import Dashboard from './components/Dashboard'
+import Layout from './components/layout/Layout'
+import AdminPanel from './components/admin/AdminPanel';
 
 function App() {
-  const { currentUser, loading } = useAuth();
+  const { currentUser, loading, role } = useAuth();
+  const [route, setRoute] = useState(window.location.hash || '');
+
+  useEffect(() => {
+    const onHashChange = () => setRoute(window.location.hash || '');
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   if (loading) {
     return (
@@ -18,9 +28,13 @@ function App() {
   }
 
   return (
-    <div className="">
-      {currentUser ? <Dashboard /> : <AuthContainer />}
-    </div>
+    <Layout>
+      {currentUser ? (
+        route === '#/admin' ? <AdminPanel /> : <Dashboard />
+      ) : (
+        <AuthContainer />
+      )}
+    </Layout>
   )
 }
 

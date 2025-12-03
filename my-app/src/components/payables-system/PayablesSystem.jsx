@@ -1,65 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
-import {
-  Box,
-  Typography,
-  TextField,
-  Button,
-  Card,
-  CardContent,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Chip,
-  Alert,
-  Tabs,
-  Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  IconButton,
-  InputAdornment,
-  AppBar,
-  Toolbar,
-  Divider,
-  ToggleButton,
-  ToggleButtonGroup,
-} from '@mui/material';
-import GridViewIcon from '@mui/icons-material/GridView';
-import ListIcon from '@mui/icons-material/List';
-import SortIcon from '@mui/icons-material/Sort';
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
-import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-
-import AddIcon from '@mui/icons-material/Add';
-import PaymentIcon from '@mui/icons-material/Payment';
-import ReceiptIcon from '@mui/icons-material/Receipt';
-import SearchIcon from '@mui/icons-material/Search';
-import EditIcon from '@mui/icons-material/Edit';
-import SaveIcon from '@mui/icons-material/Save';
-import CancelIcon from '@mui/icons-material/Cancel';
-import WifiOffIcon from '@mui/icons-material/WifiOff';
-import UndoIcon from '@mui/icons-material/Undo';
 import { getStudents } from '../../models/curriculumModels';
 import { 
   createPayable, 
   getPayables, 
   updatePayable, 
-  deletePayable
+  deletePayable,
+  createStudentPayment,
+  getStudentPayments,
+  getAllStudentPayments
 } from '../../models/payablesModels';
 import { useAuth } from '../../contexts/AuthContext';
-import Logo from '../../assets/logo.png'; // Adjust the path as necessary
 
 const PayablesSystem = ({ onBackToDashboard }) => {
-  const { currentUser, signout } = useAuth(); // <-- add signout here
+  const { currentUser } = useAuth();
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -115,6 +68,27 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   // Summary modal states
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [summaryData, setSummaryData] = useState({ changes: [], totalCurrentBalance: 0, totalNewBalance: 0 });
+
+  // Delete confirmation modal state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  // Transaction history modal state
+  const [transactionModalOpen, setTransactionModalOpen] = useState(false);
+  const [transactionPayable, setTransactionPayable] = useState(null);
+  const [transactionPayments, setTransactionPayments] = useState([]);
+
+  // Student transactions modal state
+  const [studentTransactionsModalOpen, setStudentTransactionsModalOpen] = useState(false);
+  const [selectedStudentForTransactions, setSelectedStudentForTransactions] = useState(null);
+  const [studentTransactions, setStudentTransactions] = useState([]);
+
+  // Payables view controls (inside Student modal)
+  const [payablesFilter, setPayablesFilter] = useState('all'); // all | unpaid | partially_paid | fully_paid | individual
+  const [payablesViewMode, setPayablesViewMode] = useState('list'); // list | grid
+  const [payablesSearch, setPayablesSearch] = useState('');
+  // Action menu state for per-payable dropdown in student modal
+  const [openActionMenuId, setOpenActionMenuId] = useState(null);
 
   const loadStudents = useCallback(async () => {
     if (!currentUser) {
@@ -370,14 +344,14 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   };
 
   const handleDeletePayable = async (payableId) => {
-    if (!window.confirm('Are you sure you want to delete this payable?')) return;
-    
     setLoading(true);
     try {
       const result = await deletePayable(payableId);
       if (result.success) {
         setSuccess('Payable deleted successfully!');
         await loadPayables();
+        setDeleteDialogOpen(false);
+        setDeleteTarget(null);
       } else {
         setError(result.error);
       }
@@ -397,19 +371,20 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     const changes = [];
     let totalCurrentBalance = 0;
     let totalNewBalance = 0;
-    Object.entries(stagedPayments).forEach(([payableId, newPaidAmount]) => {
-      const payable = yearPayables.find(p => p.id === payableId);
+    Object.entries(stagedPayments).forEach(([payableId, newPaymentAmount]) => {
+      const payable = yearPayables.find(p => p.id === payableId) || Object.values(payables).flat().find(p => p.id === payableId);
       if (payable) {
         const currentPaid = payable.studentPayments?.[studentId]?.paidAmount || 0;
         const amount = Number(payable.amount) || 0;
         totalCurrentBalance += Math.max(0, amount - currentPaid);
-        totalNewBalance += Math.max(0, amount - newPaidAmount);
+        totalNewBalance += Math.max(0, amount - (currentPaid + newPaymentAmount));
         changes.push({
           payableId,
           type: payable.type,
           amount,
           currentPaid,
-          newPaid: newPaidAmount
+          newPayment: newPaymentAmount,
+          newTotalPaid: currentPaid + newPaymentAmount
         });
       }
     });
@@ -426,22 +401,33 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     try {
       // For each change, compute status and send update
       for (const change of summaryData.changes) {
-        const { payableId, newPaid } = change;
+        const { payableId, newPayment } = change;
         // Find payable to get total amount
         const currentYear = tabValue + 1;
         const yearPayables = payables[currentYear] || [];
-        const payable = yearPayables.find(p => p.id === payableId);
+        const payable = yearPayables.find(p => p.id === payableId) || Object.values(payables).flat().find(p => p.id === payableId);
         if (!payable) continue;
         const payableAmount = Number(payable.amount) || 0;
-        const newStatus = newPaid >= payableAmount ? 'fully_paid' : (newPaid > 0 ? 'partially_paid' : 'unpaid');
+        const newTotalPaid = change.currentPaid + newPayment;
+        const newStatus = newTotalPaid >= payableAmount ? 'fully_paid' : (newTotalPaid > 0 ? 'partially_paid' : 'unpaid');
 
         const updateObj = {
-          [`studentPayments.${studentId}.paidAmount`]: newPaid,
+          [`studentPayments.${studentId}.paidAmount`]: newTotalPaid,
           [`studentPayments.${studentId}.status`]: newStatus
         };
         const result = await updatePayable(payableId, updateObj);
         if (!result.success) {
           throw new Error(result.error || 'Failed to update payable ' + payableId);
+        }
+        // Record the transaction
+        if (newPayment > 0) {
+          await createStudentPayment({
+            studentId,
+            payableId,
+            amount: newPayment,
+            description: `Payment for ${change.type}`,
+            date: new Date().toISOString()
+          });
         }
       }
 
@@ -463,6 +449,26 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   const handleDiscardStagedPayments = () => {
     setStagedPayments({});
   };
+
+  // Collect a student's payables: all current-year payables plus any individual
+  // previous balances across all years that belong to the student.
+  const getStudentPayables = useCallback((student) => {
+    if (!student || !payables) return [];
+    const currentYearPayables = payables[student.yearLevel] || [];
+    const individualAcrossYears = Object.values(payables)
+      .flat()
+      .filter(p => p.isIndividual && p.studentId === student.id);
+    const merged = {};
+    currentYearPayables.forEach(p => {
+      if (!p.isIndividual) {
+        merged[p.id] = p;
+      } else if (p.studentId === student.id) {
+        merged[p.id] = p;
+      }
+    });
+    individualAcrossYears.forEach(p => { merged[p.id] = p; });
+    return Object.values(merged);
+  }, [payables]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -492,43 +498,38 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
   // Stage paid amount changes locally. Changes will not be saved until user clicks Confirm.
   const handleStagedPaidAmountChange = useCallback((payableId, newValue) => {
-    const newPaidAmount = newValue === '' ? 0 : parseFloat(newValue) || 0;
+    const newPaymentAmount = newValue === '' ? 0 : parseFloat(newValue) || 0;
+    // Find the payable
+    const payable = Object.values(payables).flat().find(p => p.id === payableId);
+    if (!payable || !selectedStudentModal) return;
+    const studentPayment = payable.studentPayments?.[selectedStudentModal.id] || { paidAmount: 0 };
+    const remaining = payable.amount - studentPayment.paidAmount;
+    const limitedAmount = Math.min(newPaymentAmount, remaining);
     setStagedPayments(prev => ({
       ...prev,
-      [payableId]: newPaidAmount
+      [payableId]: limitedAmount
     }));
-  }, []);
+  }, [payables, selectedStudentModal]);
 
   const calculateTotalBalance = useCallback((studentId) => {
     if (!studentId || !payables) return 0;
-    // For irregular students, use their actual year level
     const student = students.find(s => s.id === studentId);
-    const studentYearLevel = student?.isIrregular ? student.yearLevel : (tabValue + 1);
-    const allYearPayables = payables[studentYearLevel] || [];
-    
-    // Filter payables to only include:
-    // 1. Non-individual payables (apply to everyone)
-    // 2. Individual payables specifically for this student
-    const yearPayables = allYearPayables.filter(payable => 
-      !payable.isIndividual || payable.studentId === studentId
-    );
-    
-    return yearPayables.reduce((total, payable) => {
+    if (!student) return 0;
+    const studentPayables = getStudentPayables(student);
+    return studentPayables.reduce((total, payable) => {
       const studentPayment = payable.studentPayments?.[studentId] || { status: 'unpaid', paidAmount: 0 };
-      // If there's a staged payment for this payable (and the staged edits belong to the currently selected student), use it.
       const stagedPaid = stagedPayments?.[payable.id];
       const paidAmount = typeof stagedPaid !== 'undefined' ? Number(stagedPaid) : Number(studentPayment.paidAmount || 0);
+      const payableAmount = Number(payable.amount) || 0;
       const status = typeof stagedPaid !== 'undefined'
-        ? (paidAmount >= Number(payable.amount || 0) ? 'fully_paid' : (paidAmount > 0 ? 'partially_paid' : 'unpaid'))
+        ? (paidAmount >= payableAmount ? 'fully_paid' : (paidAmount > 0 ? 'partially_paid' : 'unpaid'))
         : studentPayment.status;
-
       if (status === 'unpaid' || status === 'partially_paid') {
-        const payableAmount = Number(payable.amount) || 0;
-        return total + (payableAmount - paidAmount);
+        return total + Math.max(0, payableAmount - paidAmount);
       }
       return total;
     }, 0);
-  }, [payables, tabValue, stagedPayments, students]);
+  }, [payables, stagedPayments, students, getStudentPayables]);
 
   // 1. Remove all payment dialog/modal state and handlers (studentPaymentDialogOpen, selectedPayableForPayment, selectedStudentForPayment, studentPaymentForm, handleStudentPaymentClick, handleStudentPaymentFormChange, handleSaveStudentPayment, handleMarkAsFullyPaid, and their usages)
   // 2. In the payables table, always render the paid amount as a TextField (not just in edit mode)
@@ -537,52 +538,73 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   // 5. Remove any references to the old modal-based payment workflow
 
   const renderStudentList = () => (
-    <Box >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-        <TextField
+    <div>
+      <div className="flex items-center justify-between gap-1 mb-6">
+        <input
+          type="text"
           placeholder="Search students by name..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-          size="small"
-          sx={{ flex: 1 }}
+          className="w-full sm:max-w-sm px-4 py-1.5 border border-gray-300 rounded-xl"
         />
-        <IconButton onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}>
-          {viewMode === 'grid' ? <ListIcon /> : <GridViewIcon />}
-        </IconButton>
-        <Button
-          variant="outlined"
-          startIcon={<AddIcon />}
+        <div className='flex items-center gap-2'>
+          <button onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')} className="px-2 py-1.5 cursor-pointer hover:bg-gray-100 border border-gray-300 rounded-xl">
+          {viewMode === 'grid' ? (
+            <i className="bi bi-list-ul"></i>
+          ) : (
+            <i className="bi bi-grid-3x3-gap"></i>
+          )}
+        </button>
+        <button
+          className="px-5 cursor-pointer py-1.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700"
           onClick={handleAddPayable}
-          size="small"
         >
-          Add Payables
-        </Button>
-      </Box>
+           Add Payables
+        </button>
+        </div>
+      </div>
 
-      <Box sx={{ mb: 2 }}>
-        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
-          {[1, 2, 3, 4].map(year => (
-            <Tab key={year} label={`${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year`} />
-          ))}
-          <Tab label="Irregular Students" />
-        </Tabs>
-      </Box>
+   <div className="mb-8">
+    <div className="flex gap-4">
+      {[1, 2, 3, 4].map(year => (
+        <button
+          key={year}
+          className={`
+            px-2 py-1 cursor-pointer
+            ${tabValue === year - 1 
+              ? 'border-b-2 border-blue-600 text-blue-600 font-semibold' 
+              : 'border-b-2 border-transparent'
+            }
+            hover:border-blue-600
+          `}
+          onClick={() => setTabValue(year - 1)}
+        >
+          {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
+        </button>
+      ))}
+
+      <button
+        className={`
+            px-2 py-1 cursor-pointer
+          ${tabValue === 4
+            ? 'border-b-2 border-blue-600 text-blue-600 font-semibold'
+            : 'border-b-2 border-transparent'
+          }
+          hover:border-blue-600
+        `}
+        onClick={() => setTabValue(4)}
+      >
+        Irregular Students
+      </button>
+    </div>
+  </div>
+
+
       
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h6">
-          {tabValue === 4 ? 'Irregular Students' : `Students in ${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year`}
-        </Typography>
-      </Box>
+    
 
       {/* Student Display */}
-      <Box>
+      <div>
         {(() => {
           let filteredStudents;
           if (tabValue === 4) {
@@ -597,37 +619,41 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               student.name.toLowerCase().includes(searchTerm.toLowerCase())
             );
           }
-          // Sort students
+          // Sort students (defensive for missing fields)
           filteredStudents.sort((a, b) => {
             const balanceA = calculateTotalBalance(a.id);
             const balanceB = calculateTotalBalance(b.id);
+            const nameA = (a.name || '').toString();
+            const nameB = (b.name || '').toString();
+            const idA = (a.studentNumber || '').toString();
+            const idB = (b.studentNumber || '').toString();
             switch (sortBy) {
               case 'name-asc':
-                return a.name.localeCompare(b.name);
+                return nameA.localeCompare(nameB);
               case 'name-desc':
-                return b.name.localeCompare(a.name);
+                return nameB.localeCompare(nameA);
               case 'balance-asc':
                 return balanceA - balanceB;
               case 'balance-desc':
                 return balanceB - balanceA;
               case 'id-asc':
-                return a.studentNumber.localeCompare(b.studentNumber);
+                return idA.localeCompare(idB);
               case 'id-desc':
-                return b.studentNumber.localeCompare(a.studentNumber);
+                return idB.localeCompare(idA);
               default:
                 return 0;
             }
           });
           if (filteredStudents.length === 0) {
             return (
-              <Box sx={{ textAlign: 'center', py: 8 }}>
-                <Typography variant="h6" color="text.secondary" gutterBottom>
+              <div className="text-center py-8">
+                <h6 className="text-lg text-gray-600 mb-2">
                   {searchTerm ? 'No students found' : tabValue === 4 ? 'No irregular students' : `No students in Year ${tabValue + 1}`}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
+                </h6>
+                <p className="text-sm text-gray-600">
                   {searchTerm ? 'Try adjusting your search terms' : 'No students available for payment management'}
-                </Typography>
-              </Box>
+                </p>
+              </div>
             );
           }
           // For displaying payable counts, we need to be careful:
@@ -636,321 +662,210 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           // For now, we'll compute payables per student in the rendering logic.
           if (viewMode === 'grid') {
             return (
-              <Box sx={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
-                gap: 2,
-                '@media (min-width: 900px)': {
-                  gridTemplateColumns: 'repeat(3, 1fr)'
-                }
-              }}>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                 {filteredStudents.map((student) => {
                   const totalBalance = calculateTotalBalance(student.id);
-                  const allYearPayables = payables[student.yearLevel] || [];
-                  const studentYearPayables = allYearPayables.filter(payable => 
-                    !payable.isIndividual || payable.studentId === student.id
-                  );
                   return (
-                    <Card 
-                      key={student.id}
-                      sx={{ 
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease-in-out',
-                        '&:hover': {
-                          transform: 'translateY(-2px)',
-                          boxShadow: 4
-                        },
-                        border: totalBalance > 0 ? '2px solid #f44336' : '2px solid #4caf50'
-                      }}
-                      onClick={() => {
-                        setSelectedStudentModal(student);
-                        setStudentModalOpen(true);
-                        // Clear any staged payments when opening a new student modal
-                        setStagedPayments({});
-                      }}
-                    >
-                      <CardContent>
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                          <Typography variant="h6" fontWeight="bold" noWrap>
-                            {student.name}
-                          </Typography>
-                          {student.isIrregular && (
-                            <Chip 
-                              label="Irregular"
-                              size="small"
-                              color="warning"
-                              sx={{ mb: 1 }}
-                            />
-                          )}
-                          <Typography 
-                            variant="h5" 
-                            fontWeight="bold" 
-                            color={totalBalance > 0 ? "error" : "success"}
-                            textAlign="center"
-                          >
-                            ₱{totalBalance.toLocaleString()}
-                          </Typography>
-                          <Typography 
-                            variant="caption" 
-                            color="text.secondary"
-                            textAlign="center"
-                          >
-                            {totalBalance > 0 ? 'Outstanding Balance' : 'All Paid'}
-                          </Typography>
-                          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 1 }}>
-                            <Chip 
-                              size="small"
-                              label={studentYearPayables.length + ' payable(s)'}
-                              color="primary"
-                              variant="outlined"
-                            />
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
+                    <div 
+                    key={student.id}
+                    className={`p-4 cursor-pointer transition-all duration-200 hover:-translate-y-1 hover:shadow-lg border border-gray-300 bg-white rounded-lg`}
+                    onClick={() => {
+                      setSelectedStudentModal(student);
+                      setStudentModalOpen(true);
+                      // Clear any staged payments when opening a new student modal
+                      setStagedPayments({});
+                      setPayablesFilter('all');
+                      setPayablesViewMode('list');
+                      setPayablesSearch('');
+                    }}
+                  >
+                    <div className="flex flex-col gap-1">
+                      <h6 className="text-lg font-bold">{student.name}</h6>
+                    
+                      <h5 className={`text-2xl font-bold text-center ${totalBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        ₱{totalBalance.toLocaleString()}
+                      </h5>
+                      <p className="text-xs text-gray-600 text-center">
+                        {totalBalance > 0 ? 'Outstanding Balance' : 'All Paid'}
+                      </p>
+                      <button
+                        className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 mt-2"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          setSelectedStudentForTransactions(student);
+                          setStudentTransactionsModalOpen(true);
+                          // Load all transactions for the student
+                          const result = await getAllStudentPayments(student.id);
+                          if (result.success) {
+                            setStudentTransactions(result.data);
+                          } else {
+                            setError(result.error);
+                          }
+                        }}
+                      >
+                        View Transactions
+                      </button>
+                    </div>
+                  </div>
                   );
                 })}
-              </Box>
+              </div>
             );
           } else {
             // List view
             return (
-              <TableContainer component={Card}>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell onClick={() => setSortBy(sortBy === 'id-asc' ? 'id-desc' : 'id-asc')} sx={{ cursor: 'pointer' }}>
-                        Student ID {sortBy === 'id-asc' ? <ArrowUpwardIcon fontSize="small" /> : sortBy === 'id-desc' ? <ArrowDownwardIcon fontSize="small" /> : <SortIcon fontSize="small" />}
-                      </TableCell>
-                      <TableCell onClick={() => setSortBy(sortBy === 'name-asc' ? 'name-desc' : 'name-asc')} sx={{ cursor: 'pointer' }}>
-                        Student Name {sortBy === 'name-asc' ? <ArrowUpwardIcon fontSize="small" /> : sortBy === 'name-desc' ? <ArrowDownwardIcon fontSize="small" /> : <SortIcon fontSize="small" />}
-                      </TableCell>
-                      <TableCell align="right" onClick={() => setSortBy(sortBy === 'balance-asc' ? 'balance-desc' : 'balance-asc')} sx={{ cursor: 'pointer' }}>
-                        Total Balance {sortBy === 'balance-asc' ? <ArrowUpwardIcon fontSize="small" /> : sortBy === 'balance-desc' ? <ArrowDownwardIcon fontSize="small" /> : <SortIcon fontSize="small" />}
-                      </TableCell>
-                      <TableCell align="right">Payables Count</TableCell>
-                      <TableCell align="center">Status</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredStudents.map((student) => {
+              <div className="bg-white border border-gray-300 rounded-lg shadow-lg overflow-hidden">
+                <table className="w-full table-auto">
+                  <thead className="bg-blue-600 text-white">
+                    <tr>
+                      <th className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none" onClick={() => setSortBy(sortBy === 'id-asc' ? 'id-desc' : 'id-asc')}>
+                        <div className="flex items-center justify-between">
+                          <span>Student ID</span>
+                          {sortBy === 'id-asc' ? <i className="bi bi-chevron-up"></i> : sortBy === 'id-desc' ? <i className="bi bi-chevron-down"></i> : <i className="bi bi-chevron-expand"></i>}
+                        </div>
+                      </th>
+                      <th className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none" onClick={() => setSortBy(sortBy === 'name-asc' ? 'name-desc' : 'name-asc')}>
+                        <div className="flex items-center justify-between">
+                          <span>Student Name</span>
+                          {sortBy === 'name-asc' ? <i className="bi bi-chevron-up"></i> : sortBy === 'name-desc' ? <i className="bi bi-chevron-down"></i> : <i className="bi bi-chevron-expand"></i>}
+                        </div>
+                      </th>
+                      <th className="p-3 w-40 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none" onClick={() => setSortBy(sortBy === 'balance-asc' ? 'balance-desc' : 'balance-asc')}>
+                        <div className="flex items-center justify-between">
+                          <span>Total Balance</span>
+                          {sortBy === 'balance-asc' ? <i className="bi bi-chevron-up"></i> : sortBy === 'balance-desc' ? <i className="bi bi-chevron-down"></i> : <i className="bi bi-chevron-expand"></i>}
+                        </div>
+                      </th>
+                      <th className="p-3 w-32 text-center">Status</th>
+                      <th className="p-3 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredStudents.map((student, index) => {
                       const totalBalance = calculateTotalBalance(student.id);
-                      const allYearPayables = payables[student.yearLevel] || [];
-                      const studentYearPayables = allYearPayables.filter(payable => 
-                        !payable.isIndividual || payable.studentId === student.id
-                      );
                       return (
-                        <TableRow 
+                        <tr 
                           key={student.id} 
-                          hover 
-                          sx={{ cursor: 'pointer' }}
+                          className={`cursor-pointer transition-all duration-200 hover:bg-blue-50 hover:shadow-sm border-b border-gray-200 ${index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}
                           onClick={() => {
                             setSelectedStudentModal(student);
                             setStudentModalOpen(true);
                             setStagedPayments({});
+                            setPayablesFilter('all');
+                            setPayablesViewMode('list');
+                            setPayablesSearch('');
                           }}
                         >
-                          <TableCell>{student.studentNumber}</TableCell>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <td className="p-3">{student.studentNumber}</td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-1">
                               {student.name}
                               {student.isIrregular && (
-                                <Chip 
-                                  label="Irregular"
-                                  size="small"
-                                  color="warning"
-                                  variant="outlined"
-                                />
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                  Irregular
+                                </span>
                               )}
-                            </Box>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography 
-                              variant="body1" 
-                              fontWeight="bold" 
-                              color={totalBalance > 0 ? "error" : "success"}
-                            >
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <span className={`font-bold ${totalBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
                               ₱{totalBalance.toLocaleString()}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">{studentYearPayables.length}</TableCell>
-                          <TableCell align="center">
-                            <Chip 
-                              size="small"
-                              label={totalBalance > 0 ? 'Partially Paid' : 'Fully Paid'}
-                              color={totalBalance > 0 ? 'error' : 'success'}
-                              variant="outlined"
-                            />
-                          </TableCell>
-                        </TableRow>
+                            </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${totalBalance > 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                              {totalBalance > 0 ? 'Outstanding' : 'Paid'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                setSelectedStudentForTransactions(student);
+                                setStudentTransactionsModalOpen(true);
+                                // Load all transactions for the student
+                                const result = await getAllStudentPayments(student.id);
+                                if (result.success) {
+                                  setStudentTransactions(result.data);
+                                } else {
+                                  setError(result.error);
+                                }
+                              }}
+                            >
+                              View Transactions
+                            </button>
+                          </td>
+                        </tr>
                       );
                     })}
-                    <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                      <TableCell colSpan={2} align="right"><strong>Total</strong></TableCell>
-                      <TableCell align="right">
-                        <strong>₱{filteredStudents.reduce((sum, student) => sum + calculateTotalBalance(student.id), 0).toLocaleString()}</strong>
-                      </TableCell>
-                      <TableCell align="right">
-                        <strong>{filteredStudents.reduce((sum, student) => {
-                          const allYearPayables = payables[student.yearLevel] || [];
-                          const studentPayables = allYearPayables.filter(payable => 
-                            !payable.isIndividual || payable.studentId === student.id
-                          );
-                          return sum + studentPayables.length;
-                        }, 0)}</strong>
-                      </TableCell>
-                      <TableCell align="center">-</TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </TableContainer>
+                    <tr className="bg-blue-50 font-semibold text-blue-900 border-t-2 border-blue-200">
+                      <td colSpan={4} className="p-3 text-right">Total Outstanding Balance</td>
+                      <td className="p-3 text-center font-bold text-lg">
+                        ₱{filteredStudents.reduce((sum, student) => sum + calculateTotalBalance(student.id), 0).toLocaleString()}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             );
           }
         })()}
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 
-  // Add sign out handler
-  const handleSignOut = async () => {
-    try {
-      await signout();
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
-  };
+  // Global header handles sign out now
 
   return (
-    <Box sx={{ padding: 3}}>
-      <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa', }}>
-                    <Toolbar>
-                      <Box
-                        component="img"
-                        src={Logo}
-                        alt="Logo"
-                        sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
-                        onClick={onBackToDashboard}
-                      />
-                      <Typography 
-                        variant="h5" 
-                        sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
-                        onClick={onBackToDashboard}
-                      >
-                        College of Computer Studies
-                      </Typography>
-                      <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
-                        Sign Out
-                      </Button>
-                    </Toolbar>
-                  </AppBar>
-            
-      
+    <div className="p-4">
       {!currentUser && (
-        <Alert severity="info" sx={{ mx: 3, mb: 2 }}>
+        <div className="mx-3 mb-2 p-4 bg-blue-50 border border-blue-200 rounded text-blue-800">
           Please sign in to access the Payables System
-        </Alert>
+        </div>
       )}
       
-      {error && <Alert severity="error" sx={{ mx: 3, mb: 2 }}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mx: 3, mb: 2 }}>{success}</Alert>}
+      {error && <div className="mx-3 mb-2 p-4 bg-red-50 border border-red-200 rounded text-red-800">{error}</div>}
+      {success && <div className="mx-3 mb-2 p-4 bg-green-50 border border-green-200 rounded text-green-800">{success}</div>}
       
       {currentUser ? (
-        <Box sx={{ flex: 1, pt: 0 }}>
-          <Box sx={{ 
-             mt: 7,
-             backgroundColor: 'white',
-              padding: 3,
-              borderRadius: 2,
-              boxShadow: 3,
-              border: '1px solid #e0e0e0',
-              mb: 3,
-          }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <IconButton
+        <div className=" max-w-7xl mx-auto">
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-300 mb-10">
+            <div className="flex items-center gap-6">
+              <button
                 onClick={onBackToDashboard}
-                sx={{ 
-                  color: 'white',
-                  backgroundColor: 'royalblue',
-                  '&:hover': { 
-                    backgroundColor: 'rgba(65, 105, 225, 0.8)',
-                    color: 'white'
-                  }
-                }}
+                className="text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-full"
               >
-                <ArrowBackIcon />
-              </IconButton>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap:1  }}>
-                <Typography variant="h5" sx={{ color:' royalblue', fontWeight: 700}}>
-                Payables Management System
-              </Typography>
-                <Typography variant="subtitle1" color="text.secondary">
-                    Manage invoices, track payments, and handle financial transactions for the institution
-                  </Typography>
-              </Box>
-            </Box>
-          </Box>
-          <Box >
+                Back
+              </button>
+              <div className="flex flex-col gap-1">
+              <h5 className="text-2xl font-bold text-blue-600">
+                  Payables Management System
+                </h5>
+                <p className=" text-gray-600">
+                  Manage invoices, track payments, and handle financial transactions for the institution
+                </p>
+              </div>
+            </div>
+          </div>
+          <div>
             {renderStudentList()}
-          </Box>
-        </Box>
+          </div>
+        </div>
       ) : (
-        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Box sx={{ p: 4, textAlign: 'center', border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa' }}>
-            <Typography variant="h6" color="text.secondary">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="p-4 text-center border border-gray-200 rounded bg-gray-50">
+            <p className="text-lg text-gray-600">
               Sign in to access payment management features
-            </Typography>
-          </Box>
-        </Box>
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Add Payable Dialog */}
-      <Dialog 
-        open={addPayableDialogOpen} 
-        onClose={() => {
-          setAddPayableDialogOpen(false);
-          setEditingMode(false);
-          setNewPayableForm({
-            type: '',
-            amount: '',
-            status: 'unpaid',
-            paidAmount: '0'
-          });
-        }} 
-        maxWidth="sm" 
-        fullWidth
-      >
-        <DialogTitle>
-          {editingMode ? 'Edit Payable' : 'Add New Payable'}
-          <Typography variant="body2" color="text.secondary">
-            {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year Students
-          </Typography>
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 1 }}>
-            <TextField
-              fullWidth
-              label="Payable Type"
-              value={newPayableForm.type}
-              onChange={(e) => handleNewPayableInputChange('type', e.target.value)}
-              placeholder="e.g., Tuition Fee, Laboratory Fee, etc."
-              sx={{ mb: 2 }}
-            />
-            
-            <TextField
-              fullWidth
-              label="Amount"
-              type="number"
-              value={newPayableForm.amount}
-              onChange={(e) => handleNewPayableInputChange('amount', e.target.value)}
-              InputProps={{
-                startAdornment: <InputAdornment position="start">₱</InputAdornment>,
-              }}
-              sx={{ mb: 2 }}
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
+      {addPayableDialogOpen && (
+        <div className="fixed inset-0 z-1000 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => {
             setAddPayableDialogOpen(false);
             setEditingMode(false);
             setNewPayableForm({
@@ -959,486 +874,671 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               status: 'unpaid',
               paidAmount: '0'
             });
-          }}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleSaveNewPayable} 
-            variant="contained"
-            disabled={!newPayableForm.type || !newPayableForm.amount || loading}
-          >
-            {loading ? (editingMode ? 'Updating...' : 'Adding...') : (editingMode ? 'Update Payable' : 'Add Payable')}
-          </Button>
-        </DialogActions>
-      </Dialog>
+          }}></div>
+          <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-96 overflow-y-auto relative z-10">
+            <h2 className="text-xl font-bold mb-4">
+              {editingMode ? 'Edit Payable' : 'Add New Payable'}
+              <p className="text-sm text-gray-600">
+                {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year Students
+              </p>
+            </h2>
+            <div className="space-y-4">
+              <input
+                type="text"
+                className="w-full p-2 border border-gray-300 rounded"
+                placeholder="Payable Type"
+                value={newPayableForm.type}
+                onChange={(e) => handleNewPayableInputChange('type', e.target.value)}
+              />
+              
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                className="w-full p-2 border border-gray-300 rounded show-spinner"
+                placeholder="Amount"
+                value={newPayableForm.amount}
+                onChange={(e) => handleNewPayableInputChange('amount', e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
+                onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
+              />
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => {
+                setAddPayableDialogOpen(false);
+                setEditingMode(false);
+                setNewPayableForm({
+                  type: '',
+                  amount: '',
+                  status: 'unpaid',
+                  paidAmount: '0'
+                });
+              }} className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400">
+                Cancel
+              </button>
+              <button 
+                onClick={handleSaveNewPayable} 
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                disabled={!newPayableForm.type || !newPayableForm.amount || loading}
+              >
+                {loading ? (editingMode ? 'Updating...' : 'Adding...') : (editingMode ? 'Update Payable' : 'Add Payable')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Payment Creation Dialog */}
-      <Dialog 
-        open={paymentDialogOpen} 
-        onClose={() => setPaymentDialogOpen(false)} 
-        maxWidth="sm" 
-        fullWidth
-      >
-        <DialogTitle>
-          Create Payment Record
-          {selectedStudentModal && (
-            <Typography variant="body2" color="text.secondary">
-              For: {selectedStudentModal.name}
-            </Typography>
-          )}
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 1 }}>
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>Payment Type</InputLabel>
-              <Select
-                value={paymentForm.paymentType}
-                onChange={(e) => handlePaymentInputChange('paymentType', e.target.value)}
-                label="Payment Type"
+      {paymentDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black bg-opacity-50" onClick={() => setPaymentDialogOpen(false)}></div>
+          <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-96 overflow-y-auto relative z-10">
+            <h2 className="text-xl font-bold mb-4">
+              Create Payment Record
+              {selectedStudentModal && (
+                <p className="text-sm text-gray-600">
+                  For: {selectedStudentModal.name}
+                </p>
+              )}
+            </h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Payment Type</label>
+                <select
+                  className="w-full p-2 border border-gray-300 rounded"
+                  value={paymentForm.paymentType}
+                  onChange={(e) => handlePaymentInputChange('paymentType', e.target.value)}
+                >
+                  <option value="tuition">Tuition Fee</option>
+                  <option value="miscellaneous">Miscellaneous</option>
+                  <option value="laboratory">Laboratory Fee</option>
+                  <option value="library">Library Fee</option>
+                </select>
+              </div>
+              
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                className="w-full p-2 border border-gray-300 rounded show-spinner"
+                placeholder="Amount"
+                value={paymentForm.amount}
+                onChange={(e) => handlePaymentInputChange('amount', e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
+                onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
+              />
+              
+              <textarea
+                className="w-full p-2 border border-gray-300 rounded"
+                placeholder="Description"
+                value={paymentForm.description}
+                onChange={(e) => handlePaymentInputChange('description', e.target.value)}
+                rows={2}
+              />
+              
+              <input
+                type="date"
+                className="w-full p-2 border border-gray-300 rounded"
+                value={paymentForm.dueDate}
+                onChange={(e) => handlePaymentInputChange('dueDate', e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setPaymentDialogOpen(false)} className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400">
+                Cancel
+              </button>
+              <button 
+                onClick={handleSavePayment} 
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+                disabled={!paymentForm.amount || !paymentForm.description || loading}
               >
-                <MenuItem value="tuition">Tuition Fee</MenuItem>
-                <MenuItem value="miscellaneous">Miscellaneous</MenuItem>
-                <MenuItem value="laboratory">Laboratory Fee</MenuItem>
-                <MenuItem value="library">Library Fee</MenuItem>
-              </Select>
-            </FormControl>
-            
-            <TextField
-              fullWidth
-              label="Amount"
-              type="number"
-              value={paymentForm.amount}
-              onChange={(e) => handlePaymentInputChange('amount', e.target.value)}
-              InputProps={{
-                startAdornment: <InputAdornment position="start">₱</InputAdornment>,
-                inputMode: 'numeric',
-                pattern: '[0-9]*',
-                onWheel: (e) => e.preventDefault(),
-              }}
-              sx={{ 
-                mb: 2,
-                '& input[type=number]': {
-                  '-moz-appearance': 'textfield',
-                },
-                '& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button': {
-                  '-webkit-appearance': 'none',
-                  margin: 0,
-                },
-              }}
-            />
-            
-            <TextField
-              fullWidth
-              label="Description"
-              value={paymentForm.description}
-              onChange={(e) => handlePaymentInputChange('description', e.target.value)}
-              multiline
-              rows={2}
-              sx={{ mb: 2 }}
-            />
-            
-            <TextField
-              fullWidth
-              label="Due Date"
-              type="date"
-              value={paymentForm.dueDate}
-              onChange={(e) => handlePaymentInputChange('dueDate', e.target.value)}
-              InputLabelProps={{
-                shrink: true,
-              }}
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPaymentDialogOpen(false)}>Cancel</Button>
-          <Button 
-            onClick={handleSavePayment} 
-            variant="contained"
-            disabled={!paymentForm.amount || !paymentForm.description || loading}
-          >
-            {loading ? 'Creating...' : 'Create Payment'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+                {loading ? 'Creating...' : 'Create Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Student Payment Dialog */}
       {/* 4. Remove the Record Payment modal JSX */}
       {/* 5. Remove any references to the old modal-based payment workflow */}
 
       {/* Student Details Modal */}
-        <Dialog 
-        open={studentModalOpen} 
-        onClose={() => {
-          setStudentModalOpen(false);
-          setSelectedStudentModal(null);
-          setStagedPayments({});
-        }} 
-        maxWidth="md" 
-        fullWidth
-      >
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Box>
-              <Typography variant="h6" fontWeight="bold">
-                {selectedStudentModal?.name}
-                {selectedStudentModal?.isIrregular && (
-                  <Chip 
-                    label="Irregular"
-                    size="small"
-                    color="warning"
-                    sx={{ ml: 1 }}
-                  />
-                )}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {selectedStudentModal?.isIrregular 
-                  ? `Irregular Student (${selectedStudentModal.yearLevel === 1 ? '1st' : selectedStudentModal.yearLevel === 2 ? '2nd' : selectedStudentModal.yearLevel === 3 ? '3rd' : '4th'} Year Level) - Payables Management`
-                  : `${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year Student - Payables Management`
+      {studentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => {
+            setStudentModalOpen(false);
+            setSelectedStudentModal(null);
+            setStagedPayments({});
+          }}></div>
+          <div className="bg-white rounded-xl max-w-4xl w-full max-h-160 relative z-10 flex flex-col overflow-hidden">
+            <div className="flex items-center px-6 py-4 justify-between shadow-b shadow-2xs  sticky top-0 z-20 bg-blue-100">
+              <div>
+                <h2 className="text-xl font-bold">
+                  {selectedStudentModal?.name}
+                  {selectedStudentModal?.isIrregular && (
+                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 ml-2">
+                      Irregular
+                    </span>
+                  )}
+                </h2>
+                <p className="text-sm text-gray-600">
+                  {selectedStudentModal?.isIrregular 
+                    ? `Irregular Student (${selectedStudentModal.yearLevel === 1 ? '1st' : selectedStudentModal.yearLevel === 2 ? '2nd' : selectedStudentModal.yearLevel === 3 ? '3rd' : '4th'} Year Level) - Payables Management`
+                    : `${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year Student `
+                  }
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  className="px-4 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                  onClick={handleAddIndividualPayable}
+                >
+                  Add Previous Balance
+                </button>
+               
+              </div>
+            </div>
+            <div className="space-y-4 px-6 py-4 overflow-y-auto flex-1 min-h-0">
+              {/* Payables controls: search, filter, view mode */}
+              <div className="flex flex-col md:flex-row gap-2 md:items-center md:justify-between">
+                <div className="flex-1 flex items-center gap-2">
+                  <div className="relative w-full md:max-w-sm">
+                    <i className="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                    <input
+                      type="text"
+                      className="w-full pl-9 pr-3 py-1.5 border text-sm border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Search payables by type..."
+                      value={payablesSearch}
+                      onChange={(e) => setPayablesSearch(e.target.value)}
+                    />
+                  </div>
+                 
+                </div>
+               <div className="flex items-center gap-2">
+                    <i className="bi bi-funnel text-gray-500"></i>
+                    <select
+                      className="p-2 border border-gray-300 rounded focus-outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      value={payablesFilter}
+                      onChange={(e) => setPayablesFilter(e.target.value)}
+                    >
+                      <option value="all">All</option>
+                      <option value="unpaid">Unpaid</option>
+                      <option value="partially_paid">Partially Paid</option>
+                      <option value="fully_paid">Fully Paid</option>
+                      <option value="individual">Individual Only</option>
+                    </select>
+                  </div>
+              </div>
+
+              {(() => {
+                // Base set: current-year payables + any individual previous balances across all years
+                const base = selectedStudentModal ? getStudentPayables(selectedStudentModal) : [];
+                // Apply search
+                let list = base.filter(p => (p.type || '').toLowerCase().includes((payablesSearch || '').toLowerCase()))
+                  // Apply filter
+                  .filter(p => {
+                    if (payablesFilter === 'all') return true;
+                    if (payablesFilter === 'individual') return !!p.isIndividual;
+                    const st = p.studentPayments?.[selectedStudentModal?.id]?.status || 'unpaid';
+                    return st === payablesFilter;
+                  });
+
+                if (list.length === 0) {
+                  return (
+                    <div className="text-center py-6">
+                      <p className="text-gray-600">No payables match your filters.</p>
+                    </div>
+                  );
                 }
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-              <Button
-                variant="contained"
-                color="warning"
-                startIcon={<AddIcon />}
-                onClick={handleAddIndividualPayable}
-                size="medium"
-                sx={{ fontWeight: 'bold' }}
-              >
-                Add Previous Balance
-              </Button>
-              <Typography 
-                variant="h6" 
-                fontWeight="bold" 
-                color={selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id) > 0 ? "error" : "success" : "inherit"}
-              >
-                Total: ₱{selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id).toLocaleString() : '0'}
-              </Typography>
-            </Box>
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 1 }}>
-            {(() => {
-              // For irregular students, show payables for their actual year level
-              const studentYearLevel = selectedStudentModal?.isIrregular ? selectedStudentModal.yearLevel : (tabValue + 1);
-              const allYearPayables = payables[studentYearLevel] || [];
-              
-              // Filter payables to only show:
-              // 1. Non-individual payables (apply to everyone)
-              // 2. Individual payables specifically for this student
-              const yearPayables = allYearPayables.filter(payable => {
-                const shouldShow = !payable.isIndividual || payable.studentId === selectedStudentModal?.id;
-                console.log('Payable:', payable.type, 'isIndividual:', payable.isIndividual, 'studentId:', payable.studentId, 'selectedStudentId:', selectedStudentModal?.id, 'shouldShow:', shouldShow);
-                return shouldShow;
-              });
-              
-              console.log('Total payables for year level', studentYearLevel, ':', allYearPayables.length);
-              console.log('Filtered payables for student', selectedStudentModal?.name, ':', yearPayables.length);
-              
-              if (yearPayables.length === 0) {
-                return (
-                  <Box sx={{ textAlign: 'center', py: 4 }}>
-                    <Typography variant="body1" color="text.secondary">
-                      No payables for this year level.
-                    </Typography>
-                  </Box>
-                );
-              }
-              return yearPayables.map((payable) => {
-                const studentPayment = payable.studentPayments?.[selectedStudentModal?.id] || { status: 'unpaid', paidAmount: 0 };
-                return (
-                  <Card key={payable.id} sx={{ mb: 2, border: '1px solid #e0e0e0' }}>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                        <Box sx={{ flex: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                            <Typography variant="h6" fontWeight="bold">{payable.type}</Typography>
+
+                const renderCard = (payable) => {
+                  const studentPayment = payable.studentPayments?.[selectedStudentModal?.id] || { status: 'unpaid', paidAmount: 0 };
+                  const stagedPayment = stagedPayments?.[payable.id] || 0;
+                  const totalPaid = studentPayment.paidAmount + stagedPayment;
+                  const remaining = payable.amount - totalPaid;
+                  return (
+                    <div key={payable.id} className="border border-gray-200 rounded p-4 bg-white">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-1 mb-1">
+                            <h4 className="text-lg font-bold">{payable.type}</h4>
                             {payable.isIndividual && (
-                              <Chip 
-                                label="Individual Charge"
-                                size="small"
-                                color="warning"
-                                variant="outlined"
-                              />
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                Individual Charge
+                              </span>
                             )}
-                          </Box>
-                          <Typography variant="body2" color="text.secondary">
-                            Total Amount: ₱{payable.amount.toLocaleString()}
-                          </Typography>
-                        </Box>
-                        <Chip 
-                          label={getStatusLabel(studentPayment.status)}
-                          size="medium"
-                          color={getStatusColor(studentPayment.status)}
-                          variant="filled"
-                        />
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <TextField
-                          size="medium"
+                          </div>
+                          <p className="text-sm text-gray-600">
+                            Total Amount: ₱{Number(payable.amount || 0).toLocaleString()}
+                          </p>
+                        </div>
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(studentPayment.status) === 'success' ? 'bg-green-100 text-green-800' : getStatusColor(studentPayment.status) === 'warning' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                          {getStatusLabel(studentPayment.status)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
                           type="number"
-                          label="Paid Amount"
-                          value={typeof stagedPayments?.[payable.id] !== 'undefined' ? stagedPayments[payable.id] : (studentPayment.paidAmount === 0 ? '' : studentPayment.paidAmount)}
+                          inputMode="decimal"
+                          min="0"
+                          step="0.01"
+                          className="flex-1 p-2 border border-gray-300 rounded show-spinner"
+                          placeholder="New Payment Amount"
+                          value={stagedPayments?.[payable.id] || ''}
                           onChange={(e) => selectedStudentModal && handleStagedPaidAmountChange(payable.id, e.target.value)}
-                          InputProps={{
-                            startAdornment: <InputAdornment position="start">₱</InputAdornment>,
-                            inputMode: 'numeric',
-                            pattern: '[0-9]*',
-                            onWheel: (e) => e.preventDefault(),
-                          }}
-                          sx={{ 
-                            flex: 1,
-                            '& input[type=number]': {
-                              '-moz-appearance': 'textfield',
-                            },
-                            '& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button': {
-                              '-webkit-appearance': 'none',
-                              margin: 0,
-                            },
-                          }}
+                          onWheel={(e) => e.currentTarget.blur()}
+                          onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
                         />
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                          <IconButton
-                            color="primary"
-                            onClick={() => handleStartEditPayables(payable.id)}
-                            sx={{ p: 1 }}
+                        <div className="relative">
+                          <button
+                            className="p-2 rounded hover:bg-gray-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenActionMenuId(prev => prev === payable.id ? null : payable.id);
+                            }}
+                            aria-haspopup="menu"
+                            aria-expanded={openActionMenuId === payable.id}
+                            title="Actions"
                           >
-                            <EditIcon />
-                          </IconButton>
-                          <IconButton
-                            color="error"
-                            onClick={() => handleDeletePayable(payable.id)}
-                            sx={{ p: 1 }}
-                          >
-                            <CancelIcon />
-                          </IconButton>
-                        </Box>
-                      </Box>
-                      <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2" color="text.secondary">
-                          Remaining: ₱{(payable.amount - (studentPayment.paidAmount || 0)).toLocaleString()}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
+                            <i className="bi bi-three-dots-vertical"></i>
+                          </button>
+                          {openActionMenuId === payable.id && (
+                            <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-md shadow-lg z-30">
+                              <button
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-left"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenActionMenuId(null);
+                                  handleStartEditPayables(payable.id);
+                                }}
+                              >
+                                <i className="bi bi-pencil-square"></i>
+                                Edit
+                              </button>
+                              <button
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-left"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  setOpenActionMenuId(null);
+                                  setTransactionPayable(payable);
+                                  setTransactionModalOpen(true);
+                                  const result = await getStudentPayments(selectedStudentModal.id, payable.id);
+                                  if (result.success) {
+                                    setTransactionPayments(result.data);
+                                  } else {
+                                    setError(result.error);
+                                  }
+                                }}
+                              >
+                                <i className="bi bi-clock-history"></i>
+                                View Transaction History
+                              </button>
+                              <button
+                                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-left text-red-600"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenActionMenuId(null);
+                                  setDeleteTarget(payable);
+                                  setDeleteDialogOpen(true);
+                                }}
+                              >
+                                <i className="bi bi-trash"></i>
+                                Delete
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1 mt-2">
+                        <p className="text-sm text-gray-600">
+                          Remaining: ₱{remaining.toLocaleString()}
+                        </p>
+                        <p className="text-xs text-gray-500">
                           Last updated: {new Date().toLocaleDateString()}
-                        </Typography>
-                      </Box>
-                    </CardContent>
-                  </Card>
+                        </p>
+                      </div>
+                    </div>
+                  );
+                };
+
+                if (payablesViewMode === 'grid') {
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {list.map((p) => renderCard(p))}
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="flex flex-col gap-3">
+                    {list.map((p) => renderCard(p))}
+                  </div>
                 );
-              });
-            })()}
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Box sx={{ display: 'flex', gap: 1, width: '100%', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Box>
-              <Button onClick={handleDiscardStagedPayments} disabled={Object.keys(stagedPayments).length === 0}>
-                Discard Changes
-              </Button>
-            </Box>
-            <Box>
-              <Button 
+              })()}
+            </div>
+            <div className='sticky bottom-0 z-20  flex justify-between gap-4 px-6 py-3 border-t border-gray-300'>
+               <h3 className={`text-lg font-bold ${selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id) > 0 ? 'text-red-600' : 'text-green-600' : ''}`}>
+                  Total: ₱{selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id).toLocaleString() : '0'}
+                </h3>
+            <div className="flex items-center justify-end gap-2  ">
+            
+              <button 
                 onClick={() => {
                   setStudentModalOpen(false);
                   setSelectedStudentModal(null);
                   setStagedPayments({});
                 }}
-                variant="outlined"
-                sx={{ mr: 1 }}
+                className="px-6 py-1.5 text-sm rounded-lg bg-gray-400 text-white hover:bg-gray-500"
               >
                 Close
-              </Button>
-              <Button 
+              </button>
+              <button 
                 onClick={handleShowSummary} 
-                variant="contained"
+                className="px-4 py-1.5 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700  disabled:opacity-50"
                 disabled={Object.keys(stagedPayments).length === 0 || confirmLoading}
               >
                 {confirmLoading ? 'Confirming...' : 'Confirm Changes'}
-              </Button>
-            </Box>
-          </Box>
-        </DialogActions>
-      </Dialog>
+              </button>
+            </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary Modal */}
-      <Dialog 
-        open={summaryModalOpen} 
-        onClose={() => setSummaryModalOpen(false)} 
-        maxWidth="md" 
-        fullWidth
-      >
-        <DialogTitle>
-          Confirm Payment Changes
-          {selectedStudentModal && (
-            <Typography variant="body2" color="text.secondary">
-              For: {selectedStudentModal.name}
-            </Typography>
-          )}
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 1 }}>
-            <Typography variant="h6" gutterBottom>
-              Summary of Changes:
-            </Typography>
-            {summaryData.changes.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">
-                No changes to confirm.
-              </Typography>
-            ) : (
-              <Box>
-                {summaryData.changes.map((change) => (
-                  <Card key={change.payableId} sx={{ mb: 2, border: '1px solid #e0e0e0' }}>
-                    <CardContent>
-                      <Typography variant="h6" fontWeight="bold">{change.type}</Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Total Amount: ₱{change.amount.toLocaleString()}
-                      </Typography>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
-                        <Box>
-                          <Typography variant="body2" color="text.secondary">
-                            Current Paid: ₱{change.currentPaid.toLocaleString()} (Balance: ₱{(change.amount - change.currentPaid).toLocaleString()})
-                          </Typography>
-                          <Typography variant="body2" color="primary">
-                            New Paid: ₱{change.newPaid.toLocaleString()} (Balance: ₱{(change.amount - change.newPaid).toLocaleString()})
-                          </Typography>
-                        </Box>
-                        <Typography variant="body2" color={change.newPaid > change.currentPaid ? "success.main" : change.newPaid < change.currentPaid ? "error.main" : "text.secondary"}>
-                          {change.newPaid > change.currentPaid ? `+₱${(change.newPaid - change.currentPaid).toLocaleString()}` : change.newPaid < change.currentPaid ? `-₱${(change.currentPaid - change.newPaid).toLocaleString()}` : 'No change'}
-                        </Typography>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                ))}
-                <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
-                  <Typography variant="h6" gutterBottom>
-                    Balance Summary:
-                  </Typography>
-                  <Typography variant="body1">
-                    Current Total Balance: ₱{summaryData.totalCurrentBalance.toLocaleString()}
-                  </Typography>
-                  <Typography variant="body1" color="primary">
-                    New Total Balance: ₱{summaryData.totalNewBalance.toLocaleString()}
-                  </Typography>
-                  
-                </Box>
-              </Box>
+      {summaryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => setSummaryModalOpen(false)}></div>
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-140 overflow-y-auto relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">Confirm Payment Changes</h2>
+              <button
+                onClick={() => setSummaryModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+            {selectedStudentModal && (
+              <p className="text-sm text-gray-600 mb-4">
+                For: {selectedStudentModal.name}
+              </p>
             )}
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSummaryModalOpen(false)} variant="outlined">
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleFinalConfirm} 
-            variant="contained"
-            disabled={confirmLoading}
-          >
-            {confirmLoading ? 'Confirming...' : 'Confirm All Changes'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold mb-2">Summary of Changes:</h3>
+              {summaryData.changes.length === 0 ? (
+                <p className="text-gray-600">
+                  No changes to confirm.
+                </p>
+              ) : (
+                <div>
+                  {summaryData.changes.map((change) => (
+                    <div key={change.payableId} className="border border-gray-200 rounded p-4 mb-4">
+                      <h4 className="text-lg font-bold">{change.type}</h4>
+                      <p className="text-sm text-gray-600">
+                        Total Amount: ₱{change.amount.toLocaleString()}
+                      </p>
+                      <div className="flex justify-between items-center mt-2">
+                        <div>
+                          <p className="text-sm text-gray-600">
+                            Current Paid: ₱{change.currentPaid.toLocaleString()} (Balance: ₱{(change.amount - change.currentPaid).toLocaleString()})
+                          </p>
+                          <p className="text-sm text-blue-600">
+                            New Payment: ₱{change.newPayment.toLocaleString()} (New Total Paid: ₱{change.newTotalPaid.toLocaleString()})
+                          </p>
+                        </div>
+                        <p className={`text-sm ${change.newPayment > 0 ? 'text-green-600' : 'text-gray-600'}`}>
+                          {change.newPayment > 0 ? `+₱${change.newPayment.toLocaleString()}` : 'No change'}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="mt-6 p-4 bg-gray-100 rounded">
+                    <h3 className="text-lg font-semibold mb-2">
+                      Balance Summary:
+                    </h3>
+                    <p className="text-base">
+                      Current Total Balance: ₱{summaryData.totalCurrentBalance.toLocaleString()}
+                    </p>
+                    <p className="text-base text-blue-600">
+                      New Total Balance: ₱{summaryData.totalNewBalance.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setSummaryModalOpen(false)}
+                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleFinalConfirm}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+                disabled={confirmLoading}
+              >
+                {confirmLoading ? 'Confirming...' : 'Confirm All Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Individual Student Payable Dialog */}
-      <Dialog 
-        open={individualPayableDialogOpen} 
-        onClose={() => {
-          setIndividualPayableDialogOpen(false);
-          setIndividualPayableForm({
-            type: '',
-            amount: '',
-            yearLevel: ''
-          });
-        }} 
-        maxWidth="sm" 
-        fullWidth
-      >
-        <DialogTitle>
-          Add Previous Balance / Custom Charge
-          {selectedStudentModal && (
-            <Typography variant="body2" color="text.secondary">
-              For: {selectedStudentModal.name}
-            </Typography>
-          )}
-        </DialogTitle>
-        <DialogContent>
-          <Box sx={{ pt: 1 }}>
-            <TextField
-              fullWidth
-              label="Payable Type"
-              value={individualPayableForm.type}
-              onChange={(e) => handleIndividualPayableInputChange('type', e.target.value)}
-              placeholder="e.g., 2nd Year Balance, Laboratory Fee, etc."
-              sx={{ mb: 2 }}
-            />
-            
-            <TextField
-              fullWidth
-              label="Amount"
-              type="number"
-              value={individualPayableForm.amount}
-              onChange={(e) => handleIndividualPayableInputChange('amount', e.target.value)}
-              InputProps={{
-                startAdornment: <InputAdornment position="start">₱</InputAdornment>,
-                inputMode: 'numeric',
-                pattern: '[0-9]*',
-                onWheel: (e) => e.preventDefault(),
-              }}
-              sx={{ 
-                mb: 2,
-                '& input[type=number]': {
-                  '-moz-appearance': 'textfield',
-                },
-                '& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button': {
-                  '-webkit-appearance': 'none',
-                  margin: 0,
-                },
-              }}
-            />
-
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>Year Level (when the charge was incurred)</InputLabel>
-              <Select
-                value={individualPayableForm.yearLevel}
-                onChange={(e) => handleIndividualPayableInputChange('yearLevel', e.target.value)}
-                label="Year Level (when the charge was incurred)"
-              >
-                <MenuItem value="1">1st Year</MenuItem>
-                <MenuItem value="2">2nd Year</MenuItem>
-                <MenuItem value="3">3rd Year</MenuItem>
-                <MenuItem value="4">4th Year</MenuItem>
-              </Select>
-            </FormControl>
-
-            <Alert severity="info" sx={{ mt: 2 }}>
-              This will add a payable specifically for {selectedStudentModal?.name}. 
-              Other students will not see this charge.
-            </Alert>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
+      {individualPayableDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => {
             setIndividualPayableDialogOpen(false);
             setIndividualPayableForm({
               type: '',
               amount: '',
               yearLevel: ''
             });
-          }}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleSaveIndividualPayable} 
-            variant="contained"
-            disabled={!individualPayableForm.type || !individualPayableForm.amount || !individualPayableForm.yearLevel || loading}
-          >
-            {loading ? 'Adding...' : 'Add Previous Balance'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+          }}></div>
+          <div className="bg-white rounded-lg p-6 max-w-md w-full  overflow-y-auto relative z-10">
+            <h2 className="text-xl font-bold mb-4">
+              Add Previous Balance / Custom Charge
+            </h2>
+            {selectedStudentModal && (
+              <p className="text-sm text-gray-600 mb-4">
+                For: {selectedStudentModal.name}
+              </p>
+            )}
+            <div className="space-y-4">
+              <input
+                type="text"
+                className="w-full p-2 border border-gray-300 rounded"
+                placeholder="Payable Type (e.g., 2nd Year Balance, Laboratory Fee, etc.)"
+                value={individualPayableForm.type}
+                onChange={(e) => handleIndividualPayableInputChange('type', e.target.value)}
+              />
+
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                className="w-full p-2 border border-gray-300 rounded show-spinner"
+                placeholder="Amount"
+                value={individualPayableForm.amount}
+                onChange={(e) => handleIndividualPayableInputChange('amount', e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
+                onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
+              />
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Year Level (when the charge was incurred)</label>
+                <select
+                  className="w-full p-2 border border-gray-300 rounded"
+                  value={individualPayableForm.yearLevel}
+                  onChange={(e) => handleIndividualPayableInputChange('yearLevel', e.target.value)}
+                >
+                  <option value="">Select Year Level</option>
+                  <option value="1">1st Year</option>
+                  <option value="2">2nd Year</option>
+                  <option value="3">3rd Year</option>
+                  <option value="4">4th Year</option>
+                </select>
+              </div>
+
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+                <p className="text-sm text-blue-800">
+                  This will add a payable specifically for {selectedStudentModal?.name}.
+                  Other students will not see this charge.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end mt-4">
+              <button onClick={() => {
+                setIndividualPayableDialogOpen(false);
+                setIndividualPayableForm({
+                  type: '',
+                  amount: '',
+                  yearLevel: ''
+                });
+              }} className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400">
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveIndividualPayable}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
+                disabled={!individualPayableForm.type || !individualPayableForm.amount || !individualPayableForm.yearLevel || loading}
+              >
+                {loading ? 'Adding...' : 'Add Previous Balance'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Payable Confirmation Modal */}
+      {deleteDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50"
+            onClick={() => { setDeleteDialogOpen(false); setDeleteTarget(null); }}
+          ></div>
+          <div className="bg-white rounded-lg p-6 max-w-md w-full relative z-10">
+            <div className="flex items-start gap-3">
+              <div className="mt-1 text-red-600">
+                <i className="bi bi-exclamation-triangle-fill text-2xl"></i>
+              </div>
+              <div className="flex-1">
+                <h2 className="text-xl font-bold mb-1">Delete Payable</h2>
+                <p className="text-sm text-gray-700 mb-2">
+                  Are you sure you want to delete
+                  {` "${deleteTarget?.type || ''}"`} payable?
+                </p>
+                {typeof deleteTarget?.amount !== 'undefined' && (
+                  <p className="text-sm text-gray-600 mb-2">
+                    Amount: ₱{Number(deleteTarget.amount || 0).toLocaleString()}
+                  </p>
+                )}
+                <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
+                  {deleteTarget?.isIndividual ? (
+                    <span>
+                      This will permanently remove this charge for {selectedStudentModal?.name}.
+                    </span>
+                  ) : (
+                    <span>
+                      This will remove this payable for all students in Year {deleteTarget?.yearLevel}.
+                      This action cannot be undone.
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+                onClick={() => { setDeleteDialogOpen(false); setDeleteTarget(null); }}
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                onClick={() => deleteTarget && handleDeletePayable(deleteTarget.id)}
+                disabled={loading}
+              >
+                {loading ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transaction History Modal */}
+      {transactionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => setTransactionModalOpen(false)}></div>
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-140 overflow-y-auto relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">Transaction History</h2>
+              <button onClick={() => setTransactionModalOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            {transactionPayable && (
+              <p className="text-sm text-gray-600 mb-4">For: {transactionPayable.type} - ₱{transactionPayable.amount.toLocaleString()}</p>
+            )}
+            <div className="space-y-2">
+              {transactionPayments.length === 0 ? (
+                <p className="text-gray-600">No transactions yet.</p>
+              ) : (
+                transactionPayments.map(payment => (
+                  <div key={payment.id} className="border border-gray-200 rounded p-4">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="font-bold">₱{payment.amount.toLocaleString()}</p>
+                        <p className="text-sm text-gray-600">{payment.description}</p>
+                      </div>
+                      <p className="text-sm text-gray-500">{new Date(payment.date).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Student Transactions Modal */}
+      {studentTransactionsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => setStudentTransactionsModalOpen(false)}></div>
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-140 overflow-y-auto relative z-10">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">Transaction History</h2>
+              <button onClick={() => setStudentTransactionsModalOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            {selectedStudentForTransactions && (
+              <p className="text-sm text-gray-600 mb-4">For: {selectedStudentForTransactions.name}</p>
+            )}
+            <div className="space-y-2">
+              {studentTransactions.length === 0 ? (
+                <p className="text-gray-600">No transactions yet.</p>
+              ) : (
+                studentTransactions.map(payment => (
+                  <div key={payment.id} className="border border-gray-200 rounded p-4">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="font-bold">₱{payment.amount.toLocaleString()}</p>
+                        <p className="text-sm text-gray-600">{payment.description}</p>
+                      </div>
+                      <p className="text-sm text-gray-500">{new Date(payment.date).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 

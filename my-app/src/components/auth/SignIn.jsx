@@ -1,16 +1,5 @@
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import {
-  Box,
-  Button,
-  TextField,
-  Typography,
-  Alert,
-  Stack,
-  Chip,
-  Snackbar,
-} from '@mui/material';
-import { WifiOff, Wifi, Info } from '@mui/icons-material';
 
 const SignIn = ({ onSwitchToResetPassword }) => {
   const [email, setEmail] = useState('');
@@ -48,84 +37,78 @@ const SignIn = ({ onSwitchToResetPassword }) => {
   };
 
   return (
-    <Box minHeight="100vh" display="flex" alignItems="center" justifyContent="center" bgcolor="#f5f6fa">
-      <Box maxWidth={400} width="100%" p={4} bgcolor="white" borderRadius={2} boxShadow={3}>
-        <Typography variant="h4" align="center" fontWeight={700} mb={2}>
+    <div className=" min-h-[90vh] flex items-center justify-center ">
+      <div className="max-w-md w-full p-8 border border-gray-200 bg-white rounded-lg shadow-lg">
+        <h4 className="text-center text-2xl font-bold mb-4">
           Sign in to your account
-        </Typography>
+        </h4>
         
         {/* Network Status Indicator */}
-        <Box display="flex" justifyContent="center" mb={2}>
-          <Chip
-            icon={isOnline ? <Wifi /> : <WifiOff />}
-            label={isOnline ? "Online Mode" : "Offline Mode"}
-            color={isOnline ? "success" : "warning"}
-            size="small"
-          />
-        </Box>
+        <div className="flex justify-center mb-4">
+          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${isOnline ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+            <span className="mr-1">{isOnline ? '📶' : '📵'}</span>
+            {isOnline ? "Online Mode" : "Offline Mode"}
+          </span>
+        </div>
         
         {/* Offline Mode Info */}
         {!isOnline && (
-          <Alert severity="info" sx={{ mb: 2 }} icon={<Info />}>
-            You are currently offline. You can sign in using previously cached credentials.
-          </Alert>
+          <div className="mb-2 p-4 bg-blue-50 border border-blue-200 rounded text-blue-800">
+            <div className="flex items-center">
+              <span className="mr-2">ℹ️</span>
+              You are currently offline. You can sign in using previously cached credentials.
+            </div>
+          </div>
         )}
         
         <form onSubmit={handleSubmit}>
-          <Stack spacing={2}>
-            {error && <Alert severity="error">{error}</Alert>}
-            <TextField
-              label="Email Address"
+          <div className="space-y-4">
+            {error && <div className="p-4 bg-red-50 border border-red-200 rounded text-red-800">{error}</div>}
+            <input
               type="email"
+              className="w-full p-2 border border-gray-300 rounded"
+              placeholder="Email Address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              fullWidth
               required
               autoComplete="email"
             />
-            <TextField
-              label="Password"
+            <input
               type="password"
+              className="w-full p-2 border border-gray-300 rounded"
+              placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              fullWidth
               required
               autoComplete="current-password"
             />
-            <Button
+            <button
+              type="button"
               onClick={onSwitchToResetPassword}
-              size="small"
-              sx={{ alignSelf: 'flex-end', textTransform: 'none' }}
+              className="text-sm text-blue-600 hover:underline block ml-auto"
               disabled={!isOnline}
             >
               Forgot your password?
-            </Button>
-            <Button
+            </button>
+            <button
               type="submit"
-              variant="contained"
-              color="primary"
-              fullWidth
+              className="w-full p-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
               disabled={loading}
-              sx={{ mt: 1 }}
             >
               {loading ? 'Signing in...' : !isOnline ? 'Sign in (Offline)' : 'Sign in'}
-            </Button>
-          </Stack>
+            </button>
+          </div>
         </form>
-      </Box>
+      </div>
       
-      {/* Success Message Snackbar */}
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={6000}
-        onClose={handleCloseSuccess}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-      >
-        <Alert onClose={handleCloseSuccess} severity="success" sx={{ width: '100%' }}>
+      {/* Success Message */}
+      {!!successMessage && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-green-500 text-white p-4 rounded shadow-lg">
           {successMessage}
-        </Alert>
-      </Snackbar>
-    </Box>
+          <button onClick={handleCloseSuccess} className="ml-4 font-bold">×</button>
+        </div>
+      )}
+    </div>
   );
 };
 

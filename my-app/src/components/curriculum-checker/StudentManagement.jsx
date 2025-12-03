@@ -1,38 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import {
-  Box,
-  Paper,
-  Typography,
-  TextField,
-  Button,
-  Grid,
-  Card,
-  CardContent,
-  CardActions,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Chip,
-  IconButton,
-  Alert,
-  Tabs,
-  Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-} from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 import { 
   addStudent, 
@@ -54,7 +20,12 @@ const StudentManagement = ({ onBack }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [tabValue, setTabValue] = useState(0);
+  const [studentListTab, setStudentListTab] = useState(1);
+  const [courseTab, setCourseTab] = useState(0);
+  const handleSelectStudent = (student) => {
+    setSelectedStudent(student);
+    setCourseTab(student.yearLevel - 1);
+  };
   
   // Student form state
   const [studentForm, setStudentForm] = useState({
@@ -68,6 +39,9 @@ const StudentManagement = ({ onBack }) => {
   
   // Dialog states
   const [studentDialogOpen, setStudentDialogOpen] = useState(false);
+  const [editingDialogOpen, setEditingDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingStudent, setEditingStudent] = useState(null);
   const [editingData, setEditingData] = useState({});
@@ -75,6 +49,35 @@ const StudentManagement = ({ onBack }) => {
   // Grade management state
   const [studentGrades, setStudentGrades] = useState({});
   const [editingGrades, setEditingGrades] = useState({});
+
+  // Sorting state for course tables
+  const [sortBy, setSortBy] = useState('courseCode');
+  const [sortOrder, setSortOrder] = useState('asc');
+
+  // View mode state
+  const [viewMode, setViewMode] = useState('list');
+
+  // Dropdown state for grid view
+  const [openDropdown, setOpenDropdown] = useState(null);
+
+  const handleSort = (column) => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(column);
+      setSortOrder('asc');
+    }
+  };
+
+  // Helper: format student number as XXXX-XXXXX, limiting input
+  const formatStudentNumber = (raw) => {
+    const digits = (raw || '').replace(/\D/g, '');
+    const first = digits.slice(0, 4);
+    const second = digits.slice(4, 9);
+    // Include dash once any first-part digits exist; cap total length to 10 chars
+    const withDash = first ? `${first}-${second}` : '';
+    return withDash.slice(0, 10);
+  };
 
   const loadStudents = useCallback(async () => {
     if (!currentUser) {
@@ -148,6 +151,20 @@ const StudentManagement = ({ onBack }) => {
       return;
     }
     
+    // Validate student number format
+    const studentNumberPattern = /^\d{4}-\d{5}$/;
+    if (!studentForm.studentNumber || !studentNumberPattern.test(studentForm.studentNumber)) {
+      setError('Please enter a valid student number in the format XXXX-XXXXX');
+      return;
+    }
+    
+    // Check for duplicate student number
+    const existingStudent = students.find(student => student.studentNumber === studentForm.studentNumber);
+    if (existingStudent) {
+      setError('A student with this student number already exists');
+      return;
+    }
+    
     setLoading(true);
     setError('');
     const result = await addStudent(studentForm);
@@ -210,8 +227,8 @@ const StudentManagement = ({ onBack }) => {
   };
 
   const handleStartEdit = (student) => {
-    setEditingStudent(student.id);
     setEditingData({
+      id: student.id,
       name: student.name,
       email: student.email,
       studentNumber: student.studentNumber,
@@ -219,11 +236,13 @@ const StudentManagement = ({ onBack }) => {
       curriculumId: student.curriculumId,
       isIrregular: student.isIrregular || false
     });
+    setEditingDialogOpen(true);
   };
 
   const handleCancelEdit = () => {
     setEditingStudent(null);
     setEditingData({});
+    setEditingDialogOpen(false);
   };
 
   const handleSaveEdit = async (studentId) => {
@@ -231,6 +250,21 @@ const StudentManagement = ({ onBack }) => {
       setError('Please sign in to update student data');
       return;
     }
+    
+    // Validate student number format
+    const studentNumberPattern = /^\d{4}-\d{5}$/;
+    if (!editingData.studentNumber || !studentNumberPattern.test(editingData.studentNumber)) {
+      setError('Please enter a valid student number in the format XXXX-XXXXX');
+      return;
+    }
+    
+    // Check for duplicate student number (excluding current student)
+    const existingStudent = students.find(student => student.studentNumber === editingData.studentNumber && student.id !== studentId);
+    if (existingStudent) {
+      setError('A student with this student number already exists');
+      return;
+    }
+    
     setLoading(true);
     setError('');
     try {
@@ -247,7 +281,8 @@ const StudentManagement = ({ onBack }) => {
       setSuccess('Student updated successfully!');
       setEditingStudent(null);
       setEditingData({});
-      setTabValue(editingData.yearLevel - 1);
+      setStudentListTab(editingData.isIrregular ? 5 : editingData.yearLevel);
+      setEditingDialogOpen(false);
       loadStudents();
     } catch (error) {
       setError('Failed to update student: ' + error.message);
@@ -261,22 +296,29 @@ const StudentManagement = ({ onBack }) => {
       return;
     }
 
-    if (!window.confirm('Are you sure you want to delete this student?')) return;
+    setStudentToDelete(studentId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!studentToDelete) return;
 
     setLoading(true);
     setError('');
     
     try {
-      await deleteDoc(doc(db, 'students', studentId));
+      await deleteDoc(doc(db, 'students', studentToDelete));
       
-      setStudents(prevStudents => prevStudents.filter(student => student.id !== studentId));
+      setStudents(prevStudents => prevStudents.filter(student => student.id !== studentToDelete));
       
       // Clear selected student if it's the one being deleted
-      if (selectedStudent && selectedStudent.id === studentId) {
+      if (selectedStudent && selectedStudent.id === studentToDelete) {
         setSelectedStudent(null);
       }
       
       setSuccess('Student deleted successfully!');
+      setDeleteDialogOpen(false);
+      setStudentToDelete(null);
     } catch (error) {
       setError('Failed to delete student: ' + error.message);
     }
@@ -296,9 +338,13 @@ const StudentManagement = ({ onBack }) => {
     return students.filter(student => student.isIrregular).length;
   };
 
+  const getTotalStudentCount = () => {
+    return students.length;
+  };
+
   const getCurriculumName = (curriculumId) => {
     const curriculum = curriculums.find(c => c.id === curriculumId);
-    return curriculum ? curriculum.name : 'Unknown';
+    return curriculum ? curriculum.name : 'Not Set';
   };
 
   const isCourseCompleted = (courseCode) => {
@@ -445,693 +491,797 @@ const StudentManagement = ({ onBack }) => {
   };
 
   const renderStudentList = () => (
-    <Box>
-      <TextField
-        fullWidth
-        placeholder="Search students by name or curriculum..."
+    <div>
+     
+     <div className='flex-1 items-center  gap-4 mb-4'>
+      <div className=" flex flex-wrap gap-2 border-b border-gray-300">
+  {[1, 2, 3, 4].map((year, idx) => (
+    <button
+      key={year}
+      onClick={() => setStudentListTab(idx + 1)}
+      className={`
+        px-2 py-1 cursor-pointer
+        ${studentListTab === idx + 1
+          ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
+          : 'text-gray-700 border-b-2 border-transparent hover:text-blue-500'
+        }
+      `}
+    >
+      {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year ({getStudentCountByYear(year)})
+    </button>
+  ))}
+
+  <button
+    onClick={() => setStudentListTab(5)}
+    className={`
+        px-2 py-1 cursor-pointer
+      ${studentListTab === 5
+        ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
+        : 'text-gray-700 border-b-2 border-transparent hover:text-blue-500'
+      }
+    `}
+  >
+    Irregular ({getIrregularStudentCount()})
+  </button>
+</div>
+
+
+     </div>
+
+     <div className="flex items-center justify-between gap-4 mb-6">
+ 
+ <div>
+   <input
+        className="w-full sm:w-90 border border-gray-300 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+        placeholder="Search students name or curriculum..."
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
-        sx={{ mb: 3 }}
-        size="small"
       />
 
-      <Box sx={{ mb: 2 }}>
-        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
-          {[1, 2, 3, 4].map(year => (
-            <Tab 
-              key={year} 
-              label={`${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year (${getStudentCountByYear(year)})`} 
-            />
-          ))}
-          <Tab label={`Irregular (${getIrregularStudentCount()})`} />
-        </Tabs>
-      </Box>
-      
- 
-      
-      <Box sx={{ maxHeight: 'calc(100vh - 300px)', overflowY: 'auto', overflowX: 'hidden' }}>
+</div>
+
+    <div className="flex items-center gap-2 ">
+      <button
+        onClick={() => setViewMode('list')}
+        className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
+          viewMode === 'list'
+            ? 'bg-blue-600 text-white border-blue-600'
+            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+        }`}
+      >
+        <i className="bi bi-list-ul text-base"></i>
+      </button>
+      <button
+        onClick={() => setViewMode('grid')}
+        className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
+          viewMode === 'grid'
+            ? 'bg-blue-600 text-white border-blue-600'
+            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+        }`}
+      >
+        <i className="bi bi-grid text-base"></i>
+      </button>
+</div>
+
+
+</div>
+
+
+      <div className="">
         {(() => {
           let filteredStudents;
-          
-          if (tabValue === 4) {
-            // Show irregular students from all years
-            filteredStudents = students.filter(student => student.isIrregular);
+
+          if (studentListTab === 0) {
+            filteredStudents = students;
+          } else if (studentListTab === 5) {
+            filteredStudents = students.filter((student) => student.isIrregular);
           } else {
-            // Show regular students by year level
-            filteredStudents = students.filter(student => 
-              student.yearLevel === (tabValue + 1) && !student.isIrregular
-            );
+            filteredStudents = students.filter((student) => student.yearLevel === studentListTab && !student.isIrregular);
           }
-          
-          // Filter by search term
+
           if (searchTerm) {
-            filteredStudents = filteredStudents.filter(student => 
-              student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              getCurriculumName(student.curriculumId).toLowerCase().includes(searchTerm.toLowerCase())
+            filteredStudents = filteredStudents.filter(
+              (student) =>
+                student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                getCurriculumName(student.curriculumId).toLowerCase().includes(searchTerm.toLowerCase())
             );
           }
-          
+
           if (filteredStudents.length === 0) {
             return (
-              <Box sx={{ textAlign: 'center', py: 8 }}>
-                <Typography variant="h6" color="text.secondary" gutterBottom>
-                  {searchTerm ? 'No students found' : 
-                   tabValue === 4 ? 'No irregular students' : 
-                   `No students in Year ${tabValue + 1}`}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                  {searchTerm ? 'Try adjusting your search terms' : 'Add students to get started'}
-                </Typography>
+              <div className="text-center py-8">
+                <div className="text-gray-600 text-lg font-medium mb-1">
+                  {searchTerm ? 'No students found' : studentListTab === 5 ? 'No irregular students' : `No students in Year ${studentListTab}`}
+                </div>
+                <div className="text-gray-500 mb-4">{searchTerm ? 'Try adjusting your search terms' : 'Add students to get started'}</div>
                 {!searchTerm && (
-                  <Button
-                    variant="contained"
-                    startIcon={<AddIcon />}
+                  <button
+                    className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                     onClick={() => {
-                      setStudentForm({ 
-                        name: '', 
-                        email: '', 
-                        studentNumber: '', 
-                        yearLevel: tabValue === 4 ? 1 : tabValue + 1, 
-                        curriculumId: '', 
-                        isIrregular: tabValue === 4 
+                      setStudentForm({
+                        name: '',
+                        email: '',
+                        studentNumber: '',
+                        yearLevel: studentListTab === 5 ? 1 : studentListTab,
+                        curriculumId: '',
+                        isIrregular: studentListTab === 5,
                       });
                       setStudentDialogOpen(true);
                     }}
                   >
-                    Add {tabValue === 4 ? 'Irregular ' : ''}
-                  </Button>
+                    <i className="bi bi-plus-lg"></i>
+                    <span>Add {studentListTab === 5 ? 'Irregular ' : ''}Student</span>
+                  </button>
                 )}
-              </Box>
+              </div>
             );
           }
-          
+
+          if (viewMode === 'grid') {
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredStudents.map((student) => (
+                  <div
+                    key={student.id}
+                    className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md cursor-pointer transition-shadow relative"
+                    onClick={() => handleSelectStudent(student)}
+                  >
+                    <div className="absolute bottom-2 right-2">
+                      <div className="relative">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenDropdown(openDropdown === student.id ? null : student.id);
+                          }}
+                          className="p-1 rounded-full hover:bg-gray-100"
+                        >
+                          <i className="bi bi-three-dots-vertical text-gray-600"></i>
+                        </button>
+                        {openDropdown === student.id && (
+                          <div className="absolute right-0 mt-1 w-32 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenDropdown(null);
+                                handleStartEdit(student);
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                            >
+                             Edit
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenDropdown(null);
+                                handleDeleteStudent(student.id);
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                            >
+                             Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mb-2">
+                      <div className="font-semibold text-blue-700 text-lg">{student.name}</div>
+                      <div className="text-sm text-gray-600">{student.studentNumber || 'N/A'}</div>
+                    </div>
+                    <div className="text-sm text-gray-700 mb-1">
+                      <i className="bi bi-envelope mr-1"></i>{student.email}
+                    </div>
+                    <div className="text-sm text-gray-700 mb-1">
+                      <i className="bi bi-calendar mr-1"></i>
+                      {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year
+                      {student.isIrregular ? ' - Irregular' : ''}
+                    </div>
+                    <div className="text-sm text-gray-700 mb-3">
+                      <i className="bi bi-book mr-1"></i>{getCurriculumName(student.curriculumId)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          }
+
           return (
-            <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 2, width: '100%', maxHeight: 'calc(100vh - 400px)', overflow: 'auto' }}>
-              <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }} stickyHeader>
-                <TableHead>
-                  <TableRow sx={{ bgcolor: 'royalblue' }}>
-                    <TableCell sx={{ width: '20%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Student Number</TableCell>
-                    <TableCell sx={{ width: '20%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Name</TableCell>
-                    <TableCell sx={{ width: '20%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Email</TableCell>
-                    <TableCell sx={{ width: '10%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Year Level</TableCell>
-                    <TableCell sx={{ width: '15%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Curriculum</TableCell>
-                    <TableCell sx={{ width: '10%', color: 'white', bgcolor: 'royalblue', position: 'sticky', top: 0, zIndex: 100 }}>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <table className="min-w-full text-sm">
+                <thead className="bg-blue-700 text-white sticky top-0">
+                  <tr>
+                    <th className="p-2 w-[20%] text-left">Student Number</th>
+                    <th className="p-2 w-[20%] text-left">Name</th>
+                    <th className="p-2 w-[20%] text-left">Email</th>
+                    <th className="p-2 w-[10%] text-left">Year Level</th>
+                    <th className="p-2 w-[20%] text-left">Curriculum</th>
+                    <th className="p-2 w-[10%] text-left">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
                   {filteredStudents.map((student) => {
-                    const isEditing = editingStudent === student.id;
-                    const data = isEditing ? editingData : student;
-                    
                     return (
-                      <TableRow 
+                      <tr
                         key={student.id}
-                        sx={{ 
-                          cursor: 'pointer',
-                          '&:hover': { bgcolor: '#f5f5f5' }
-                        }}
-                        onClick={() => !isEditing && setSelectedStudent(student)}
+                        className="border-t border-gray-300 hover:bg-gray-50 cursor-pointer"
+                        onClick={() => handleSelectStudent(student)}
                       >
-                       
-                        <TableCell sx={{ width: '20%' }}>
-                          {isEditing ? (
-                            <TextField
-                              size="small"
-                              value={data.studentNumber || ''}
-                              onChange={(e) => handleInputChange('studentNumber', e.target.value)}
-                              fullWidth
-                            />
-                          ) : (
-                            <Typography variant="body2" fontWeight="bold" noWrap>
-                              {student.studentNumber || 'N/A'}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell sx={{ width: '20%' }}>
-                          {isEditing ? (
-                            <TextField
-                              size="small"
-                              value={data.name}
-                              onChange={(e) => handleInputChange('name', e.target.value)}
-                              fullWidth
-                            />
-                          ) : (
-                            <Typography variant="body2" fontWeight="bold" noWrap>
-                              {student.name}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell sx={{ width: '20%' }}>
-                          {isEditing ? (
-                            <TextField
-                              size="small"
-                              value={data.email}
-                              onChange={(e) => handleInputChange('email', e.target.value)}
-                              fullWidth
-                            />
-                          ) : (
-                            <Typography variant="body2" noWrap>
-                              {student.email}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell sx={{ width: '10%' }}>
-                          {isEditing ? (
-                            <FormControl size="small" fullWidth>
-                              <Select
-                                value={data.yearLevel}
-                                onChange={(e) => handleInputChange('yearLevel', e.target.value)}
-                              >
-                                {[1, 2, 3, 4].map(year => (
-                                  <MenuItem key={year} value={year}>{year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year</MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          ) : (
-                            <Typography variant="body2" noWrap>
-                              {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell sx={{ width: '20%' }}>
-                          {isEditing ? (
-                            <FormControl size="small" fullWidth>
-                              <Select
-                                value={data.curriculumId}
-                                onChange={(e) => handleInputChange('curriculumId', e.target.value)}
-                              >
-                                {curriculums.map(curriculum => (
-                                  <MenuItem key={curriculum.id} value={curriculum.id}>
-                                    {curriculum.name}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
-                          ) : (
-                            <Typography variant="body2" noWrap>
-                              {getCurriculumName(student.curriculumId)}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell sx={{ width: '10%' }}>
-                          <Box display="flex" gap={0.5} flexWrap="wrap" alignItems="center">
-                            {isEditing ? (
-                              <>
-                                <Button
-                                  size="small"
-                                  variant="contained"
-                                  color="success"
-                                  onClick={() => handleSaveEdit(student.id)}
-                                  disabled={!data.name || !data.email || !data.curriculumId || !data.studentNumber}
-                                  sx={{ minWidth: 'auto', px: 1 }}
-                                >
-                                  Save
-                                </Button>
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  onClick={() => handleCancelEdit()}
-                                  sx={{ minWidth: 'auto', px: 1 }}
-                                >
-                                  Cancel
-                                </Button>
-                              </>
-                            ) : (
-                              <>
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleStartEdit(student);
-                                  }}
-                                  sx={{ minWidth: 'auto', px: 1 }}
-                                >
-                                  Edit
-                                </Button>
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  color="error"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteStudent(student.id);
-                                  }}
-                                  sx={{ minWidth: 'auto', px: 1 }}
-                                >
-                                  Delete
-                                </Button>
-                              </>
-                            )}
-                          </Box>
-                        </TableCell>
-                      </TableRow>
+                        <td className="p-2">
+                          <span className="font-semibold">{student.studentNumber || 'N/A'}</span>
+                        </td>
+                        <td className="p-2">
+                          <span className="font-semibold">{student.name}</span>
+                        </td>
+                        <td className="p-2">
+                          <span>{student.email}</span>
+                        </td>
+                        <td className="p-2">
+                          <span>
+                            {student.yearLevel === 1
+                              ? '1st'
+                              : student.yearLevel === 2
+                              ? '2nd'
+                              : student.yearLevel === 3
+                              ? '3rd'
+                              : '4th'}{' '}
+                            Year
+                          </span>
+                        </td>
+                        <td className="p-2">
+                          <span>{getCurriculumName(student.curriculumId)}</span>
+                        </td>
+                        <td className="p-2">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartEdit(student);
+                              }}
+                              className="px-2 py-1 rounded text-xs font-medium bg-green-600 text-white border border-green-600 hover:bg-green-700"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteStudent(student.id);
+                              }}
+                              className="px-2 py-1 rounded text-xs font-medium bg-red-600 text-white border border-red-600 hover:bg-red-700"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
                     );
                   })}
-                  
-                  {filteredStudents.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                        <Typography variant="body2" color="text.secondary">
-                          {tabValue === 4 ? 'No irregular students' : `No students in ${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year`}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                </tbody>
+              </table>
+            </div>
           );
         })()}
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 
   const renderCourseTables = () => {
     if (!selectedStudent) return null;
 
-    const currentYear = tabValue + 1;
+    const currentYear = courseTab + 1;
     const scholarshipEligibility = calculateScholarshipEligibility(currentYear);
-    const isThirdYearTab = tabValue === 2;
+    const isThirdYearTab = courseTab === 2;
 
     return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', }}>
-        <Typography variant="h5" fontWeight="bold" sx={{ flexShrink: 0 }}>
-          {selectedStudent.name} - Course Management
-        </Typography>
+      <div className="flex flex-col h-full">
 
-        {/* Eligibility Summary */}
-        <Box sx={{ mb: 3, p: 2, bgcolor: '#f8f9fa', borderRadius: 2, border: '1px solid #e0e0e0', flexShrink: 0 }}>
-          <Typography variant="h6" fontWeight={600} gutterBottom>
+        <div className="mb-3 p-3 bg-white rounded-xl shadow-md border border-gray-300">
+          <div className="font-semibold mb-2">
             Academic Eligibility Summary - {currentYear === 1 ? '1st' : currentYear === 2 ? '2nd' : currentYear === 3 ? '3rd' : '4th'} Year
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            <Box>
-              <Typography variant="body2" fontWeight={500} color="text.secondary">
-                1st Semester Dean's Lister:
-              </Typography>
-              <Chip 
-                label={calculateDeansListerEligibility(1, currentYear) ? "Eligible" : "Not Eligible"}
-                color={calculateDeansListerEligibility(1, currentYear) ? "success" : "default"}
-                size="small"
-                variant="outlined"
-              />
-            </Box>
-            <Box>
-              <Typography variant="body2" fontWeight={500} color="text.secondary">
-                2nd Semester Dean's Lister:
-              </Typography>
-              <Chip 
-                label={calculateDeansListerEligibility(2, currentYear) ? "Eligible" : "Not Eligible"}
-                color={calculateDeansListerEligibility(2, currentYear) ? "success" : "default"}
-                size="small"
-                variant="outlined"
-              />
-            </Box>
-            <Box>
-              <Typography variant="body2" fontWeight={500} color="text.secondary">
-                Scholarship Eligibility:
-              </Typography>
-              <Chip 
-                label={scholarshipEligibility.eligible ? `${scholarshipEligibility.percentage}% Scholarship` : "Not Eligible"}
-                color={scholarshipEligibility.eligible ? "primary" : "default"}
-                size="small"
-                variant="outlined"
-              />
-            </Box>
-          </Box>
-        </Box>
+          </div>
+          <div className="flex gap-6 flex-wrap">
+            <div>
+              <div className="text-sm text-gray-600">1st Semester Dean's Lister:</div>
+              <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
+                calculateDeansListerEligibility(1, currentYear)
+                  ? 'bg-green-50 border-green-200 text-green-700'
+                  : 'bg-gray-50 border-gray-200 text-gray-700'
+              }`}>
+                {calculateDeansListerEligibility(1, currentYear) ? 'Eligible' : 'Not Eligible'}
+              </span>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">2nd Semester Dean's Lister:</div>
+              <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
+                calculateDeansListerEligibility(2, currentYear)
+                  ? 'bg-green-50 border-green-200 text-green-700'
+                  : 'bg-gray-50 border-gray-200 text-gray-700'
+              }`}>
+                {calculateDeansListerEligibility(2, currentYear) ? 'Eligible' : 'Not Eligible'}
+              </span>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">Scholarship Eligibility:</div>
+              <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
+                scholarshipEligibility.eligible
+                  ? 'bg-blue-50 border-blue-200 text-blue-700'
+                  : 'bg-gray-50 border-gray-200 text-gray-700'
+              }`}>
+                {scholarshipEligibility.eligible ? `${scholarshipEligibility.percentage}% Scholarship` : 'Not Eligible'}
+              </span>
+            </div>
+          </div>
+        </div>
 
-        <Box sx={{ mb: 2, flexShrink: 0 }}>
-          <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
-            {[1, 2, 3, 4].map(year => (
-              <Tab key={year} label={`${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year`} />
-            ))}
-          </Tabs>
-        </Box>
-
-        <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {([1, 2, (isThirdYearTab ? 3 : null)].filter(Boolean)).map(semester => (
-            <Box key={semester} sx={{ flex: 1, display: 'flex', flexDirection: 'column', mb: 2 }}>
-              <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold', flexShrink: 0 }}>
-                {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
-              </Typography>
-              <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 1, flex: 1 }}>
-                <Table size="small" sx={{ tableLayout: 'fixed' }}>
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-                      <TableCell sx={{ fontWeight: 'bold', width: '12%' }}>Course Code</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '35%' }}>Course Title</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '8%' }}>Units</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Prerequisites</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '10%' }}>Grade</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {studentCourses
-                      .filter(course => course.yearLevel === currentYear && course.semester === semester)
-                      .map((course) => (
-                        <TableRow key={course.id} sx={{ '&:hover': { bgcolor: '#f9f9f9' } }}>
-                          <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            <Typography variant="body2" fontWeight="bold" color="primary" noWrap>
-                              {course.courseCode}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            <Typography variant="body2" noWrap>
-                              {course.courseTitle}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2">
-                              {course.units}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={{ overflow: 'hidden' }}>
-                            {course.prerequisites.length > 0 ? (
-                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                {course.prerequisites.slice(0, 2).map(prereq => (
-                                  <Chip 
-                                    key={prereq} 
-                                    label={prereq} 
-                                    size="small" 
-                                    color={isCourseCompleted(prereq) ? 'success' : 'error'}
-                                    sx={{ fontSize: '0.7rem', height: 20 }}
-                                  />
-                                ))}
-                                {course.prerequisites.length > 2 && (
-                                  <Chip 
-                                    label={`+${course.prerequisites.length - 2}`}
-                                    size="small"
-                                    variant="outlined"
-                                    sx={{ fontSize: '0.7rem', height: 20 }}
-                                  />
-                                )}
-                              </Box>
-                            ) : (
-                              <Typography variant="body2" color="text.secondary" noWrap>
-                                None
-                              </Typography>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <FormControl size="small" sx={{ minWidth: 100, maxWidth: 120 }}>
-                              <Select
-                                value={editingGrades[course.courseCode] || ''}
-                                onChange={(e) => handleGradeChange(course.courseCode, e.target.value)}
-                                displayEmpty
-                                sx={{ 
-                                  '& .MuiSelect-select': {
-                                    fontSize: '0.8rem',
-                                    padding: '4px 8px'
-                                  }
-                                }}
-                              >
-                                <MenuItem value="" disabled>
-                                  Select Grade
-                                </MenuItem>
-                                <MenuItem value="1.0">1.0</MenuItem>
-                                <MenuItem value="1.1">1.1</MenuItem>
-                                <MenuItem value="1.2">1.2</MenuItem>
-                                <MenuItem value="1.3">1.3</MenuItem>
-                                <MenuItem value="1.4">1.4</MenuItem>
-                                <MenuItem value="1.5">1.5</MenuItem>
-                                <MenuItem value="1.6">1.6</MenuItem>
-                                <MenuItem value="1.7">1.7</MenuItem>
-                                <MenuItem value="1.8">1.8</MenuItem>
-                                <MenuItem value="1.9">1.9</MenuItem>
-                                <MenuItem value="2.0">2.0</MenuItem>
-                                <MenuItem value="2.1">2.1</MenuItem>
-                                <MenuItem value="2.2">2.2</MenuItem>
-                                <MenuItem value="2.3">2.3</MenuItem>
-                                <MenuItem value="2.4">2.4</MenuItem>
-                                <MenuItem value="2.5">2.5</MenuItem>
-                                <MenuItem value="2.6">2.6</MenuItem>
-                                <MenuItem value="2.7">2.7</MenuItem>
-                                <MenuItem value="2.8">2.8</MenuItem>
-                                <MenuItem value="2.9">2.9</MenuItem>
-                                <MenuItem value="3.0">3.0</MenuItem>
-                                <MenuItem value="5.0">5.0 (Failed)</MenuItem>
-                                <MenuItem value="INC">INC (Incomplete)</MenuItem>
-                                <MenuItem value="CRED">CRED (Credited)</MenuItem>
-                                <MenuItem value="" sx={{ color: 'error.main', fontStyle: 'italic' }}>
-                                  No Grade
-                                </MenuItem>
-                              </Select>
-                            </FormControl>
-                            {/* Status indicators based on grade */}
-                            {studentGrades[course.courseCode] && (
-                              <Box sx={{ mt: 0.5 }}>
-                                {studentGrades[course.courseCode] === '5.0' && (
-                                  <Typography variant="caption" color="error" display="block">
-                                    Failed
-                                  </Typography>
-                                )}
-                                {studentGrades[course.courseCode] === 'INC' && (
-                                  <Typography variant="caption" color="warning.main" display="block">
-                                    Incomplete
-                                  </Typography>
-                                )}
-                                {studentGrades[course.courseCode] === 'CRED' && (
-                                  <Typography variant="caption" color="success.main" display="block">
-                                    Credited
-                                  </Typography>
-                                )}
-                                {studentGrades[course.courseCode] && 
-                                 studentGrades[course.courseCode] !== '5.0' && 
-                                 studentGrades[course.courseCode] !== 'INC' && 
-                                 studentGrades[course.courseCode] !== 'CRED' && (
-                                  <Typography variant="caption" color="success.main" display="block">
-                                    Completed
-                                  </Typography>
-                                )}
-                              </Box>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    {studentCourses.filter(course => course.yearLevel === currentYear && course.semester === semester).length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
-                          <Typography variant="body2" color="text.secondary">
-                            No courses in Year {currentYear}, {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Box>
+        <div className="mb-4 mt-4 flex flex-wrap gap-6 border-b border-gray-300">
+          {[1, 2, 3, 4].map((year, idx) => (
+            <button
+              key={year}
+              onClick={() => setCourseTab(idx)}
+              className={`
+                px-2 py-0.5 cursor-pointer
+                ${courseTab === idx
+                  ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
+                  : 'text-gray-700 border-b-2 border-transparent hover:text-blue-500'
+                }
+              `}
+            >
+              {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
+            </button>
           ))}
-        </Box>
+        </div>
 
 
-      </Box>
+        <div className="flex-1 flex flex-col">
+          {[1, 2, isThirdYearTab ? 3 : null].filter(Boolean).map((semester) => (
+            <div key={semester} className="flex-1 flex flex-col mb-3">
+              <div className="text-lg font-semibold text-blue-700 mb-2">
+                {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
+              </div>
+             <div className="border border-gray-300 rounded-xl overflow-hidden">
+  <table className="min-w-full text-sm">
+    <thead className="bg-blue-700 text-white">
+      <tr>
+        <th className="p-2 w-[12%] text-left cursor-pointer" onClick={() => handleSort('courseCode')}>
+          Course Code {sortBy === 'courseCode' && (sortOrder === 'asc' ? '↑' : '↓')}
+        </th>
+        <th className="p-2 w-[35%] text-left cursor-pointer" onClick={() => handleSort('courseTitle')}>
+          Course Title {sortBy === 'courseTitle' && (sortOrder === 'asc' ? '↑' : '↓')}
+        </th>
+        <th className="p-2 w-[8%] text-left cursor-pointer" onClick={() => handleSort('units')}>
+          Units {sortBy === 'units' && (sortOrder === 'asc' ? '↑' : '↓')}
+        </th>
+        <th className="p-2 w-[20%] text-left">Prerequisites</th>
+        <th className="p-2 w-[10%] text-left">Grade</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {studentCourses
+        .filter((course) => course.yearLevel === currentYear && course.semester === semester)
+        .sort((a, b) => {
+          let aValue, bValue;
+          switch (sortBy) {
+            case 'courseCode':
+              aValue = a.courseCode;
+              bValue = b.courseCode;
+              return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+            case 'courseTitle':
+              aValue = a.courseTitle;
+              bValue = b.courseTitle;
+              return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+            case 'units':
+              aValue = parseFloat(a.units) || 0;
+              bValue = parseFloat(b.units) || 0;
+              return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
+            default:
+              return 0;
+          }
+        })
+        .map((course) => (
+          <tr key={course.id} className="border-t border-gray-300 hover:bg-gray-50">
+            <td className="p-2">
+              <span className="font-semibold text-blue-700">{course.courseCode}</span>
+            </td>
+            <td className="p-2">
+              <span>{course.courseTitle}</span>
+            </td>
+            <td className="p-2">{course.units}</td>
+            <td className="p-2">
+              {course.prerequisites.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {course.prerequisites.slice(0, 2).map((prereq) => (
+                    <span
+                      key={prereq}
+                      className={`px-2 py-0.5 rounded-full text-xs border ${
+                        isCourseCompleted(prereq)
+                          ? 'bg-green-50 border-green-200 text-green-700'
+                          : 'bg-red-50 border-red-200 text-red-700'
+                      }`}
+                    >
+                      {prereq}
+                    </span>
+                  ))}
+
+                  {course.prerequisites.length > 2 && (
+                    <span className="px-2 py-0.5 rounded-full text-xs border bg-gray-50 border-gray-200 text-gray-700">
+                      +{course.prerequisites.length - 2}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <span className="text-gray-500">None</span>
+              )}
+            </td>
+
+            <td className="p-2">
+              <select
+                className="border border-gray-300 rounded px-2 py-1 text-sm"
+                value={editingGrades[course.courseCode] || ''}
+                onChange={(e) => handleGradeChange(course.courseCode, e.target.value)}
+              >
+                <option value="" disabled>
+                  Select Grade
+                </option>
+                {[
+                  "1.0","1.1","1.2","1.3","1.4","1.5","1.6","1.7","1.8","1.9",
+                  "2.0","2.1","2.2","2.3","2.4","2.5","2.6","2.7","2.8","2.9",
+                  "3.0","5.0","INC","CRED",""
+                ].map((g, idx) => (
+                  <option key={idx} value={g}>
+                    {g === '' ? 'No Grade' :
+                     g === '5.0' ? '5.0 (Failed)' :
+                     g === 'INC' ? 'INC (Incomplete)' :
+                     g === 'CRED' ? 'CRED (Credited)' : g}
+                  </option>
+                ))}
+              </select>
+
+              {studentGrades[course.courseCode] && (
+                <div className="mt-1 text-xs">
+                  {studentGrades[course.courseCode] === '5.0' && (
+                    <span className="text-red-600">Failed</span>
+                  )}
+                  {studentGrades[course.courseCode] === 'INC' && (
+                    <span className="text-amber-600">Incomplete</span>
+                  )}
+                  {studentGrades[course.courseCode] === 'CRED' && (
+                    <span className="text-green-700">Credited</span>
+                  )}
+                  {studentGrades[course.courseCode] &&
+                    !['5.0','INC','CRED'].includes(studentGrades[course.courseCode]) && (
+                      <span className="text-green-700">Completed</span>
+                    )}
+                </div>
+              )}
+            </td>
+          </tr>
+        ))}
+
+      {studentCourses.filter((c) => c.yearLevel === currentYear && c.semester === semester).length === 0 && (
+        <tr>
+          <td colSpan={5} className="text-center text-gray-500 py-4">
+            No courses in Year {currentYear}, {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
+          </td>
+        </tr>
+      )}
+    </tbody>
+  </table>
+</div>
+
+            </div>
+          ))}
+        </div>
+      </div>
     );
   };
 
   return (
-    <Box p={3} sx={{ display: 'flex', flexDirection: 'column' }}>
-      {/* Header Box with White Background */}
-      <Box 
-        sx={{ 
-          bgcolor: 'white', 
-          color: 'black', 
-          p: 4, 
-          borderRadius: 2, 
-          mb: 3,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          border: '1px solid #e0e0e0',
-          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 1000,
-          marginTop: 7
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <IconButton 
-            edge="start" 
-            onClick={onBack}
-            sx={{ 
-              mr: 3,
-              borderRadius: '50%',
-              backgroundColor: 'royalblue',
-              color: 'white',
-              '&:hover': {
-                backgroundColor: '#4169e1'
-              }
+    <div className="">
+      <div className=" bg-white text-black p-6 rounded-2xl mb-10 flex items-center justify-between border border-gray-300 shadow-lg">
+        <div className="flex items-center gap-6">
+          <button
+            onClick={selectedStudent ? () => { 
+              setSelectedStudent(null); 
+              setStudentListTab(selectedStudent.isIrregular ? 5 : selectedStudent.yearLevel); 
+            } : onBack}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            aria-label="Back"
+          >
+            <span className="hidden sm:inline text-sm font-medium">Back</span>
+          </button>
+          <div>
+            {selectedStudent ? (
+              <>
+                <div className="text-2xl font-bold text-blue-600">Selected Student</div>
+                <div className="text-gray-600">{selectedStudent.name}</div>
+                <div className="text-gray-600">
+                  {selectedStudent.yearLevel === 1 ? '1st' : selectedStudent.yearLevel === 2 ? '2nd' : selectedStudent.yearLevel === 3 ? '3rd' : '4th'} Year{selectedStudent.isIrregular ? ' - Irregular' : ''} Student
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-blue-600 mb-2">Student Management</div>
+                <div className="text-gray-600">Manage students and track their curriculum progress</div>
+              </>
+            )}
+          </div>
+        </div>
+        {!selectedStudent && (
+          <button
+            onClick={() => {
+              setStudentForm({
+                name: '',
+                email: '',
+                studentNumber: '',
+                yearLevel: studentListTab === 0 ? 1 : studentListTab === 5 ? 1 : studentListTab,
+                curriculumId: '',
+                isIrregular: studentListTab === 5,
+              });
+              setStudentDialogOpen(true);
             }}
+            className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
           >
-            <ArrowBackIcon />
-          </IconButton>
-          <Typography variant="h5" fontWeight="bold">
-            Student Management
-          </Typography>
-        </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            setStudentForm({ 
-              name: '', 
-              email: '', 
-              studentNumber: '', 
-              yearLevel: tabValue === 4 ? 1 : tabValue + 1, 
-              curriculumId: '', 
-              isIrregular: tabValue === 4 
-            });
-            setStudentDialogOpen(true);
-          }}
-          sx={{ 
-            bgcolor: 'royalblue', 
-            color: 'white',
-            '&:hover': {
-              bgcolor: '#4169e1'
-            }
-          }}
-        >
-          Add Student
-        </Button>
-      </Box>
-      
+            <i className="bi bi-plus-lg"></i>
+            <span>Add Student</span>
+          </button>
+        )}
+      </div>
+
       {!currentUser && (
-        <Alert severity="info" sx={{ mb: 2 }}>
+        <div className="mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-4 py-2">
           Please sign in to access Student Management
-        </Alert>
+        </div>
       )}
-      
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-      
+
+      {error && <div className="mb-2 rounded border border-red-200 bg-red-50 text-red-800 px-4 py-2">{error}</div>}
+      {success && <div className="mb-2 rounded border border-green-200 bg-green-50 text-green-800 px-4 py-2">{success}</div>}
+
       {currentUser ? (
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div className="flex-1 flex flex-col">
           {!selectedStudent ? (
-            // Show student list when no student is selected
-            <Box sx={{ flex: 1 }}>
-              <Box >
-                {renderStudentList()}
-              </Box>
-            </Box>
+            <div className="flex-1">
+              <div>{renderStudentList()}</div>
+            </div>
           ) : (
-            // Show full screen course tables when student is selected
-            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-              <Box sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa', flexShrink: 0 }}>
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                  <Typography variant="h6">Selected Student</Typography>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => setSelectedStudent(null)}
-                  >
-                    Back to Students
-                  </Button>
-                </Box>
-                <Box sx={{ mt: 1 }}>
-                  <Typography variant="subtitle1" fontWeight="bold">
-                    {selectedStudent.name}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Year {selectedStudent.yearLevel} • {getCurriculumName(selectedStudent.curriculumId)} • {selectedStudent.completedCourses?.length || 0} courses completed
-                  </Typography>
-                  {selectedStudent.isIrregular && (
-                    <Chip label="Irregular" color="warning" size="small" sx={{ ml: 1 }} />
-                  )}
-                </Box>
-              </Box>
-              
-              <Box sx={{ flex: 1, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div className="flex-1 flex flex-col">
+              <div className="w-full">
                 {renderCourseTables()}
-              </Box>
-            </Box>
+              </div>
+            </div>
           )}
-        </Box>
+        </div>
       ) : (
-        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Box sx={{ p: 4, textAlign: 'center', border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa' }}>
-            <Typography variant="h6" color="text.secondary">
-              Sign in to access student management features
-            </Typography>
-          </Box>
-        </Box>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="p-6 text-center border border-gray-200 rounded bg-gray-50 text-gray-600">
+            Sign in to access student management features
+          </div>
+        </div>
       )}
 
-      {/* Student Dialog */}
-      <Dialog open={studentDialogOpen} onClose={() => setStudentDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
-          {studentForm.isIrregular ? 'Add New Irregular Student' : 'Add New Student'}
-        </DialogTitle>
-        <DialogContent>
-          {studentForm.isIrregular && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Irregular students can take courses from different curriculums and have access to equivalent subjects.
-            </Alert>
-          )}
-          <TextField
-            fullWidth
-            label="Student Number"
-            value={studentForm.studentNumber || ''}
-            onChange={(e) => setStudentForm({ ...studentForm, studentNumber: e.target.value })}
-            margin="normal"
-          />
-          <TextField
-            fullWidth
-            label="Student Name"
-            value={studentForm.name}
-            onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
-            margin="normal"
-            required
-          />
-          <TextField
-            fullWidth
-            label="Email"
-            type="email"
-            value={studentForm.email || ''}
-            onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
-            margin="normal"
-          />
-          <FormControl fullWidth margin="normal">
-            <InputLabel>Year Level</InputLabel>
-            <Select
-              value={studentForm.yearLevel}
-              onChange={(e) => setStudentForm({ ...studentForm, yearLevel: e.target.value })}
-            >
-              {[1, 2, 3, 4].map(year => (
-                <MenuItem key={year} value={year}>{year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl fullWidth margin="normal">
-            <InputLabel>Curriculum</InputLabel>
-            <Select
-              value={studentForm.curriculumId}
-              onChange={(e) => setStudentForm({ ...studentForm, curriculumId: e.target.value })}
-            >
-              {curriculums.map(curriculum => (
-                <MenuItem key={curriculum.id} value={curriculum.id}>
-                  {curriculum.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setStudentDialogOpen(false)}>Cancel</Button>
-          <Button 
-            onClick={handleAddStudent} 
-            variant="contained" 
-            disabled={loading || !studentForm.name || !studentForm.curriculumId}
-          >
-            Add {studentForm.isIrregular ? 'Irregular ' : ''}Student
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-
-    </Box>
+      {/* Edit Student Modal */}
+      {editingDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setEditingDialogOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-lg border border-gray-300 bg-white rounded-2xl shadow p-8">
+            <div className="text-xl font-semibold mb-4">Edit Student</div>
+           
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Student Number</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={10}
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  placeholder="Enter student number (e.g., 2024-00001)"
+                  value={editingData.studentNumber || ''}
+                  onChange={(e) => setEditingData({ ...editingData, studentNumber: formatStudentNumber(e.target.value) })}
+                  pattern="^\\d{4}-\\d{5}$"
+                  title="Format: 4 digits, dash, 5 digits"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Student Name</label>
+                <input
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  placeholder="Last Name, First Name, Middle Name"
+                  value={editingData.name}
+                  onChange={(e) => setEditingData({ ...editingData, name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Email</label>
+                <input
+                  type="email"
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  placeholder="name@example.com"
+                  value={editingData.email || ''}
+                  onChange={(e) => setEditingData({ ...editingData, email: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+                <select
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={editingData.yearLevel}
+                  onChange={(e) => setEditingData({ ...editingData, yearLevel: parseInt(e.target.value, 10) })}
+                >
+                  {[1, 2, 3, 4].map((year) => (
+                    <option key={year} value={year}>
+                      {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Curriculum</label>
+                <select
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={editingData.curriculumId}
+                  onChange={(e) => setEditingData({ ...editingData, curriculumId: e.target.value })}
+                >
+                  {curriculums.map((curriculum) => (
+                    <option key={curriculum.id} value={curriculum.id}>
+                      {curriculum.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-blue-600"
+                  checked={editingData.isIrregular}
+                  onChange={(e) => setEditingData({ ...editingData, isIrregular: e.target.checked })}
+                />
+                <label className="text-sm text-gray-700">Irregular student</label>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={handleCancelEdit}
+                className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleSaveEdit(editingData.id)}
+                disabled={loading || !editingData.name || !editingData.email || !editingData.curriculumId || !editingData.studentNumber}
+                className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Add Student Modal */}
+      {studentDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setStudentDialogOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-lg border border-gray-300 bg-white rounded-2xl shadow p-8">
+            <div className="text-xl font-semibold mb-4">{studentForm.isIrregular ? 'Add New Irregular Student' : 'Add New Student'}</div>
+           
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Student Number</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={10}
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  placeholder="Enter student number (e.g., 2024-00001)"
+                  value={studentForm.studentNumber || ''}
+                  onChange={(e) => setStudentForm({ ...studentForm, studentNumber: formatStudentNumber(e.target.value) })}
+                  pattern="^\\d{4}-\\d{5}$"
+                  title="Format: 4 digits, dash, 5 digits"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Student Name</label>
+                <input
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                              placeholder="Last Name, First Name, Middle Name"
+                  value={studentForm.name}
+                  onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Email</label>
+                <input
+                  type="email"
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  placeholder="name@example.com"
+                  value={studentForm.email || ''}
+                  onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+                <select
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={studentForm.yearLevel}
+                  onChange={(e) => setStudentForm({ ...studentForm, yearLevel: parseInt(e.target.value, 10) })}
+                >
+                  {[1, 2, 3, 4].map((year) => (
+                    <option key={year} value={year}>
+                      {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Curriculum</label>
+                <select
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={studentForm.curriculumId}
+                  onChange={(e) => setStudentForm({ ...studentForm, curriculumId: e.target.value })}
+                >
+                  {curriculums.map((curriculum) => (
+                    <option key={curriculum.id} value={curriculum.id}>
+                      {curriculum.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-blue-600"
+                  checked={studentForm.isIrregular}
+                  onChange={(e) => setStudentForm({ ...studentForm, isIrregular: e.target.checked })}
+                />
+                <label className="text-sm text-gray-700">Irregular student</label>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setStudentDialogOpen(false)}
+                className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddStudent}
+                disabled={loading || !studentForm.name || !studentForm.studentNumber || !studentForm.curriculumId}
+                className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Add Student
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delete Confirmation Modal */}
+      {deleteDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setDeleteDialogOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+            <div className="text-xl font-semibold mb-4">Confirm Delete</div>
+            <div className="text-gray-700 mb-6">
+              Are you sure you want to delete this student? This action cannot be undone.
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setDeleteDialogOpen(false);
+                  setStudentToDelete(null);
+                }}
+                className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={loading}
+                className="px-4 py-1.5 rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {loading ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 

@@ -1,55 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  AppBar,
-  Toolbar,
-  Typography,
-  Button,
-  Box,
-  Paper,
-  Grid,
-  Container,
-  Card,
-  CardContent,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  IconButton,
-} from '@mui/material';
-import SchoolIcon from '@mui/icons-material/School';
-import PaymentIcon from '@mui/icons-material/Payment';
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import EditIcon from '@mui/icons-material/Edit';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
 import CurriculumChecker from './curriculum-checker/CurriculumChecker';
 import PayablesSystem from './payables-system/PayablesSystem';
-import Logo from '../assets/logo.png';
 
 const Dashboard = () => {
-  const { currentUser, role, signout, updateRole } = useAuth();
+  const { currentUser, role } = useAuth();
   const [selectedSystem, setSelectedSystem] = useState(null);
-  const [adminDialogOpen, setAdminDialogOpen] = useState(false);
-  const [users, setUsers] = useState([]);
-  const [editingUser, setEditingUser] = useState(null);
-  const [newRole, setNewRole] = useState('');
-
-  const handleSignOut = async () => {
-    try {
-      await signout();
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
-  };
+  const [currentTime, setCurrentTime] = useState(new Date());
+  
 
   const handleSystemSelect = (system) => {
     setSelectedSystem(system);
@@ -59,7 +17,26 @@ const Dashboard = () => {
     setSelectedSystem(null);
   };
 
-  // Check if user can access a system based on role
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatDate = (date) => {
+    const month = date.toLocaleString('en-US', { month: 'long' });
+    const day = String(date.getDate()).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${month} ${day}, ${year}`;
+  };
+
+  const formatTime = (date) => {
+    const hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    const hour12 = hours % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+  };
+
   const canAccessSystem = (system) => {
     if (!role) return false;
     if (role === 'admin') return true;
@@ -68,46 +45,8 @@ const Dashboard = () => {
     return false;
   };
 
-  // Admin functions
-  const handleOpenAdminPanel = async () => {
-    try {
-      const usersSnapshot = await getDocs(collection(db, 'users'));
-      const usersList = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setUsers(usersList);
-      setAdminDialogOpen(true);
-    } catch (error) {
-      console.error('Error fetching users:', error);
-    }
-  };
 
-  const handleEditRole = (user) => {
-    setEditingUser(user);
-    setNewRole(user.role || 'admin');
-  };
 
-  const handleSaveRole = async () => {
-    if (editingUser) {
-      const result = await updateRole(editingUser.id, newRole);
-      if (result.success) {
-        setUsers(users.map(user => 
-          user.id === editingUser.id ? { ...user, role: newRole } : user
-        ));
-        setEditingUser(null);
-        setNewRole('');
-      }
-    }
-  };
-
-  const handleCloseAdminPanel = () => {
-    setAdminDialogOpen(false);
-    setEditingUser(null);
-    setNewRole('');
-  };
-
-  // Render the selected system
   if (selectedSystem === 'Curriculum Checker') {
     return <CurriculumChecker onBackToDashboard={handleBackToDashboard} />;
   }
@@ -116,199 +55,77 @@ const Dashboard = () => {
     return <PayablesSystem onBackToDashboard={handleBackToDashboard} />;
   }
 
-  // Render the main dashboard
   return (
-    <Box >
-      <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa' }}>
-        <Toolbar>
-          <Box
-            component="img"
-            src={Logo}
-            alt="Logo"
-            sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
-            onClick={handleBackToDashboard}
-          />
-          <Typography 
-            variant="h5" 
-            sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
-            onClick={handleBackToDashboard}
-          >
-            College of Computer Studies
-          </Typography>
-          {role === 'admin' && (
-            <Button 
-              startIcon={<AdminPanelSettingsIcon />}
-              sx={{ mr: 2, borderRadius: 5 }} 
-              variant="outlined" 
-              onClick={handleOpenAdminPanel}
-            >
-              Admin Panel
-            </Button>
-          )}
-          <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
-            Sign Out
-          </Button>
-        </Toolbar>
-      </AppBar>
-      
-      <Box sx={{ p: 4, marginTop: '64px', textAlign: 'center' }}>
-        <Typography variant="h3" fontWeight={700} mb={1} align="center" color="primary">
+    <div>
+      <div className="p-4 max-w-7xl mx-auto">
+       
+      <div className="mb-8 p-8  rounded-2xl bg-linear-to-r from-blue-500 to-indigo-500 shadow-lg">
+         <h3 className="text-3xl font-bold mb-1  text-white">
           Welcome, {currentUser?.displayName || currentUser?.email}!
-        </Typography>
-        
-        <Typography variant="h6" color="text.secondary" mb={4} align="center" sx={{ maxWidth: 600, mx: 'auto' }}>
+        </h3>
+        <p className="text-lg text-white ">
           Select a system to manage your institution's curriculum and financial operations.
-        </Typography>
-        
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          gap: 4, 
-          flexWrap: 'wrap',
-          maxWidth: 1000,
-          mx: 'auto'
-        }}>
-          {canAccessSystem('Curriculum Checker') && (
-            <Card 
-            elevation={0}
-            sx={{ 
-              width: 400,
-              height: 300,
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              border: '2px solid rgba(176, 176, 176, 1)',
-              bgcolor: 'white',
-              borderRadius: 2,
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: '0 12px 24px rgba(0,0,0,0.15)',
-                border: '2px solid #1976d2',
-              }
-            }}
-            onClick={() => handleSystemSelect('Curriculum Checker')}
-          >
-            <CardContent sx={{ 
-              textAlign: 'center', 
-              py: 4,
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-            }}>
-              <Box>
-                <SchoolIcon sx={{ fontSize: 70, color: '#1976d2', mb: 3 }} />
-                <Typography variant="h4" fontWeight={700} mb={2} color="primary">
-                  Curriculum Checker
-                </Typography>
-                <Typography variant="body1" color="text.secondary" lineHeight={1.6}>
-                  Review and validate curriculum requirements, course mappings, and academic compliance.
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="primary" fontWeight={600} sx={{ mt: 2 }}>
-                Click to access →
-              </Typography>
-            </CardContent>
-          </Card>
-          )}
-          
-          {canAccessSystem('Payables System') && (
-            <Card 
-            elevation={0}
-            sx={{ 
-              width: 400,
-              height: 300,
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              border: '2px solid rgba(176, 176, 176, 1)',
-              bgcolor: 'white',
-              borderRadius: 2,
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: '0 12px 24px rgba(0,0,0,0.15)',
-                border: '2px solid #2e7d32',
-              }
-            }}
-            onClick={() => handleSystemSelect('Payables System')}
-          >
-            <CardContent sx={{ 
-              textAlign: 'center', 
-              py: 4,
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between'
-            }}>
-              <Box>
-                <PaymentIcon sx={{ fontSize: 70, color: '#2e7d32', mb: 3 }} />
-                <Typography variant="h4" fontWeight={700} mb={2} color="success.main">
-                  Payables System
-                </Typography>
-                <Typography variant="body1" color="text.secondary" lineHeight={1.6}>
-                  Manage invoices, track payments, and handle financial transactions for the institution.
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="success.main" fontWeight={600} sx={{ mt: 2 }}>
-                Click to access →
-              </Typography>
-            </CardContent>
-          </Card>
-          )}
-        </Box>
-      </Box>
+        </p>
+        <div className="mt-4 text-white">
+          <div className="text-base">{formatDate(currentTime)} | {formatTime(currentTime)}</div>
+        </div>
+       </div>
 
-      {/* Admin Panel Dialog */}
-      <Dialog open={adminDialogOpen} onClose={handleCloseAdminPanel} maxWidth="md" fullWidth>
-        <DialogTitle>User Role Management</DialogTitle>
-        <DialogContent>
-          <List>
-            {users.map((user) => (
-              <ListItem key={user.id}>
-                <ListItemText 
-                  primary={user.email || user.id}
-                  secondary={`Role: ${user.role || 'admin'}`}
-                />
-                <ListItemSecondaryAction>
-                  <IconButton edge="end" onClick={() => handleEditRole(user)}>
-                    <EditIcon />
-                  </IconButton>
-                </ListItemSecondaryAction>
-              </ListItem>
-            ))}
-          </List>
-          
-          {editingUser && (
-            <Box sx={{ mt: 2, p: 2, border: '1px solid #ddd', borderRadius: 1 }}>
-              <Typography variant="h6" gutterBottom>
-                Edit Role for {editingUser.email || editingUser.id}
-              </Typography>
-              <FormControl fullWidth sx={{ mt: 2 }}>
-                <InputLabel>Role</InputLabel>
-                <Select
-                  value={newRole}
-                  label="Role"
-                  onChange={(e) => setNewRole(e.target.value)}
-                >
-                  <MenuItem value="admin">Admin (Full Access)</MenuItem>
-                  <MenuItem value="payables">Payables System Only</MenuItem>
-                  <MenuItem value="curriculum">Curriculum Checker Only</MenuItem>
-                </Select>
-              </FormControl>
-              <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-                <Button onClick={handleSaveRole} variant="contained">
-                  Save
-                </Button>
-                <Button onClick={() => setEditingUser(null)}>
-                  Cancel
-                </Button>
-              </Box>
-            </Box>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+          {canAccessSystem('Curriculum Checker') && (
+            <div 
+              className="w-full h-72 cursor-pointer transition-all duration-300 border border-gray-300 bg-white rounded-2xl hover:-translate-y-1 hover:shadow-xl hover:border-blue-600 focus-within:border-blue-600"
+              onClick={() => handleSystemSelect('Curriculum Checker')}
+            >
+              <div className="text-center p-4 h-full flex flex-col justify-between">
+                <div>
+                  <div className="mx-auto w-20 h-20 mb-4 rounded-full bg-blue-50 flex items-center justify-center">
+                    <i className='bi bi-book text-blue-700 text-4xl'></i>
+                  </div>
+                  <h4 className="text-2xl font-bold mb-2 text-blue-600">
+                    Curriculum Checker
+                  </h4>
+                  <p className="text-gray-600 leading-relaxed">
+                    Review and validate curriculum requirements, course mappings, and academic compliance.
+                  </p>
+                </div>
+                <p className="text-blue-600 font-semibold mt-2 flex items-center justify-center gap-2">
+                  <span>Click to access</span>
+                  <i className="bi bi-chevron-right"></i>
+                </p>
+              </div>
+            </div>
           )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseAdminPanel}>Close</Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+
+
+          {canAccessSystem('Payables System') && (
+            <div 
+              className="w-full h-72 cursor-pointer transition-all duration-300 border border-gray-300 bg-white rounded-2xl hover:-translate-y-1 hover:shadow-xl hover:border-green-600 focus-within:border-green-600"
+              onClick={() => handleSystemSelect('Payables System')}
+            >
+              <div className="text-center p-4 h-full flex flex-col justify-between">
+                <div>
+                  <div className="mx-auto w-20 h-20 mb-4 rounded-full bg-green-50 flex items-center justify-center">
+                    <i className='bi bi-receipt text-green-700 text-4xl'></i>
+                  </div>
+                  <h4 className="text-2xl font-bold mb-2 text-green-600">
+                    Payables System
+                  </h4>
+                  <p className="text-gray-600 leading-relaxed">
+                    Manage invoices, track payments, and handle financial transactions for the institution.
+                  </p>
+                </div>
+                <p className="text-green-600 font-semibold mt-2 flex items-center justify-center gap-2">
+                  <span>Click to access</span>
+                  <i className="bi bi-chevron-right"></i>
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+    </div>
   );
 };
 

@@ -1,53 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import {
-  Box,
-  Paper,
-  Typography,
-  TextField,
-  Button,
-  Grid,
-  Card,
-  CardContent,
-  CardActions,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Chip,
-  IconButton,
-  Alert,
-  Tabs,
-  Tab,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  TableContainer,
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell,
-  Autocomplete,
-  Checkbox,
-  Menu,
-  ListItemIcon,
-  Snackbar,
-} from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { createCurriculum, getCurriculums, addCourse, getCoursesByCurriculum, getAllCourses } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, deleteDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import Logo from '../../assets/logo.png';
+// Using Tailwind + Bootstrap Icons for UI; all logic remains intact.
 
 const CurriculumMaker = ({ onBack }) => {
   const { currentUser, isOnline } = useAuth();
@@ -91,6 +47,16 @@ const CurriculumMaker = ({ onBack }) => {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('success');
+  // Sorting state
+  const [sortField, setSortField] = useState('courseCode');
+  const [sortDirection, setSortDirection] = useState('asc');
+  // Per-semester table filters (1,2,3)
+  const [tableFilters, setTableFilters] = useState({ 1: '', 2: '', 3: '' });
+  const handleFilterChange = (semester, value) => setTableFilters(prev => ({ ...prev, [semester]: value }));
+  const getTotalUnitsByYearAndSemester = (year, semester) => {
+    const list = getCoursesByYearAndSemester(year, semester);
+    return list.reduce((sum, c) => sum + (parseFloat(c.units ?? 0) || 0), 0);
+  };
 
   // Editing states
   const [editingCourse, setEditingCourse] = useState(null);
@@ -177,6 +143,14 @@ const CurriculumMaker = ({ onBack }) => {
       return () => clearTimeout(timer);
     }
   }, [success]);
+
+  // Auto-hide snackbar to mimic previous MUI behavior
+  useEffect(() => {
+    if (snackbarOpen) {
+      const t = setTimeout(() => setSnackbarOpen(false), 6000);
+      return () => clearTimeout(t);
+    }
+  }, [snackbarOpen]);
 
   // Helper function to show snackbar messages
   const showMessage = (message, severity = 'success') => {
@@ -501,6 +475,39 @@ const CurriculumMaker = ({ onBack }) => {
     return courses.filter(course => course.yearLevel === year && course.semester === semester);
   };
 
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getSortedCoursesByYearAndSemester = (year, semester) => {
+    const list = [...getCoursesByYearAndSemester(year, semester)];
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    return list.sort((a, b) => {
+      let aVal;
+      let bVal;
+      if (sortField === 'units') {
+        aVal = parseFloat(a.units ?? 0) || 0;
+        bVal = parseFloat(b.units ?? 0) || 0;
+        return (aVal - bVal) * dir;
+      }
+      if (sortField === 'courseTitle') {
+        aVal = (a.courseTitle ?? '').toString().toLowerCase();
+        bVal = (b.courseTitle ?? '').toString().toLowerCase();
+      } else {
+        // Default to courseCode
+        aVal = (a.courseCode ?? '').toString().toLowerCase();
+        bVal = (b.courseCode ?? '').toString().toLowerCase();
+      }
+      const cmp = aVal.localeCompare(bVal);
+      return cmp * dir;
+    });
+  };
+
   const getAllCourseCodes = () => {
     if (!selectedCurriculum) return [];
     return courses.map(course => course.courseCode).filter(Boolean);
@@ -544,840 +551,782 @@ const CurriculumMaker = ({ onBack }) => {
   };
 
   const renderCurriculumList = () => (
-    <Box sx={{ marginTop: 7}}>
-      {/* Header Box with White Background */}
-      <Box 
-        sx={{ 
-          bgcolor: 'white', 
-          color: 'black', 
-          p: 4, 
-          borderRadius: 2, 
-          mb: 3,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          border: '1px solid #e0e0e0',
-          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 1000
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <IconButton 
-            edge="start" 
+    <div className="max-w-7xl mx-auto">
+      <div className=" bg-white text-black p-6 rounded-2xl mb-10 flex items-center justify-between border border-gray-300 shadow-lg">
+        <div className="flex items-center gap-6">
+          <button
             onClick={onBack}
-            sx={{ 
-              mr: 3,
-              borderRadius: '50%',
-              backgroundColor: 'royalblue',
-              color: 'white',
-              '&:hover': {
-                backgroundColor: '#4169e1'
-              }
-            }}
+            aria-label="Back to dashboard"
+            title="Back to dashboard"
+              className="group flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
           >
-            <ArrowBackIcon />
-          </IconButton>
-          <Typography variant="h5" fontWeight="bold">
-            Curriculum Maker
-          </Typography>
-        </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
+            <span className="hidden sm:inline text-sm font-medium">Back</span>
+          </button>
+            <div className="flex flex-col gap-2">
+              <h2 className="text-2xl font-bold text-blue-600">
+              Curriculum Maker</h2>
+          <p className="text-gray-600">Select a curriculum to manage courses</p></div>         
+        </div>
+        <button
           onClick={() => setCurriculumDialogOpen(true)}
-          sx={{ 
-            bgcolor: 'royalblue', 
-            color: 'white',
-            '&:hover': {
-              bgcolor: '#4169e1'
-            }
-          }}
+          className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white"
         >
-          Create
-        </Button>
-      </Box>
+          <i className="bi bi-plus-lg"></i>
+          <span>Create</span>
+        </button>
+      </div>
 
-      <Box>
-        <Grid container spacing={2}>
-          {curriculums.map((curriculum) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={curriculum.id}>
-              <Box 
-                sx={{ 
-                  p: 3, 
-                  border: '2px solid #e0e0e0', 
-                  borderRadius: 2,
-                  cursor: 'pointer',
-                  bgcolor: selectedCurriculum?.id === curriculum.id ? '#e3f2fd' : 'white',
-                  '&:hover': { 
-                    borderColor: 'primary.main',
-            
-                  },
-                  position: 'relative'
-                }}
-                onClick={() => setSelectedCurriculum(curriculum)}
-              >
-                {/* Three Dots Menu */}
-                <IconButton
-                  size="small"
-                  onClick={(e) => handleMenuOpen(e, curriculum)}
-                  disabled={loading}
-                  sx={{
-                    position: 'absolute',
-                    top: 23,
-                    right: 8,
-                    bgcolor: 'rgba(255, 255, 255, 0.9)',
-                    '&:hover': {
-                      bgcolor: 'rgba(255, 255, 255, 1)',
-                    }
-                  }}
-                >
-                  <MoreVertIcon fontSize="small" />
-                </IconButton>
-                
-                <Typography variant="h6" fontWeight="bold" gutterBottom mb={7}>
-                  {curriculum.name}
-                </Typography>
-            
-                <Box>
-                  {curriculum.yearLevels.map(year => (
-                    <Chip 
-                      key={year} 
-                      label={`Year ${year}`} 
-                      size="small" 
-                      sx={{ mr: 0.5, mb: 0.5 }} 
-                    />
-                  ))}
-                </Box>
-              </Box>
-            </Grid>
-          ))}
-        </Grid>
-        
-        {curriculums.length === 0 && (
-          <Box sx={{ textAlign: 'center', py: 8 }}>
-            <Typography variant="h6" color="text.secondary" gutterBottom>
-              No curriculums yet
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Create your first curriculum to get started
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => setCurriculumDialogOpen(true)}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {curriculums.map((curriculum) => (
+          <div
+            key={curriculum.id}
+            onClick={() => setSelectedCurriculum(curriculum)}
+            className={`relative px-4 py-8 rounded-2xl border transition shadow-sm cursor-pointer hover:shadow-lg hover:-translate-y-0.5 ${
+              selectedCurriculum?.id === curriculum.id
+                ? 'border-blue-600 bg-blue-50'
+                : 'border-gray-200 bg-white hover:border-blue-400'
+            }`}
+          >
+            <button
+              type="button"
+              aria-label="More options"
+              onClick={(e) => handleMenuOpen(e, curriculum)}
+              disabled={loading}
+              className="absolute top-3 right-3 p-2 rounded-full hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
             >
-              Create First Curriculum
-            </Button>
-          </Box>
-        )}
-      </Box>
-    </Box>
+              <i className="bi bi-three-dots-vertical"></i>
+            </button>
+
+            {menuAnchorEl && selectedCurriculumForMenu?.id === curriculum.id && (
+              <div className="absolute right-4 top-12 z-50 w-40 bg-white border border-gray-200 rounded-md shadow-md overflow-hidden">
+                <button
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                  onClick={(e) => { e.stopPropagation(); handleEditCurriculum(); }}
+                >
+                  <span>Edit</span>
+                </button>
+                <button
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-red-600 flex items-center gap-2"
+                  onClick={(e) => { e.stopPropagation(); handleDeleteCurriculumClick(); }}
+                >
+                  <span>Delete</span>
+                </button>
+              </div>
+            )}
+
+            <h3 className="text-lg font-bold mb-6 pr-8">{curriculum.name}</h3>
+
+            <div className="flex flex-wrap gap-2">
+              {curriculum.yearLevels.map((year) => (
+                <span
+                  key={year}
+                  className="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 text-xs"
+                >
+                  Year {year}
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {curriculums.length === 0 && (
+        <div className="text-center py-8">
+          <div className="text-gray-600 text-lg font-medium mb-1">No curriculums yet</div>
+          <div className="text-gray-500 mb-4">Create your first curriculum to get started</div>
+          <button
+            onClick={() => setCurriculumDialogOpen(true)}
+            className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+          >
+            <i className="bi bi-plus-lg"></i>
+            <span>Create First Curriculum</span>
+          </button>
+        </div>
+      )}
+      
+    </div>
   );
 
   const renderCourseTables = () => {
     if (!selectedCurriculum) return null;
 
-    return (
-      
-      <Box>
-      
-        <Box sx={{ mb: 2 }}>
-          <Tabs value={tabValue} onChange={(e, newValue) => {
-            setTabValue(newValue);
-            setSelectedYear(newValue + 1);
-          }}>
-            {[1, 2, 3, 4].map(year => (
-              <Tab key={year} label={`${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year`} />
-            ))}
-          </Tabs>
-        </Box>
+    const yearLabels = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+    const semLabel = (s) => (s === 1 ? '1st' : s === 2 ? '2nd' : 'Summer');
 
-        <Box>
-          {([1, 2, (selectedYear === 3 ? 3 : null)].filter(Boolean)).map(semester => (
-            <Box key={semester} mb={4} mt={2}>
-              <Typography variant="h6" gutterBottom sx={{ color: 'primary.main', fontWeight: 'bold' }}>
-                {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
-              </Typography>
-              
-              <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 2}}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'royalblue' }}>
-                      <TableCell sx={{ fontWeight: 'bold', width: '15%', color: 'white' }}>Course Code</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '35%', color: 'white' }}>Course Title</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '10%',  color: 'white' }}>Units</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '25%', color: 'white' }}>Prerequisites</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '15%',  color: 'white' }}>Equivalent Subjects</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '10%',  color: 'white' }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Checkbox
+    return (
+      <div>
+        <div className="mb-3 flex flex-wrap gap-2">
+  {[1, 2, 3, 4].map((year, idx) => (
+    <button
+      key={year}
+      onClick={() => { setTabValue(idx); setSelectedYear(idx + 1); }}
+      className={`
+            px-2 py-0.5 cursor-pointer
+        ${tabValue === idx 
+          ? 'border-b-2 border-blue-600 text-blue-600 ' 
+              : 'border-b-2 border-transparent hover:text-blue-600 hover:border-blue-600'
+        }
+      `}
+    >
+      {yearLabels[idx]}
+    </button>
+  ))}
+
+  <button
+    onClick={() => { setTabValue(4); setSelectedYear('irregular'); }}
+    className={`
+            px-2 py-0.5 cursor-pointer
+      ${tabValue === 4
+        ? 'border-b-2 border-blue-600 text-blue-600' 
+              : 'border-b-2 border-transparent hover:text-blue-600 hover:border-blue-600'
+      }
+    `}
+  >
+    Irregular Students
+  </button>
+</div>
+
+
+        <div>
+          {([1, 2, selectedYear === 3 ? 3 : null].filter(Boolean)).map((semester) => (
+            <div key={semester} className="mt-4 mb-8">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h3 className="text-lg font-semibold text-blue-700">{semLabel(semester)} Semester</h3>
+                <div className="relative w-full max-w-xs">
+                  <i className="bi bi-search absolute left-2 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                  <input
+                    className="w-full pl-8 pr-3 py-1.5 rounded-md border border-gray-300 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 text-sm"
+                    placeholder="Search code or title"
+                    value={tableFilters[semester] || ''}
+                    onChange={(e) => handleFilterChange(semester, e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-gray-200">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="sticky top-0 z-10 bg-blue-700 text-white">
+                      <th className="p-2 w-[15%] text-left" aria-sort={sortField === 'courseCode' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                        <button title="Sort by Course Code" onClick={() => handleSort('courseCode')} className="inline-flex items-center gap-1">
+                          <span>Course Code</span>
+                          {sortField === 'courseCode' ? (
+                            <i className={`bi ${sortDirection === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'} text-xs`}></i>
+                          ) : (
+                            <i className="bi bi-arrow-down-up text-xs opacity-80"></i>
+                          )}
+                        </button>
+                      </th>
+                      <th className="p-2 w-[35%] text-left" aria-sort={sortField === 'courseTitle' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                        <button title="Sort by Course Title" onClick={() => handleSort('courseTitle')} className="inline-flex items-center gap-1">
+                          <span>Course Title</span>
+                          {sortField === 'courseTitle' ? (
+                            <i className={`bi ${sortDirection === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'} text-xs`}></i>
+                          ) : (
+                            <i className="bi bi-arrow-down-up text-xs opacity-80"></i>
+                          )}
+                        </button>
+                      </th>
+                      <th className="p-2 w-[10%] text-left" aria-sort={sortField === 'units' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                        <button title="Sort by Units" onClick={() => handleSort('units')} className="inline-flex items-center gap-1">
+                          <span>Units</span>
+                          {sortField === 'units' ? (
+                            <i className={`bi ${sortDirection === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'} text-xs`}></i>
+                          ) : (
+                            <i className="bi bi-arrow-down-up text-xs opacity-80"></i>
+                          )}
+                        </button>
+                      </th>
+                      <th className="p-2 w-[25%] text-left">Prerequisites</th>
+                      <th className="p-2 w-[15%] text-left">Equivalent Subjects</th>
+                      <th className="p-2 w-[10%] text-left">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
                             checked={areAllAvailable(selectedYear, semester)}
                             onChange={(e) => handleSelectAllAvailable(selectedYear, semester, e.target.checked)}
-                            color="default"
-                            sx={{ color: 'white', '&.Mui-checked': { color: 'white' } }}
+                            className="h-4 w-4 accent-blue-600"
                           />
-                          <Typography sx={{ fontWeight: 'bold', color: 'white', fontSize: 14 }}>Available</Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: '15%', color: 'white' }}>Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {getCoursesByYearAndSemester(selectedYear, semester).map((course) => {
+                          <span className="font-semibold text-white text-xs">Available</span>
+                        </div>
+                      </th>
+                      <th className="p-2 w-[15%] text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const list = getSortedCoursesByYearAndSemester(selectedYear, semester);
+                      const q = (tableFilters[semester] || '').toLowerCase().trim();
+                      const filtered = q
+                        ? list.filter((c) =>
+                            (c.courseCode || '').toLowerCase().includes(q) ||
+                            (c.courseTitle || '').toLowerCase().includes(q)
+                          )
+                        : list;
+                      return filtered.map((course) => {
                       const isEditing = editingCourse === course.id;
                       const data = isEditing ? editingData : course;
-                      // Find all equivalent courses (by equivalentSubjectId, excluding self)
-                      const equivalents = allCourses.filter(c => c.equivalentSubjectId && c.equivalentSubjectId === data.equivalentSubjectId && c.id !== course.id);
-                      
+                      const equivalents = allCourses.filter(
+                        (c) => c.equivalentSubjectId && c.equivalentSubjectId === data.equivalentSubjectId && c.id !== course.id
+                      );
+
                       return (
-                        <TableRow key={course.id} sx={{ 
-                          '&:hover': { bgcolor: '#f9f9f9' },
-                          bgcolor: isEditing ? '#fff3e0' : 'inherit'
-                        }}>
-                          <TableCell>
+                        <tr key={course.id} className={`${isEditing ? 'bg-amber-50' : 'hover:bg-gray-100'} odd:bg-white even:bg-gray-50 border-t`}> 
+                          <td className="p-2 align-top">
                             {isEditing ? (
-                              <TextField
-                                size="small"
+                              <input
+                                className="w-28 border border-gray-300 rounded px-2 py-1"
                                 value={data.courseCode}
                                 onChange={(e) => handleInputChange('courseCode', e.target.value)}
-                                sx={{ minWidth: 100 }}
                               />
                             ) : (
-                              <Typography variant="body2" fontWeight="bold" color="primary">
-                                {course.courseCode}
-                              </Typography>
+                              <span className="font-semibold text-blue-700">{course.courseCode}</span>
                             )}
-                          </TableCell>
-                          <TableCell>
+                          </td>
+                          <td className="p-2 align-top">
                             {isEditing ? (
-                              <TextField
-                                size="small"
+                              <input
+                                className="w-full border border-gray-300 rounded px-2 py-1"
                                 value={data.courseTitle}
                                 onChange={(e) => handleInputChange('courseTitle', e.target.value)}
-                                fullWidth
                               />
                             ) : (
-                              <Typography variant="body2">
-                                {course.courseTitle}
-                              </Typography>
+                              <span>{course.courseTitle}</span>
                             )}
-                          </TableCell>
-                          <TableCell>
+                          </td>
+                          <td className="p-2 align-top">
                             {isEditing ? (
-                              <TextField
-                                size="small"
+                              <input
                                 type="number"
+                                className="w-16 border border-gray-300 rounded px-2 py-1"
                                 value={data.units}
                                 onChange={(e) => handleInputChange('units', e.target.value)}
-                                sx={{ width: 60 }}
                               />
                             ) : (
-                              <Typography variant="body2">
-                                {course.units}
-                              </Typography>
+                              <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-medium">
+                                <i className="bi bi-stack me-1"></i>{course.units}
+                              </span>
                             )}
-                          </TableCell>
-                          <TableCell>
+                          </td>
+                          <td className="p-2 align-top">
                             {isEditing ? (
-                              <Autocomplete
-                                multiple
-                                size="small"
-                                options={getAllCourseCodes()}
-                                value={editingData.prerequisites || []}
-                                onChange={(event, newValue) => {
-                                  setEditingData(prev => ({ ...prev, prerequisites: newValue }));
+                              <input
+                                className="w-full border border-gray-300 rounded px-2 py-1"
+                                placeholder="Comma-separated codes"
+                                value={(editingData.prerequisites || []).join(', ')}
+                                onChange={(e) => {
+                                  const arr = e.target.value
+                                    .split(',')
+                                    .map((s) => s.trim())
+                                    .filter(Boolean);
+                                  setEditingData((prev) => ({ ...prev, prerequisites: arr }));
                                   setHasChanges(true);
                                 }}
-                                renderInput={(params) => (
-                                  <TextField
-                                    {...params}
-                                    label="Prerequisites"
-                                    size="small"
-                                    placeholder="Select prerequisites"
-                                  />
-                                )}
-                                renderTags={(value, getTagProps) =>
-                                  value.map((option, index) => (
-                                    <Chip
-                                      {...getTagProps({ index })}
-                                      key={option}
-                                      label={option}
-                                      size="small"
-                                    />
-                                  ))
-                                }
-                                sx={{ minWidth: 120, mb: 1 }}
                               />
+                            ) : data.prerequisites.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {data.prerequisites.map((pr) => (
+                                  <span key={pr} className="px-2 py-0.5 bg-gray-100 rounded-full text-xs text-gray-700">
+                                    {pr}
+                                  </span>
+                                ))}
+                              </div>
                             ) : (
-                              data.prerequisites.length > 0 ? (
-                                <Box>
-                                  {data.prerequisites.map(prereq => (
-                                    <Chip 
-                                      key={prereq} 
-                                      label={prereq} 
-                                      size="small" 
-                                      sx={{ mr: 0.5, mb: 0.5 }} 
-                                    />
-                                  ))}
-                                </Box>
-                              ) : (
-                                <Typography variant="body2" color="text.secondary">
-                                  None
-                                </Typography>
-                              )
+                              <span className="text-gray-500">None</span>
                             )}
-                          </TableCell>
-                          <TableCell>
+                          </td>
+                          <td className="p-2 align-top">
                             {isEditing ? (
-                              <Autocomplete
-                                multiple
-                                size="small"
-                                options={allCourses.filter(c => c.id !== course.id).map(c => c.courseCode)}
-                                value={editingEquivalents}
-                                onChange={(event, newValue) => {
-                                  setEditingEquivalents(newValue);
-                                  // If user selects equivalents, assign a shared equivalentSubjectId
+                              <input
+                                className="w-full border border-gray-300 rounded px-2 py-1"
+                                placeholder="Comma-separated codes"
+                                value={(editingEquivalents || []).join(', ')}
+                                onChange={(e) => {
+                                  const arr = e.target.value
+                                    .split(',')
+                                    .map((s) => s.trim())
+                                    .filter(Boolean);
+                                  setEditingEquivalents(arr);
                                   let eqId = data.equivalentSubjectId;
-                                  if (!eqId && newValue.length > 0) {
+                                  if (!eqId && arr.length > 0) {
                                     eqId = 'EQ_' + Math.random().toString(36).substr(2, 9);
-                                  } else if (newValue.length === 0) {
-                                    eqId = ''; // Clear equivalentSubjectId if no equivalents selected
+                                  } else if (arr.length === 0) {
+                                    eqId = '';
                                   }
-                                  setEditingData(prev => ({ ...prev, equivalentSubjectId: eqId }));
+                                  setEditingData((prev) => ({ ...prev, equivalentSubjectId: eqId }));
                                   setHasChanges(true);
                                 }}
-                                renderInput={(params) => (
-                                  <TextField
-                                    {...params}
-                                    label="Equivalent Subjects"
-                                    size="small"
-                                    placeholder="Select equivalents"
-                                  />
-                                )}
-                                renderTags={(value, getTagProps) =>
-                                  value.map((option, index) => (
-                                    <Chip
-                                      {...getTagProps({ index })}
-                                      key={option}
-                                      label={option}
-                                      size="small"
-                                    />
-                                  ))
-                                }
-                                sx={{ minWidth: 120, mb: 1 }}
                               />
+                            ) : equivalents.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {equivalents.map((eq) => (
+                                  <span key={eq.id} className="px-2 py-0.5 bg-gray-100 rounded-full text-xs text-gray-700">
+                                    {eq.courseCode}
+                                  </span>
+                                ))}
+                              </div>
                             ) : (
-                              equivalents.length > 0 ? (
-                                <Box>
-                                  {equivalents.map(eq => (
-                                    <Chip key={eq.id} label={eq.courseCode} size="small" sx={{ mr: 0.5, mb: 0.5 }} />
-                                  ))}
-                                </Box>
-                              ) : (
-                                <Typography variant="body2" color="text.secondary">None</Typography>
-                              )
+                              <span className="text-gray-500">None</span>
                             )}
-                          </TableCell>
-                          <TableCell>
+                          </td>
+                          <td className="p-2 align-top">
                             {isEditing ? (
-                              <Checkbox
+                              <input
+                                type="checkbox"
                                 checked={data.isAvailable}
-                                onChange={e => handleInputChange('isAvailable', e.target.checked)}
-                                color="primary"
+                                onChange={(e) => handleInputChange('isAvailable', e.target.checked)}
+                                className="h-4 w-4 accent-blue-600"
                               />
                             ) : (
-                              <Checkbox
-                                checked={course.isAvailable !== false}
-                                disabled
-                                color="primary"
-                              />
+                              <input type="checkbox" checked={course.isAvailable !== false} disabled className="h-4 w-4 accent-blue-600" />
                             )}
-                          </TableCell>
-                          <TableCell>
-                            <Box display="flex" gap={1}>
+                          </td>
+                          <td className="p-2 align-top">
+                            <div className="flex items-center gap-2">
                               {isEditing ? (
-                                <>
-                                  <Button 
-                                    size="small" 
-                                    variant="contained"
-                                    color={hasChanges ? "success" : "inherit"}
-                                    onClick={hasChanges ? handleSaveCourse : handleCancelEdit}
-                                    disabled={loading}
-                                    sx={{ 
-                                      minWidth: 60,
-                                      textTransform: 'none',
-                                      fontSize: '0.75rem'
-                                    }}
-                                  >
-                                    {hasChanges ? "Save" : "Cancel"}
-                                  </Button>
-                                </>
+                                <button
+                                  onClick={hasChanges ? handleSaveCourse : handleCancelEdit}
+                                  disabled={loading}
+                                  className={`px-3 py-1 rounded text-xs font-medium border ${
+                                    hasChanges ? 'bg-green-600 text-white border-green-600 hover:bg-green-700' : 'bg-blue-500 hover:bg-blue-600 text-white border-blue-600'
+                                  }`}
+                                >
+                                  {hasChanges ? 'Save' : 'Cancel'}
+                                </button>
                               ) : (
-                                <Button 
-                                  size="small" 
-                                  variant="contained"
-                                  color="success"
+                                <button
                                   onClick={() => handleEditCourse(course)}
-                                  sx={{ 
-                                    minWidth: 60,
-                                    textTransform: 'none',
-                                    fontSize: '0.75rem'
-                                  }}
+                                  className="px-3 py-1 rounded text-xs font-medium bg-green-600 text-white border border-green-600 hover:bg-green-700"
+                                  title="Edit course"
                                 >
                                   Edit
-                                </Button>
+                                </button>
                               )}
-                              <Button 
-                                size="small" 
-                                variant="contained"
-                                color="error" 
+                              <button
                                 onClick={() => handleDeleteCourse(course.id)}
                                 disabled={loading}
-                                sx={{ 
-                                  minWidth: 60,
-                                  textTransform: 'none',
-                                  fontSize: '0.75rem'
-                                }}
+                                className="px-3 py-1 rounded text-xs font-medium bg-red-600 text-white border border-red-600 hover:bg-red-700"
+                                title="Delete course"
                               >
                                 Delete
-                              </Button>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
                       );
-                    })}
-                    
+                    });})()}
+
                     {/* New Course Row */}
-                    <TableRow sx={{ bgcolor: '#f0f8ff', '&:hover': { bgcolor: '#e6f3ff' } }}>
-                      <TableCell>
-                        <TextField
-                          size="small"
+                    <tr className="bg-blue-50">
+                      <td className="p-2">
+                        <input
+                          className="w-28 border border-gray-300 rounded px-2 py-1"
                           placeholder="Course Code"
                           value={newCourseData[semester]?.courseCode || ''}
                           onChange={(e) => handleNewCourseInputChange('courseCode', e.target.value, semester)}
-                          sx={{ minWidth: 100 }}
                         />
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          size="small"
+                      </td>
+                      <td className="p-2">
+                        <input
+                          className="w-full border border-gray-300 rounded px-2 py-1"
                           placeholder="Course Title"
                           value={newCourseData[semester]?.courseTitle || ''}
                           onChange={(e) => handleNewCourseInputChange('courseTitle', e.target.value, semester)}
-                          fullWidth
                         />
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          size="small"
+                      </td>
+                      <td className="p-2">
+                        <input
                           type="number"
+                          className="w-16 border border-gray-300 rounded px-2 py-1"
                           placeholder="Units"
                           value={newCourseData[semester]?.units || ''}
                           onChange={(e) => handleNewCourseInputChange('units', e.target.value, semester)}
-                          sx={{ width: 60 }}
                         />
-                      </TableCell>
-                      <TableCell>
-                        <Autocomplete
-                          multiple
-                          size="small"
-                          options={getAllCourseCodes()}
-                          value={newCourseData[semester]?.prerequisites || []}
-                          onChange={(event, newValue) => {
-                            setNewCourseData(prev => ({ 
-                              ...prev, 
-                              [semester]: { 
-                                ...(prev[semester] || { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true }), 
-                                prerequisites: newValue 
-                              } 
+                      </td>
+                      <td className="p-2">
+                        <input
+                          className="w-full border border-gray-300 rounded px-2 py-1"
+                          placeholder="Prerequisites (comma-separated)"
+                          value={(newCourseData[semester]?.prerequisites || []).join(', ')}
+                          onChange={(e) => {
+                            const arr = e.target.value
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean);
+                            setNewCourseData((prev) => ({
+                              ...prev,
+                              [semester]: {
+                                ...(prev[semester] || { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true }),
+                                prerequisites: arr,
+                              },
                             }));
                           }}
-                          renderInput={(params) => (
-                            <TextField
-                              {...params}
-                              placeholder="Select prerequisites"
-                              size="small"
-                            />
-                          )}
-                          renderTags={(value, getTagProps) =>
-                            value.map((option, index) => (
-                              <Chip
-                                {...getTagProps({ index })}
-                                key={option}
-                                label={option}
-                                size="small"
-                              />
-                            ))
-                          }
-                          sx={{ minWidth: 150 }}
                         />
-                      </TableCell>
-                      <TableCell>
-                        <Autocomplete
-                          multiple
-                          size="small"
-                          options={allCourses.filter(c => c.id !== courseForm.id).map(c => c.courseCode)}
-                          value={selectedEquivalent}
-                          onChange={(event, newValue) => setSelectedEquivalent(newValue)}
-                          renderInput={(params) => (
-                            <TextField
-                              {...params}
-                              label="Equivalent Subjects"
-                              margin="normal"
-                              size="small"
-                            />
-                          )}
-                          renderTags={(value, getTagProps) =>
-                            value.map((option, index) => (
-                              <Chip
-                                {...getTagProps({ index })}
-                                key={option}
-                                label={option}
-                                size="small"
-                              />
-                            ))
-                          }
-                          sx={{ minWidth: 150, mb: 2 }}
+                      </td>
+                      <td className="p-2">
+                        <input
+                          className="w-full border border-gray-300 rounded px-2 py-1"
+                          placeholder="Equivalent Codes (optional)"
+                          value={(selectedEquivalent || []).join(', ')}
+                          onChange={(e) => {
+                            const arr = e.target.value
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean);
+                            setSelectedEquivalent(arr);
+                          }}
                         />
-                      </TableCell>
-                      <TableCell>
-                        <Checkbox
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-blue-600"
                           checked={newCourseData[semester]?.isAvailable ?? true}
-                          onChange={e => handleNewCourseInputChange('isAvailable', e.target.checked, semester)}
-                          color="primary"
+                          onChange={(e) => handleNewCourseInputChange('isAvailable', e.target.checked, semester)}
                         />
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="contained"
-                          size="small"
-                          color="success"
+                      </td>
+                      <td className="p-2">
+                        <button
                           onClick={() => handleAddNewCourse(semester)}
-                          disabled={loading || !newCourseData[semester]?.courseCode || !newCourseData[semester]?.courseTitle || !newCourseData[semester]?.units}
-                          sx={{ minWidth: 60 }}
+                          disabled={
+                            loading ||
+                            !newCourseData[semester]?.courseCode ||
+                            !newCourseData[semester]?.courseTitle ||
+                            !newCourseData[semester]?.units
+                          }
+                          className="px-3 py-1 rounded text-xs font-medium bg-green-600 text-white border border-green-600 disabled:opacity-50"
                         >
                           Add
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                    
-                    {getCoursesByYearAndSemester(selectedYear, semester).length === 0 && (
-                      <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 2 }}>
-                        No courses in {selectedYear === 1 ? '1st' : selectedYear === 2 ? '2nd' : selectedYear === 3 ? '3rd' : '4th'} Year, {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
-                      </Typography>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Box>
+                        </button>
+                      </td>
+                    </tr>
+
+                    {(() => {
+                      const base = getCoursesByYearAndSemester(selectedYear, semester);
+                      const q = (tableFilters[semester] || '').toLowerCase().trim();
+                      const filtered = q
+                        ? base.filter((c) =>
+                            (c.courseCode || '').toLowerCase().includes(q) ||
+                            (c.courseTitle || '').toLowerCase().includes(q)
+                          )
+                        : base;
+                      if (filtered.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={7} className="text-center text-gray-500 py-2">
+                              {base.length === 0
+                                ? `No courses in ${selectedYear === 1 ? '1st' : selectedYear === 2 ? '2nd' : selectedYear === 3 ? '3rd' : '4th'} Year, ${semLabel(semester)} Semester`
+                                : `No matches for "${tableFilters[semester]}"`}
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-blue-50">
+                      <td className="p-2 text-right font-medium" colSpan={2}>Total Units</td>
+                      <td className="p-2 font-semibold text-blue-700">
+                        {getTotalUnitsByYearAndSemester(selectedYear, semester)}
+                      </td>
+                      <td colSpan={4}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
           ))}
-        </Box>
-      </Box>
+        </div>
+      </div>
     );
   };
 
   return (
-    <Box p={3} sx={{ display: 'flex', flexDirection: 'column' }}>
+    <div className=" max-w-7xl mx-auto flex flex-col">
       {!currentUser && (
-        <Alert severity="info" sx={{ mb: 2 }}>
+        <div className="mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-4 py-2">
           Please sign in to access the Curriculum Maker
-        </Alert>
+        </div>
       )}
-      
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-      
+
+      {error && (
+        <div className="mb-2 rounded border border-red-200 bg-red-50 text-red-800 px-4 py-2">{error}</div>
+      )}
+      {success && (
+        <div className="mb-2 rounded border border-green-200 bg-green-50 text-green-800 px-4 py-2">{success}</div>
+      )}
+
       {currentUser ? (
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div className=" w-full">
           {!selectedCurriculum ? (
-            // Show curriculum list when no curriculum is selected
-            <Box sx={{ flex: 1 }}>
-              {renderCurriculumList()}
-            </Box>
+            <div className="flex-1">{renderCurriculumList()}</div>
           ) : (
-            // Show full screen course tables when curriculum is selected
-            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <Box sx={{ mb: 2, mt:7, p: 3, border: '1px solid #e0e0e0', borderRadius: 2, bgcolor: 'white' }}>
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <IconButton 
+            <div className="flex-1 flex flex-col">
+              <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-300 mb-10">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-6">
+                    <button
                       onClick={() => setSelectedCurriculum(null)}
-                      sx={{ 
-                        mr: 4,
-                        borderRadius: '50%',
-                        backgroundColor: 'royalblue',
-                        color: 'white',
-                        '&:hover': {
-                          backgroundColor: '#4169e1'
-                        }
-                      }}
+                      aria-label="Back to list"
+                      title="Back to list"
+              className="group flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
                     >
-                      <ArrowBackIcon />
-                    </IconButton>
-                    <Box>
-                      <Typography variant="h6">Curriculum</Typography>
-                    <Typography variant="subtitle1" fontWeight="bold">
-                    {selectedCurriculum.name}
-                  </Typography>
-                    </Box>
-                  </Box>
-                </Box>
+                      <span className="hidden sm:inline text-sm font-medium">Back</span>
+                    </button>
+                    <div>
+                      <div className="text-base text-gray-700">Curriculum</div>
+                      <div className="text-2xl font-semibold text-blue-600">{selectedCurriculum.name}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-              </Box>
-              
-              <Box>
-                {renderCourseTables()}
-              </Box>
-            </Box>
+              <div>{renderCourseTables()}</div>
+            </div>
           )}
-        </Box>
+        </div>
       ) : (
-        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Box sx={{ p: 4, textAlign: 'center', border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: '#fafafa' }}>
-            <Typography variant="h6" color="text.secondary">
-              Sign in to access curriculum management features
-            </Typography>
-          </Box>
-        </Box>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="p-6 text-center border border-gray-200 rounded bg-gray-50 text-gray-600">
+            Sign in to access curriculum management features
+          </div>
+        </div>
       )}
 
-      {/* Three Dots Menu */}
-      <Menu
-        anchorEl={menuAnchorEl}
-        open={Boolean(menuAnchorEl)}
-        onClose={handleMenuClose}
-        anchorOrigin={{
-          vertical: 'bottom',
-          horizontal: 'right',
-        }}
-        transformOrigin={{
-          vertical: 'top',
-          horizontal: 'right',
-        }}
-      >
-        <MenuItem onClick={handleEditCurriculum}>
-          <ListItemIcon>
-            <EditIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Edit</ListItemText>
-        </MenuItem>
-        <MenuItem onClick={handleDeleteCurriculumClick}>
-          <ListItemIcon>
-            <DeleteIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Delete</ListItemText>
-        </MenuItem>
-      </Menu>
+      {/* Fullscreen click-catcher for open menu */}
+      {menuAnchorEl && (
+        <div className="fixed inset-0 z-40" onClick={handleMenuClose}></div>
+      )}
 
-      {/* Success/Error Snackbar */}
-      <Snackbar
-        open={snackbarOpen}
-        autoHideDuration={6000}
-        onClose={() => setSnackbarOpen(false)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-      >
-        <Alert 
-          onClose={() => setSnackbarOpen(false)} 
-          severity={snackbarSeverity}
-          sx={{ width: '100%' }}
-        >
-          {snackbarMessage}
-        </Alert>
-      </Snackbar>
+      {/* Inline dropdown menus rendered inside cards (see renderCurriculumList) */}
 
-      {/* Edit Curriculum Dialog */}
-      <Dialog open={editCurriculumDialogOpen} onClose={() => {
-        setEditCurriculumDialogOpen(false);
-        // Don't clear selectedCurriculumForMenu here - only clear it after successful update
-      }} maxWidth="sm" fullWidth>
-        <DialogTitle>Edit Curriculum</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <TextField
-            fullWidth
-            label="Curriculum Name"
-            value={editingCurriculumData.name}
-            onChange={(e) => setEditingCurriculumData({ ...editingCurriculumData, name: e.target.value })}
-            margin="normal"
-            size="small"
-          />
-          <TextField
-            fullWidth
-            label="Description"
-            value={editingCurriculumData.description}
-            onChange={(e) => setEditingCurriculumData({ ...editingCurriculumData, description: e.target.value })}
-            margin="normal"
-            multiline
-            rows={3}
-            size="small"
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
-            setEditCurriculumDialogOpen(false);
-            // Don't clear selectedCurriculumForMenu here
-          }}>Cancel</Button>
-          <Button onClick={handleUpdateCurriculum} variant="contained" disabled={loading}>
-            Update
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Toast */}
+      {snackbarOpen && (
+        <div className="fixed bottom-4 left-4 z-50 max-w-sm">
+          <div
+            className={`flex items-start gap-2 rounded-md px-4 py-3 shadow border ${
+              snackbarSeverity === 'error'
+                ? 'bg-red-50 border-red-200 text-red-800'
+                : 'bg-green-50 border-green-200 text-green-800'
+            }`}
+          >
+            <span className={`mt-0.5 bi ${snackbarSeverity === 'error' ? 'bi-x-circle' : 'bi-check-circle'}`}></span>
+            <div className="flex-1 text-sm">{snackbarMessage}</div>
+            <button onClick={() => setSnackbarOpen(false)} className="text-inherit/70 hover:text-inherit">
+              <i className="bi bi-x"></i>
+            </button>
+          </div>
+        </div>
+      )}
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteCurriculumDialogOpen} onClose={() => {
-        setDeleteCurriculumDialogOpen(false);
-        // Don't clear selectedCurriculumForMenu here
-      }} maxWidth="sm">
-        <DialogTitle>Confirm Delete</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete "{selectedCurriculumForMenu?.name}"? This will also delete all associated courses and cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
-            setDeleteCurriculumDialogOpen(false);
-            // Don't clear selectedCurriculumForMenu here
-          }}>Cancel</Button>
-          <Button onClick={handleConfirmDeleteCurriculum} variant="contained" color="error" disabled={loading}>
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Curriculum Dialog */}
-      <Dialog open={curriculumDialogOpen} onClose={() => setCurriculumDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create New Curriculum</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <TextField
-            fullWidth
-            label="Curriculum Name"
-            value={curriculumForm.name}
-            onChange={(e) => setCurriculumForm({ ...curriculumForm, name: e.target.value })}
-            margin="normal"
-            size="small"
-          />
-          <TextField
-            fullWidth
-            label="Description"
-            value={curriculumForm.description}
-            onChange={(e) => setCurriculumForm({ ...curriculumForm, description: e.target.value })}
-            margin="normal"
-            multiline
-            rows={3}
-            size="small"
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCurriculumDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleCreateCurriculum} variant="contained" disabled={loading}>
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Course Dialog */}
-      <Dialog open={courseDialogOpen} onClose={() => setCourseDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Course</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth margin="normal" size="small">
-                <InputLabel>Year Level</InputLabel>
-                <Select
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
-                >
-                  {[1, 2, 3, 4].map(year => (
-                    <MenuItem key={year} value={year}>{year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth margin="normal" size="small">
-                <InputLabel>Semester</InputLabel>
-                <Select
-                  value={selectedSemester}
-                  onChange={(e) => setSelectedSemester(e.target.value)}
-                >
-                  {[1, 2, (selectedYear === 3 ? 3 : null)].filter(Boolean).map(sem => (
-                    <MenuItem key={sem} value={sem}>{sem === 1 ? '1st' : sem === 2 ? '2nd' : 'Summer'} Semester</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
-          <TextField
-            fullWidth
-            label="Course Code"
-            value={courseForm.courseCode}
-            onChange={(e) => setCourseForm({ ...courseForm, courseCode: e.target.value })}
-            margin="normal"
-            size="small"
-          />
-          <TextField
-            fullWidth
-            label="Course Title"
-            value={courseForm.courseTitle}
-            onChange={(e) => setCourseForm({ ...courseForm, courseTitle: e.target.value })}
-            margin="normal"
-            size="small"
-          />
-          <TextField
-            fullWidth
-            label="Units"
-            type="number"
-            value={courseForm.units}
-            onChange={(e) => setCourseForm({ ...courseForm, units: e.target.value })}
-            margin="normal"
-            size="small"
-          />
-          {/* In the course dialog, place prerequisites and equivalents side by side */}
-          <Grid container spacing={2}>
-            <Grid item xs={6}>
-          <Autocomplete
-            multiple
-            size="small"
-            options={getAllCourseCodes()}
-            value={courseForm.prerequisites}
-            onChange={(event, newValue) => {
-              setCourseForm({ ...courseForm, prerequisites: newValue });
-            }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Prerequisites"
-                margin="normal"
-                size="small"
-                helperText="Select from existing course codes"
-              />
-            )}
-            renderTags={(value, getTagProps) =>
-              value.map((option, index) => (
-                <Chip
-                  {...getTagProps({ index })}
-                  key={option}
-                  label={option}
-                  size="small"
+      {/* Edit Curriculum Modal */}
+      {editCurriculumDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setEditCurriculumDialogOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-lg bg-white rounded-lg shadow p-4">
+            <div className="text-lg font-semibold mb-2">Edit Curriculum</div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Curriculum Name</label>
+                <input
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={editingCurriculumData.name}
+                  onChange={(e) => setEditingCurriculumData({ ...editingCurriculumData, name: e.target.value })}
                 />
-              ))
-            }
-                sx={{ minWidth: 150, mb: 2 }}
-          />
-            </Grid>
-            {/* Removed the equivalent subjects Autocomplete from the add course dialog */}
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCourseDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleAddCourse} variant="contained" disabled={loading}>
-            Add Course
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Description</label>
+                <textarea
+                  rows={3}
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={editingCurriculumData.description}
+                  onChange={(e) => setEditingCurriculumData({ ...editingCurriculumData, description: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setEditCurriculumDialogOpen(false)}
+                className="px-4 py-2 rounded border border-gray-300 bg-white hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateCurriculum}
+                disabled={loading}
+                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Update
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteCurriculumDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setDeleteCurriculumDialogOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-md bg-white rounded-lg shadow p-4">
+            <div className="text-lg font-semibold mb-2">Confirm Delete</div>
+            <div className="text-sm text-gray-700">
+              Are you sure you want to delete "{selectedCurriculumForMenu?.name}"? This will also delete all associated courses and cannot be undone.
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteCurriculumDialogOpen(false)}
+                className="px-4 py-2 rounded border border-gray-300 bg-white hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDeleteCurriculum}
+                disabled={loading}
+                className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Curriculum Modal */}
+      {curriculumDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setCurriculumDialogOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-lg bg-white rounded-lg shadow p-4">
+            <div className="text-lg font-semibold mb-2">Create New Curriculum</div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Curriculum Name</label>
+                <input
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={curriculumForm.name}
+                  onChange={(e) => setCurriculumForm({ ...curriculumForm, name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Description</label>
+                <textarea
+                  rows={3}
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={curriculumForm.description}
+                  onChange={(e) => setCurriculumForm({ ...curriculumForm, description: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setCurriculumDialogOpen(false)}
+                className="px-4 py-2 rounded border border-gray-300 bg-white hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateCurriculum}
+                disabled={loading}
+                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Course Modal */}
+      {courseDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setCourseDialogOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-lg bg-white rounded-lg shadow p-4">
+            <div className="text-lg font-semibold mb-2">Add New Course</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+                <select
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                >
+                  {[1, 2, 3, 4].map((y) => (
+                    <option key={y} value={y}>{y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : '4th'} Year</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Semester</label>
+                <select
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={selectedSemester}
+                  onChange={(e) => setSelectedSemester(parseInt(e.target.value, 10))}
+                >
+                  {[1, 2, (selectedYear === 3 ? 3 : null)].filter(Boolean).map((s) => (
+                    <option key={s} value={s}>{s === 1 ? '1st' : s === 2 ? '2nd' : 'Summer'} Semester</option>
+                  ))}
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm text-gray-600 mb-1">Course Code</label>
+                <input
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={courseForm.courseCode}
+                  onChange={(e) => setCourseForm({ ...courseForm, courseCode: e.target.value })}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm text-gray-600 mb-1">Course Title</label>
+                <input
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={courseForm.courseTitle}
+                  onChange={(e) => setCourseForm({ ...courseForm, courseTitle: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Units</label>
+                <input
+                  type="number"
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={courseForm.units}
+                  onChange={(e) => setCourseForm({ ...courseForm, units: e.target.value })}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm text-gray-600 mb-1">Prerequisites (comma-separated)</label>
+                <input
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  value={(courseForm.prerequisites || []).join(', ')}
+                  onChange={(e) => {
+                    const arr = e.target.value
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean);
+                    setCourseForm({ ...courseForm, prerequisites: arr });
+                  }}
+                />
+                <div className="text-xs text-gray-500 mt-1">Select from existing course codes: {getAllCourseCodes().join(', ')}</div>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setCourseDialogOpen(false)}
+                className="px-4 py-2 rounded border border-gray-300 bg-white hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddCourse}
+                disabled={loading}
+                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Add Course
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 

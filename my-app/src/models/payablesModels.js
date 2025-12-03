@@ -87,14 +87,13 @@ import {
       const q = query(
         studentPaymentsRef, 
         where('studentId', '==', studentId),
-        where('payableId', '==', payableId),
         orderBy('createdAt', 'desc')
       );
       const querySnapshot = await getDocs(q);
       const studentPayments = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      }));
+      })).filter(payment => payment.payableId === payableId);
       return { success: true, data: studentPayments };
     } catch (error) {
       console.error('Error getting student payments:', error);
@@ -111,6 +110,27 @@ import {
       return { success: true };
     } catch (error) {
       console.error('Error updating student payment:', error);
+      return { success: false, error: error.message };
+    }
+  };
+  
+  // Get all payments for a student
+  export const getAllStudentPayments = async (studentId) => {
+    try {
+      const studentPaymentsRef = collection(db, 'studentPayments');
+      const q = query(
+        studentPaymentsRef, 
+        where('studentId', '==', studentId),
+        orderBy('createdAt', 'desc')
+      );
+      const querySnapshot = await getDocs(q);
+      const studentPayments = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      return { success: true, data: studentPayments };
+    } catch (error) {
+      console.error('Error getting all student payments:', error);
       return { success: false, error: error.message };
     }
   };

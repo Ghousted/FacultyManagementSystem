@@ -1,42 +1,11 @@
 import { useState } from 'react';
-import {
-  AppBar,
-  Toolbar,
-  Typography,
-  Button,
-  Box,
-  Container,
-  Paper,
-  Grid,
-  Card,
-  CardContent,
-  IconButton,
-  Tabs,
-  Tab,
-} from '@mui/material';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import SchoolIcon from '@mui/icons-material/School';
-import AssignmentIcon from '@mui/icons-material/Assignment';
-import AssessmentIcon from '@mui/icons-material/Assessment';
-import PeopleIcon from '@mui/icons-material/People';
 import CurriculumMaker from './CurriculumMaker';
 import StudentManagement from './StudentManagement';
 import CurriculumCheckerMain from './CurriculumCheckerMain';
-import Logo from '../../assets/logo.png';
 
-const CurriculumChecker = ({ onBackToDashboard, signout }) => {
+const CurriculumChecker = ({ onBackToDashboard }) => {
   const [currentView, setCurrentView] = useState('main'); // 'main', 'curriculum-maker', 'student-management', 'curriculum-checker'
   const [tabValue, setTabValue] = useState(0);
-
-  // Update sign out handler to use signout prop
-  const handleSignOut = async () => {
-    try {
-      await signout();
-      if (onBackToDashboard) onBackToDashboard();
-    } catch (error) {
-      alert("Sign out failed: " + error.message);
-    }
-  };
 
   const handleFeatureSelect = (feature) => {
     setCurrentView(feature);
@@ -49,285 +18,125 @@ const CurriculumChecker = ({ onBackToDashboard, signout }) => {
   // Render specific feature
   if (currentView === 'curriculum-maker') {
     return (
-      <Box >
-        <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa' }}>
-              <Toolbar>
-                <Box
-                  component="img"
-                  src={Logo}
-                  alt="Logo"
-                  sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
-                  onClick={onBackToDashboard}
-                />
-                <Typography 
-                  variant="h5" 
-                  sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
-                  onClick={onBackToDashboard}
-                >
-                  College of Computer Studies
-                </Typography>
-                <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
-                  Sign Out
-                </Button>
-              </Toolbar>
-            </AppBar>
+      <div className="p-4 max-w-7xl mx-auto">
         <CurriculumMaker onBack={handleBackToMain} />
-      </Box>
+      </div>
     );
   }
 
   if (currentView === 'student-management') {
     return (
-      <Box>
-        <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa' }}>
-              <Toolbar>
-                <Box
-                  component="img"
-                  src={Logo}
-                  alt="Logo"
-                  sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
-                  onClick={onBackToDashboard}
-                />
-                <Typography 
-                  variant="h5" 
-                  sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
-                  onClick={onBackToDashboard}
-                >
-                  College of Computer Studies
-                </Typography>
-                <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
-                  Sign Out
-                </Button>
-              </Toolbar>
-            </AppBar>
+      <div className="p-4 max-w-7xl mx-auto">
         <StudentManagement onBack={handleBackToMain} />
-      </Box>
+      </div>
     );
   }
 
   if (currentView === 'curriculum-checker') {
     return (
-      <Box px={3}>
-       <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa' }}>
-              <Toolbar>
-                <Box
-                  component="img"
-                  src={Logo}
-                  alt="Logo"
-                  sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
-                  onClick={onBackToDashboard}
-                />
-                <Typography 
-                  variant="h5" 
-                  sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
-                  onClick={onBackToDashboard}
-                >
-                  College of Computer Studies
-                </Typography>
-                <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
-                  Sign Out
-                </Button>
-              </Toolbar>
-            </AppBar>
+      <div className="p-1 max-w-7xl mx-auto">
         <CurriculumCheckerMain onBack={handleBackToMain} />
-      </Box>
+      </div>
     );
   }
 
   // Render main menu
   return (
-    <Box sx={{ padding: 3}}>
-      <AppBar position="absolute" sx={{ bgcolor: '#f5f6fa' }}>
-              <Toolbar>
-                <Box
-                  component="img"
-                  src={Logo}
-                  alt="Logo"
-                  sx={{ width: 50, height: 50, marginRight: 2, cursor: 'pointer' }}
-                  onClick={onBackToDashboard}
-                />
-                <Typography 
-                  variant="h5" 
-                  sx={{ flexGrow: 1, fontWeight: 700, color:'royalblue', cursor: 'pointer' }}
-                  onClick={onBackToDashboard}
-                >
-                  College of Computer Studies
-                </Typography>
-                <Button color="error" sx={{ borderRadius: 5}} variant="contained" onClick={handleSignOut}>
-                  Sign Out
-                </Button>
-              </Toolbar>
-            </AppBar>
-      
-    <Box sx= {{ marginTop: 7.5}}>
-        <Box sx={{ 
-          backgroundColor: 'white',
-          padding: 3,
-          borderRadius: 2,
-          boxShadow: 3,
-          border: '1px solid #e0e0e0',
-          mb: 3,
-        }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-            <IconButton
+    <div className="p-4 max-w-7xl mx-auto">
+      <div className=''>
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-300 mb-10">
+          <div className="flex items-center gap-6">
+            <button
               onClick={onBackToDashboard}
-              sx={{ 
-                color: 'white',
-                backgroundColor: 'royalblue',
-                '&:hover': { 
-                  backgroundColor: 'rgba(65, 105, 225, 0.8)',
-                  color: 'white'
-                }
-              }}
+              className="group flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+              aria-label="Back to dashboard"
+              title="Back to dashboard"
             >
-              <ArrowBackIcon />
-            </IconButton>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              <Typography variant="h5" sx={{ color: 'royalblue', fontWeight: 700}}>
+              <span className="hidden sm:inline text-sm font-medium">Back</span>
+            </button>
+            <div className="flex flex-col gap-2">
+              <h5 className="text-2xl font-bold text-blue-600">
                 Curriculum Management System
-              </Typography>
-              <Typography variant="subtitle1" color="text.secondary">
+              </h5>
+              <p className="text-gray-600">
                 Review and validate curriculum requirements, course mappings, and academic compliance for the institution
-              </Typography>
-            </Box>
-          </Box>
-        </Box>
- 
-        
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          gap: 4, 
-          flexWrap: 'wrap',
-          maxWidth: 1200,
-          mx: 'auto',
-        }}>
-          <Card 
-            elevation={0}
-            sx={{ 
-              width: 320,
-              height: 280,
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              border: '2px solid rgba(176, 176, 176, 1)',
-              borderRadius: 4,
-              bgcolor: 'white',
-              '&:hover': {
-                transform: 'translateY(-8px)',
-                boxShadow: '0 12px 24px rgba(0,0,0,0.15)',
-                border: '2px solid #1976d2',
-              }
-            }}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div
+            className=" h-80 cursor-pointer transition-all duration-300 border border-gray-300 rounded-2xl bg-white hover:shadow-xl hover:border-blue-500 hover:-translate-y-2 focus-within:border-blue-500"
             onClick={() => handleFeatureSelect('curriculum-maker')}
           >
-            <CardContent sx={{ 
-              textAlign: 'center', 
-              py: 4,
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between'
-
-            }}>
-              <Box>
-                <AssignmentIcon sx={{ fontSize: 60, color: '#1976d2', mb: 3 }} />
-                <Typography variant="h5" fontWeight={700} mb={2} color="primary">
+            <div className="text-center py-8 h-full flex flex-col justify-between">
+              <div>
+                <div className="mx-auto w-20 h-20 mb-6 rounded-full bg-blue-50 flex items-center justify-center">
+                  <i className="bi bi-pencil-square text-blue-600 text-4xl"></i>
+                </div>
+                <h5 className="text-xl font-bold mb-4 text-blue-600">
                   Curriculum Maker
-                </Typography>
-                <Typography variant="body1" color="text.secondary" lineHeight={1.6}>
+                </h5>
+                <p className="text-gray-600 leading-relaxed">
                   Create and manage curriculum templates with courses, prerequisites, and academic requirements.
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="primary" fontWeight={600} sx={{ mt: 2 }}>
-                Click to access →
-              </Typography>
-            </CardContent>
-          </Card>
-          
-          <Card 
-            elevation={0}
-            sx={{ 
-              width: 320,
-              height: 280,
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              border: '2px solid rgba(176, 176, 176, 1)',
-              borderRadius: 4,
-              bgcolor: 'white',
-              '&:hover': {
-                transform: 'translateY(-8px)',
-                boxShadow: '0 12px 24px rgba(0,0,0,0.15)',
-                border: '2px solid #2e7d32',
-              }
-            }}
+                </p>
+              </div>
+              <p className="text-blue-600 font-semibold mt-4 flex items-center justify-center gap-2">
+                <span>Click to access</span>
+                <i className="bi bi-chevron-right"></i>
+              </p>
+            </div>
+          </div>
+
+          <div
+            className=" h-80 cursor-pointer transition-all duration-300 border border-gray-300 rounded-2xl bg-white hover:shadow-xl hover:border-green-500 hover:-translate-y-2 focus-within:border-green-500"
             onClick={() => handleFeatureSelect('student-management')}
           >
-            <CardContent sx={{ 
-              textAlign: 'center', 
-              py: 4,
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between'
-            }}>
-              <Box>
-                <PeopleIcon sx={{ fontSize: 60, color: '#2e7d32', mb: 3 }} />
-                <Typography variant="h5" fontWeight={700} mb={2} color="success.main">
+            <div className="text-center py-8 h-full flex flex-col justify-between">
+              <div>
+                <div className="mx-auto w-20 h-20 mb-6 rounded-full bg-green-50 flex items-center justify-center">
+                  <i className="bi bi-people text-green-600 text-4xl"></i>
+                </div>
+                <h5 className="text-xl font-bold mb-4 text-green-600">
                   Student Management
-                </Typography>
-                <Typography variant="body1" color="text.secondary" lineHeight={1.6}>
+                </h5>
+                <p className="text-gray-600 leading-relaxed">
                   Add students, assign curriculums, and track their course completion progress.
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="success.main" fontWeight={600} sx={{ mt: 2 }}>
-                Click to access →
-              </Typography>
-            </CardContent>
-          </Card>
-          
-          <Card 
-            elevation={0}
-            sx={{ 
-              width: 320,
-              height: 280,
-              cursor: 'pointer',
-              transition: 'all 0.3s ease',
-              border: '2px solid rgba(176, 176, 176, 1)',
-              borderRadius: 4,
-              bgcolor: 'white',
-              '&:hover': {
-                transform: 'translateY(-8px)',
-                boxShadow: '0 12px 24px rgba(0,0,0,0.15)',
-                border: '2px solid #ed6c02',
-              }
-            }}
+                </p>
+              </div>
+              <p className="text-green-600 font-semibold mt-4 flex items-center justify-center gap-2">
+                <span>Click to access</span>
+                <i className="bi bi-chevron-right"></i>
+              </p>
+            </div>
+          </div>
+
+          <div
+            className=" h-80 cursor-pointer transition-all duration-300 border border-gray-300 rounded-2xl bg-white hover:shadow-xl hover:border-orange-500 hover:-translate-y-2 focus-within:border-orange-500"
             onClick={() => handleFeatureSelect('curriculum-checker')}
           >
-            <CardContent sx={{ 
-              textAlign: 'center', 
-              py: 4,
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between'
-            }}>
-              <Box>
-                <AssessmentIcon sx={{ fontSize: 60, color: '#ed6c02', mb: 3 }} />
-                <Typography variant="h5" fontWeight={700} mb={2} color="warning.main">
+            <div className="text-center py-8 h-full flex flex-col justify-between">
+              <div>
+                <div className="mx-auto w-20 h-20 mb-6 rounded-full bg-orange-50 flex items-center justify-center">
+                  <i className="bi bi-graph-up text-orange-600 text-4xl"></i>
+                </div>
+                <h5 className="text-xl font-bold mb-4 text-orange-600">
                   Curriculum Checker
-                </Typography>
-                <Typography variant="body1" color="text.secondary" lineHeight={1.6}>
+                </h5>
+                <p className="text-gray-600 leading-relaxed">
                   Search students and view their curriculum status with color-coded course eligibility.
-                </Typography>
-              </Box>
-              <Typography variant="body2" color="warning.main" fontWeight={600} sx={{ mt: 2 }}>
-                Click to access →
-              </Typography>
-            </CardContent>
-          </Card>
-        </Box>
-      </Box>
-    </Box>
+                </p>
+              </div>
+              <p className="text-orange-600 font-semibold mt-4 flex items-center justify-center gap-2">
+                <span>Click to access</span>
+                <i className="bi bi-chevron-right"></i>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };
 
