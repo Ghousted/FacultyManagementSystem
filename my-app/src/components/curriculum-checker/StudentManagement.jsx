@@ -541,16 +541,7 @@ const StudentManagement = ({ onBack }) => {
 </div>
 
     <div className="flex items-center gap-2 ">
-      <button
-        onClick={() => setViewMode('list')}
-        className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
-          viewMode === 'list'
-            ? 'bg-blue-600 text-white border-blue-600'
-            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-        }`}
-      >
-        <i className="bi bi-list-ul text-base"></i>
-      </button>
+    
       <button
         onClick={() => setViewMode('grid')}
         className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
@@ -560,6 +551,16 @@ const StudentManagement = ({ onBack }) => {
         }`}
       >
         <i className="bi bi-grid text-base"></i>
+      </button>
+        <button
+        onClick={() => setViewMode('list')}
+        className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
+          viewMode === 'list'
+            ? 'bg-blue-600 text-white border-blue-600'
+            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+        }`}
+      >
+            <i className="bi bi-list text-base"></i>
       </button>
 </div>
 

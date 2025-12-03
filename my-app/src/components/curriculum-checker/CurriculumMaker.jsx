@@ -655,13 +655,13 @@ const CurriculumMaker = ({ onBack }) => {
 
     return (
       <div>
-        <div className="mb-3 flex flex-wrap gap-2">
+        <div className="mb-3 flex flex-wrap gap-2 border-b border-gray-300">
   {[1, 2, 3, 4].map((year, idx) => (
     <button
       key={year}
       onClick={() => { setTabValue(idx); setSelectedYear(idx + 1); }}
       className={`
-            px-2 py-0.5 cursor-pointer
+            px-2 py-1 cursor-pointer
         ${tabValue === idx 
           ? 'border-b-2 border-blue-600 text-blue-600 ' 
               : 'border-b-2 border-transparent hover:text-blue-600 hover:border-blue-600'
@@ -675,7 +675,7 @@ const CurriculumMaker = ({ onBack }) => {
   <button
     onClick={() => { setTabValue(4); setSelectedYear('irregular'); }}
     className={`
-            px-2 py-0.5 cursor-pointer
+            px-2 py-1 cursor-pointer
       ${tabValue === 4
         ? 'border-b-2 border-blue-600 text-blue-600' 
               : 'border-b-2 border-transparent hover:text-blue-600 hover:border-blue-600'
@@ -693,9 +693,8 @@ const CurriculumMaker = ({ onBack }) => {
               <div className="mb-3 flex items-center justify-between gap-2">
                 <h3 className="text-lg font-semibold text-blue-700">{semLabel(semester)} Semester</h3>
                 <div className="relative w-full max-w-xs">
-                  <i className="bi bi-search absolute left-2 top-1/2 -translate-y-1/2 text-gray-400"></i>
                   <input
-                    className="w-full pl-8 pr-3 py-1.5 rounded-md border border-gray-300 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 text-sm"
+                    className="w-full px-3 py-1.5 rounded-md border border-gray-300 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 "
                     placeholder="Search code or title"
                     value={tableFilters[semester] || ''}
                     onChange={(e) => handleFilterChange(semester, e.target.value)}

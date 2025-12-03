@@ -411,7 +411,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
       ) : (
         <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
           <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
+            <thead className="bg-blue-600 text-white">
               <tr>
                 <th className="px-4 py-2 text-left font-semibold border-b border-gray-300">Name</th>
                 <th className="px-4 py-2 text-left font-semibold border-b border-gray-300">Year</th>
@@ -577,7 +577,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
                         <h5 className="text-blue-600 font-semibold mb-2">{semester === 1 ? '1st' : '2nd'} Semester</h5>
                         <div className="border border-gray-300 rounded-lg overflow-hidden">
                           <table className="min-w-full text-sm">
-                            <thead className="bg-gray-50">
+                            <thead className="bg-blue-600 text-white">
                               <tr>
                                 <th className="text-left font-semibold px-4 py-2 border-b border-gray-300">Course Code</th>
                                 <th className="text-left font-semibold px-4 py-2 border-b border-gray-300">Course Title</th>

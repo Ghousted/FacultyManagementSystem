@@ -47,7 +47,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     type: '',
     amount: '',
     status: 'unpaid',
-    paidAmount: '0'
+    paidAmount: '0',
+    yearLevel: 'all'
   });
 
   // Student modal states
@@ -191,7 +192,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       type: '',
       amount: '',
       status: 'unpaid',
-      paidAmount: '0'
+      paidAmount: '0',
+      yearLevel: tabValue === 4 ? 'irregular' : (tabValue + 1).toString()
     });
     setAddPayableDialogOpen(true);
   };
@@ -213,11 +215,12 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     }
     setLoading(true);
     try {
-      const currentYear = tabValue + 1;
+      const targetYear = newPayableForm.yearLevel;
       if (editingMode) {
         const result = await updatePayable(newPayableForm.id, {
           type: newPayableForm.type,
-          amount: parseFloat(newPayableForm.amount)
+          amount: parseFloat(newPayableForm.amount),
+          yearLevel: targetYear === 'irregular' || targetYear === 'all' ? targetYear : parseInt(targetYear)
         });
         if (result.success) {
           setSuccess('Payable updated successfully!');
@@ -226,9 +229,16 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           setError(result.error);
         }
       } else {
-        const currentYearStudents = students.filter(student => student.yearLevel === currentYear);
+        let targetStudents;
+        if (targetYear === 'irregular') {
+          targetStudents = students.filter(s => s.isIrregular);
+        } else if (targetYear === 'all') {
+          targetStudents = students;
+        } else {
+          targetStudents = students.filter(s => s.yearLevel === parseInt(targetYear) && !s.isIrregular);
+        }
         const studentPayments = {};
-        currentYearStudents.forEach(student => {
+        targetStudents.forEach(student => {
           studentPayments[student.id] = {
             status: 'unpaid',
             paidAmount: 0
@@ -237,12 +247,12 @@ const PayablesSystem = ({ onBackToDashboard }) => {
         const newPayableData = {
           type: newPayableForm.type,
           amount: parseFloat(newPayableForm.amount),
-          yearLevel: currentYear,
+          yearLevel: targetYear === 'irregular' || targetYear === 'all' ? targetYear : parseInt(targetYear),
           studentPayments: studentPayments
         };
         const result = await createPayable(newPayableData, currentUser.uid);
         if (result.success) {
-          setSuccess(`Payable added successfully for ${currentYearStudents.length} students!`);
+          setSuccess(`Payable added successfully for ${targetStudents.length} students!`);
           await loadPayables();
           setAddPayableDialogOpen(false);
         } else {
@@ -254,7 +264,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
         type: '',
         amount: '',
         status: 'unpaid',
-        paidAmount: '0'
+        paidAmount: '0',
+        yearLevel: 'all'
       });
     } catch (error) {
       setError('Failed to save payable: ' + error.message);
@@ -329,14 +340,15 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
   const handleStartEditPayables = (payableId) => {
     const currentYear = tabValue + 1;
-    const payable = payables[currentYear]?.find(p => p.id === payableId);
+    const payable = payables[currentYear]?.find(p => p.id === payableId) || Object.values(payables).flat().find(p => p.id === payableId);
     if (payable) {
       setNewPayableForm({
         id: payable.id,
         type: payable.type,
         amount: payable.amount.toString(),
         status: 'unpaid',
-        paidAmount: '0'
+        paidAmount: '0',
+        yearLevel: payable.yearLevel.toString() === 'irregular' ? 'irregular' : payable.yearLevel.toString()
       });
       setEditingMode(true);
       setAddPayableDialogOpen(true);
@@ -366,13 +378,11 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   const handleShowSummary = () => {
     if (!selectedStudentModal) return;
     const studentId = selectedStudentModal.id;
-    const currentYear = tabValue + 1;
-    const yearPayables = payables[currentYear] || [];
     const changes = [];
     let totalCurrentBalance = 0;
     let totalNewBalance = 0;
     Object.entries(stagedPayments).forEach(([payableId, newPaymentAmount]) => {
-      const payable = yearPayables.find(p => p.id === payableId) || Object.values(payables).flat().find(p => p.id === payableId);
+      const payable = Object.values(payables).flat().find(p => p.id === payableId);
       if (payable) {
         const currentPaid = payable.studentPayments?.[studentId]?.paidAmount || 0;
         const amount = Number(payable.amount) || 0;
@@ -403,9 +413,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       for (const change of summaryData.changes) {
         const { payableId, newPayment } = change;
         // Find payable to get total amount
-        const currentYear = tabValue + 1;
-        const yearPayables = payables[currentYear] || [];
-        const payable = yearPayables.find(p => p.id === payableId) || Object.values(payables).flat().find(p => p.id === payableId);
+        const payable = Object.values(payables).flat().find(p => p.id === payableId);
         if (!payable) continue;
         const payableAmount = Number(payable.amount) || 0;
         const newTotalPaid = change.currentPaid + newPayment;
@@ -454,12 +462,17 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   // previous balances across all years that belong to the student.
   const getStudentPayables = useCallback((student) => {
     if (!student || !payables) return [];
-    const currentYearPayables = payables[student.yearLevel] || [];
+    let basePayables = [];
+    if (student.isIrregular) {
+      basePayables = (payables[student.yearLevel] || []).concat(payables['irregular'] || []).concat(payables['all'] || []);
+    } else {
+      basePayables = (payables[student.yearLevel] || []).concat(payables['all'] || []);
+    }
     const individualAcrossYears = Object.values(payables)
       .flat()
       .filter(p => p.isIndividual && p.studentId === student.id);
     const merged = {};
-    currentYearPayables.forEach(p => {
+    basePayables.forEach(p => {
       if (!p.isIndividual) {
         merged[p.id] = p;
       } else if (p.studentId === student.id) {
@@ -539,33 +552,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
   const renderStudentList = () => (
     <div>
-      <div className="flex items-center justify-between gap-1 mb-6">
-        <input
-          type="text"
-          placeholder="Search students by name..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full sm:max-w-sm px-4 py-1.5 border border-gray-300 rounded-xl"
-        />
-        <div className='flex items-center gap-2'>
-          <button onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')} className="px-2 py-1.5 cursor-pointer hover:bg-gray-100 border border-gray-300 rounded-xl">
-          {viewMode === 'grid' ? (
-            <i className="bi bi-list-ul"></i>
-          ) : (
-            <i className="bi bi-grid-3x3-gap"></i>
-          )}
-        </button>
-        <button
-          className="px-5 cursor-pointer py-1.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700"
-          onClick={handleAddPayable}
-        >
-           Add Payables
-        </button>
-        </div>
-      </div>
 
-   <div className="mb-8">
-    <div className="flex gap-4">
+       <div className="mb-4">
+    <div className="flex gap-2 border-b border-gray-300">
       {[1, 2, 3, 4].map(year => (
         <button
           key={year}
@@ -599,6 +588,51 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     </div>
   </div>
 
+
+      <div className="flex items-center justify-between gap-1 mb-6">
+        <input
+          type="text"
+          placeholder="Search students by name..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full sm:max-w-sm px-4 py-1.5 border border-gray-300 rounded-xl"
+        />
+        <div className='flex items-center gap-2'>
+          <div className="flex items-center gap-2 ">
+         
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
+                viewMode === 'grid'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <i className="bi bi-grid text-base"></i>
+            </button>
+
+               <button
+              onClick={() => setViewMode('list')}
+              className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
+                viewMode === 'list'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <i className="bi bi-list text-base"></i>
+            </button>
+            
+          </div>
+          <button
+          className="px-5 cursor-pointer py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          onClick={handleAddPayable}
+        >
+           Add Payables
+        </button>
+        </div>
+      </div>
+
+  
 
       
     
@@ -756,28 +790,24 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                             setPayablesSearch('');
                           }}
                         >
-                          <td className="p-3">{student.studentNumber}</td>
-                          <td className="p-3">
+                          <td className="p-2">{student.studentNumber}</td>
+                          <td className="p-2">
                             <div className="flex items-center gap-1">
                               {student.name}
-                              {student.isIrregular && (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                  Irregular
-                                </span>
-                              )}
+                            
                             </div>
                           </td>
-                          <td className="p-3">
+                          <td className="p-2">
                             <span className={`font-bold ${totalBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
                               ₱{totalBalance.toLocaleString()}
                             </span>
                           </td>
-                          <td className="p-3 text-center">
+                          <td className="p-2 text-center">
                             <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${totalBalance > 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
                               {totalBalance > 0 ? 'Outstanding' : 'Paid'}
                             </span>
                           </td>
-                          <td className="p-3 text-center">
+                          <td className="p-2 text-center">
                             <button
                               className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
                               onClick={async (e) => {
@@ -793,7 +823,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                                 }
                               }}
                             >
-                              View Transactions
+                        <i className='bi bi-clock'></i> Transactions
                             </button>
                           </td>
                         </tr>
@@ -872,32 +902,51 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               type: '',
               amount: '',
               status: 'unpaid',
-              paidAmount: '0'
+              paidAmount: '0',
+              yearLevel: 'all'
             });
           }}></div>
           <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-96 overflow-y-auto relative z-10">
             <h2 className="text-xl font-bold mb-4">
               {editingMode ? 'Edit Payable' : 'Add New Payable'}
-              <p className="text-sm text-gray-600">
-                {tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year Students
-              </p>
+             
             </h2>
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Target Year Level</label>
+                <select
+                  className="w-full p-2 border border-gray-300 rounded"
+                  value={newPayableForm.yearLevel}
+                  onChange={(e) => handleNewPayableInputChange('yearLevel', e.target.value)}
+                  disabled={editingMode} // Disable changing target when editing
+                >
+                  <option value="all">All Students</option>
+                  <option value="1">1st Year</option>
+                  <option value="2">2nd Year</option>
+                  <option value="3">3rd Year</option>
+                  <option value="4">4th Year</option>
+                  <option value="irregular">Irregular Students</option>
+                  
+                </select>
+              </div>
+
+              <label className="block text-sm font-medium mb-1">Payable Type</label>
               <input
                 type="text"
                 className="w-full p-2 border border-gray-300 rounded"
-                placeholder="Payable Type"
+                placeholder="Type (e.g., Tuition Fee, Miscellaneous)"
                 value={newPayableForm.type}
                 onChange={(e) => handleNewPayableInputChange('type', e.target.value)}
               />
               
+             <label className="block text-sm font-medium mb-1">Amount</label>
               <input
                 type="number"
                 inputMode="decimal"
                 min="0"
                 step="0.01"
                 className="w-full p-2 border border-gray-300 rounded show-spinner"
-                placeholder="Amount"
+                placeholder="e.g., 1500.00"
                 value={newPayableForm.amount}
                 onChange={(e) => handleNewPayableInputChange('amount', e.target.value)}
                 onWheel={(e) => e.currentTarget.blur()}
@@ -912,14 +961,15 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   type: '',
                   amount: '',
                   status: 'unpaid',
-                  paidAmount: '0'
+                  paidAmount: '0',
+                  yearLevel: 'all'
                 });
-              }} className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400">
+              }} className="px-4 py-1.5 text-white bg-gray-400 rounded hover:bg-gray-500">
                 Cancel
               </button>
               <button 
                 onClick={handleSaveNewPayable} 
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-200"
                 disabled={!newPayableForm.type || !newPayableForm.amount || loading}
               >
                 {loading ? (editingMode ? 'Updating...' : 'Adding...') : (editingMode ? 'Update Payable' : 'Add Payable')}
@@ -1026,7 +1076,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                 </h2>
                 <p className="text-sm text-gray-600">
                   {selectedStudentModal?.isIrregular 
-                    ? `Irregular Student (${selectedStudentModal.yearLevel === 1 ? '1st' : selectedStudentModal.yearLevel === 2 ? '2nd' : selectedStudentModal.yearLevel === 3 ? '3rd' : '4th'} Year Level) - Payables Management`
+                    ? `Irregular Student (${selectedStudentModal.yearLevel === 1 ? '1st' : selectedStudentModal.yearLevel === 2 ? '2nd' : selectedStudentModal.yearLevel === 3 ? '3rd' : '4th'} Year Level) `
                     : `${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year Student `
                   }
                 </p>
@@ -1446,7 +1496,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                     </span>
                   ) : (
                     <span>
-                      This will remove this payable for all students in Year {deleteTarget?.yearLevel}.
+                      This will remove this payable for all {deleteTarget?.yearLevel === 'irregular' ? 'irregular students' : deleteTarget?.yearLevel === 'all' ? 'students' : `students in Year ${deleteTarget?.yearLevel}`}.
                       This action cannot be undone.
                     </span>
                   )}
@@ -1483,23 +1533,35 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               <button onClick={() => setTransactionModalOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
             {transactionPayable && (
-              <p className="text-sm text-gray-600 mb-4">For: {transactionPayable.type} - ₱{transactionPayable.amount.toLocaleString()}</p>
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold">{transactionPayable.type}</h3>
+                <p className="text-sm text-gray-600">Total: ₱{Number(transactionPayable.amount || 0).toLocaleString()}</p>
+              </div>
             )}
+
             <div className="space-y-2">
               {transactionPayments.length === 0 ? (
                 <p className="text-gray-600">No transactions yet.</p>
               ) : (
-                transactionPayments.map(payment => (
-                  <div key={payment.id} className="border border-gray-200 rounded p-4">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="font-bold">₱{payment.amount.toLocaleString()}</p>
-                        <p className="text-sm text-gray-600">{payment.description}</p>
+                transactionPayments.map((payment, idx) => {
+                  const paidSoFar = transactionPayments.slice(0, idx + 1).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                  const totalAmount = Number(transactionPayable?.amount || 0);
+                  const remainingAfter = Math.max(0, totalAmount - paidSoFar);
+                  return (
+                    <div key={payment.id || idx} className="border border-gray-200 rounded p-4">
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="flex-1">
+                          <p className="font-bold text-lg">₱{Number(payment.amount || 0).toLocaleString()}</p>
+                          {payment.description && <p className="text-sm text-gray-600">{payment.description}</p>}
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-gray-500">{payment.date ? new Date(payment.date).toLocaleDateString() : ''}</p>
+                          <p className="text-sm mt-2">Remaining: <span className={`font-semibold ${remainingAfter > 0 ? 'text-red-600' : 'text-green-600'}`}>₱{remainingAfter.toLocaleString()}</span></p>
+                        </div>
                       </div>
-                      <p className="text-sm text-gray-500">{new Date(payment.date).toLocaleDateString()}</p>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
