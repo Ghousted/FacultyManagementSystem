@@ -16,6 +16,13 @@ function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
+  // Redirect to dashboard after login
+  useEffect(() => {
+    if (currentUser) {
+      window.location.hash = '';
+    }
+  }, [currentUser]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">

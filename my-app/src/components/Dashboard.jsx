@@ -37,6 +37,17 @@ const Dashboard = () => {
     return `${hour12}:${minutes} ${ampm}`;
   };
 
+  const getWelcomeMessage = () => {
+    if (role === 'admin') {
+      return "\"The best way to predict the future is to create it.\" - Peter Drucker";
+    } else if (role === 'curriculum') {
+      return "\"Education is the most powerful weapon which you can use to change the world.\" - Nelson Mandela";
+    } else if (role === 'payables') {
+      return "\"A penny saved is a penny earned.\" - Benjamin Franklin";
+    }
+    return "Welcome to the dashboard.";
+  };
+
   const canAccessSystem = (system) => {
     if (!role) return false;
     if (role === 'admin') return true;
@@ -64,7 +75,7 @@ const Dashboard = () => {
           Welcome, {currentUser?.displayName || currentUser?.email}!
         </h3>
         <p className="text-lg text-white ">
-          Select a system to manage your institution's curriculum and financial operations.
+          {getWelcomeMessage()}
         </p>
         <div className="mt-4 text-white">
           <div className="text-base">{formatDate(currentTime)} | {formatTime(currentTime)}</div>

@@ -36,23 +36,27 @@ const Header = () => {
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, [menuOpen]);
 
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [currentUser]);
+
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 bg-gray-100 shadow z-40">
-        <div className="max-w-7xl mx-auto flex items-center px-4 sm:px-6 lg:px-8 py-2">
+      <header className="fixed top-0 left-0 right-0 bg-white shadow-md border-b border-gray-200 z-40">
+        <div className="max-w-7xl mx-auto flex items-center px-4 sm:px-6 lg:px-8 py-3">
           <img
             src={Logo}
             alt="Logo"
-            className="w-12 h-12 mr-2 select-none cursor-pointer hover:opacity-90 active:scale-95"
+            className="w-12 h-12 mr-2 select-none cursor-pointer hover:opacity-90 active:scale-95 transition-all duration-200"
             onClick={handleGoDashboard}
           />
-          <h5 className="text-lg sm:text-2xl font-bold text-blue-600 grow select-none">
+          <h5 className="text-lg sm:text-2xl font-bold text-gray-800 grow select-none">
             College of Computer Studies
           </h5>
           {currentUser && (
             <div className="ml-auto relative" ref={menuRef}>
               <button
-                className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-blue-100"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-100 focus:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200"
                 onClick={() => setMenuOpen((v) => !v)}
               >
                   <i className="bi bi-person-circle text-gray-700 text-lg" aria-hidden="true"></i>
@@ -60,7 +64,7 @@ const Header = () => {
                   <i className={`bi ${menuOpen ? 'bi-chevron-up' : 'bi-chevron-down'} text-gray-600 text-sm`} aria-hidden="true"></i>
               </button>
               {menuOpen && (
-                <div className="absolute right-0 mt-2 w-60 bg-white border border-gray-300 rounded-lg shadow-lg z-50 overflow-hidden">
+                <div className="absolute right-0 mt-2 w-60 bg-white border border-gray-300 rounded-lg shadow-lg z-50 overflow-hidden transition-all duration-200">
                     <div className='text-center pt-4'>
                                         <i className="bi bi-person-circle text-blue-800 text-2xl" aria-hidden="true"></i>
 
@@ -70,7 +74,7 @@ const Header = () => {
                   </div>
                   {role === 'admin' && (
                     <button
-                        className="w-full border-b border-gray-300 text-left px-4 py-2 text-sm cursor-pointer hover:bg-gray-100 flex items-center gap-2"
+                        className="w-full border-b border-gray-300 text-left px-4 py-2 text-sm cursor-pointer hover:bg-gray-100 flex items-center gap-2 transition-colors duration-200"
                       onClick={handleOpenAdminPanel}
                     >
                         <i className="bi bi-shield-lock" aria-hidden="true"></i>
@@ -78,7 +82,7 @@ const Header = () => {
                     </button>
                   )}
                   <button
-                      className="w-full text-left px-4 py-2 text-sm cursor-pointer text-red-700 hover:bg-gray-100 flex items-center gap-2"
+                      className="w-full text-left px-4 py-2 text-sm cursor-pointer text-red-700 hover:bg-gray-100 flex items-center gap-2 transition-colors duration-200"
                     onClick={handleSignOut}
                   >
                       <i className="bi bi-box-arrow-right" aria-hidden="true"></i>
