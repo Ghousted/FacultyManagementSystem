@@ -5,6 +5,8 @@ import AuthContainer from './components/auth/AuthContainer'
 import Dashboard from './components/Dashboard'
 import Layout from './components/layout/Layout'
 import AdminPanel from './components/admin/AdminPanel';
+import CurriculumPreview from './components/curriculum-checker/CurriculumPreview';
+import CurriculumChecker from './components/curriculum-checker/CurriculumChecker';
 
 function App() {
   const { currentUser, loading, role } = useAuth();
@@ -23,6 +25,9 @@ function App() {
     }
   }, [currentUser]);
 
+  const curriculumMakerMatch = route.match(/^#\/curriculum-maker\/?(.*)/);
+  const curriculumMakerId = curriculumMakerMatch ? (curriculumMakerMatch[1] || '') : '';
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -37,7 +42,7 @@ function App() {
   return (
     <Layout>
       {currentUser ? (
-        route === '#/admin' ? <AdminPanel /> : <Dashboard />
+        route === '/' ? <AdminPanel /> : route.startsWith('#/curriculum-preview') ? <CurriculumPreview /> : route.startsWith('#/curriculum-maker') ? <CurriculumChecker initialView="curriculum-maker" initialCurriculumId={curriculumMakerId} onBackToDashboard={() => { window.location.hash = '' }} /> : <Dashboard />
       ) : (
         <AuthContainer />
       )}

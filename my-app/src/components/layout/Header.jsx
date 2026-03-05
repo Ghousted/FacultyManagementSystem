@@ -16,7 +16,7 @@ const Header = () => {
   };
 
   const handleOpenAdminPanel = () => {
-    window.location.hash = '#/admin';
+    window.location.hash = '#';
     setMenuOpen(false);
   };
 

@@ -3,8 +3,8 @@ import CurriculumMaker from './CurriculumMaker';
 import StudentManagement from './StudentManagement';
 import CurriculumCheckerMain from './CurriculumCheckerMain';
 
-const CurriculumChecker = ({ onBackToDashboard }) => {
-  const [currentView, setCurrentView] = useState('main'); // 'main', 'curriculum-maker', 'student-management', 'curriculum-checker'
+const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId }) => {
+  const [currentView, setCurrentView] = useState(initialView || 'main'); // 'main', 'curriculum-maker', 'student-management', 'curriculum-checker'
   const [tabValue, setTabValue] = useState(0);
 
   const handleFeatureSelect = (feature) => {
@@ -19,7 +19,7 @@ const CurriculumChecker = ({ onBackToDashboard }) => {
   if (currentView === 'curriculum-maker') {
     return (
       <div className="p-4 max-w-7xl mx-auto">
-        <CurriculumMaker onBack={handleBackToMain} />
+        <CurriculumMaker onBack={handleBackToMain} initialCurriculumId={initialCurriculumId} />
       </div>
     );
   }

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAllCourses } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
+import { LayoutPanelLeft, List, Printer } from 'lucide-react'; 
+import CurriculumPreview from './CurriculumPReview';
 
 const CurriculumCheckerMain = ({ onBack }) => {
   const { currentUser } = useAuth();
@@ -15,6 +17,8 @@ const CurriculumCheckerMain = ({ onBack }) => {
   const [tabValue, setTabValue] = useState(0);
   const [studentCourses, setStudentCourses] = useState([]);
   const [allCourses, setAllCourses] = useState([]);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTarget, setPreviewTarget] = useState(null); // { student, studentCurriculum }
   const [expandedYears, setExpandedYears] = useState({ 1: true, 2: true, 3: true, 4: true });
   const [showEquivalentCourses, setShowEquivalentCourses] = useState(false);
   const [studentView, setStudentView] = useState('grid'); // 'grid' | 'list'
@@ -81,6 +85,27 @@ const CurriculumCheckerMain = ({ onBack }) => {
   const loadAllCourses = async () => {
     const result = await getAllCourses();
     if (result.success) setAllCourses(result.data);
+  };
+
+  // Open preview modal that renders CurriculumPreview (use component's own print styles)
+  const handlePrintStudentPDF = (student, studentCurriculum) => {
+    if (!student || !studentCurriculum) return;
+    setPreviewTarget({ student, studentCurriculum });
+    setPreviewOpen(true);
+  };
+
+  const printPreview = () => {
+    if (!previewTarget) return;
+    try {
+      // Rendered CurriculumPreview includes its own @media print rules
+      window.focus();
+      window.print();
+    } catch (e) {
+      console.error('Print failed', e);
+      alert('Print failed. Your browser may block programmatic printing.');
+    }
+    setPreviewOpen(false);
+    setPreviewTarget(null);
   };
 
   const handleStudentSelect = async (student) => {
@@ -365,22 +390,22 @@ const CurriculumCheckerMain = ({ onBack }) => {
           <button
             type="button"
             onClick={() => setStudentView('grid')}
-            className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center ${studentView === 'grid' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+            className={`p-2 rounded-lg border text-sm flex items-center justify-center ${studentView === 'grid' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
             aria-pressed={studentView === 'grid'}
             aria-label="Grid view"
             title="Grid view"
           >
-            <i className="bi bi-grid text-base"></i>
+            <LayoutPanelLeft className="w-4 h-4" />
           </button>
           <button
             type="button"
             onClick={() => setStudentView('list')}
-            className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center ${studentView === 'list' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+            className={`p-2 rounded-lg border text-sm flex items-center justify-center ${studentView === 'list' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
             aria-pressed={studentView === 'list'}
             aria-label="List view"
             title="List view"
           >
-            <i className="bi bi-list text-lg"></i>
+            <List className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -398,13 +423,9 @@ const CurriculumCheckerMain = ({ onBack }) => {
               </div>
               <p className="text-gray-600 text-sm mb-4">
                 {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year
-                {' • '}{student.completedCourses?.length || 0} courses completed
+                <br></br><span className='text-xs'>{student.completedCourses?.length || 0} courses completed</span>
               </p>
-              <div className="flex gap-2">
-                <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
-                  {student.completedCourses?.length || 0} courses completed
-                </span>
-              </div>
+             
             </div>
           ))}
         </div>
@@ -486,48 +507,22 @@ const CurriculumCheckerMain = ({ onBack }) => {
               </div>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handlePrintStudentPDF(student, studentCurriculum)}
+              className="inline-flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Print PDF</span>
+            </button>
+          </div>
         </div>
 
         
-        <p className="text-gray-600 mt-1">
-          {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year • {student.completedCourses?.length || 0} courses completed
-        </p>
+       
 
-              <div className="mt-6 px-8 py-4 bg-white border border-gray-300 rounded-xl">
-          <h4 className="font-semibold mb-3">Legend</h4>
-          <div className="flex flex-wrap gap-4">
-            <div className="flex items-center">
-              <span className="px-2 py-0.5 text-xs rounded-full border bg-green-100 text-green-800 border-green-300 mr-2">Completed</span>
-              <span className="text-sm font-medium">Completed</span>
-            </div>
-            <div className="flex items-center">
-              <span className="px-2 py-0.5 text-xs rounded-full border bg-blue-100 text-blue-800 border-blue-300 mr-2">Available</span>
-              <span className="text-sm font-medium">Available</span>
-            </div>
-            <div className="flex items-center">
-              <span className="px-2 py-0.5 text-xs rounded-full border bg-red-100 text-red-800 border-red-300 mr-2">Failed</span>
-              <span className="text-sm font-medium">Failed (Grade 5.0+)</span>
-            </div>
-            <div className="flex items-center">
-              <span className="px-2 py-0.5 text-xs rounded-full border bg-amber-100 text-amber-800 border-amber-300 mr-2">Incomplete</span>
-              <span className="text-sm font-medium">Incomplete (Grade INC)</span>
-            </div>
-            <div className="flex items-center">
-              <span className="px-2 py-0.5 text-xs rounded-full border bg-red-100 text-red-800 border-red-300 mr-2">Blocked</span>
-              <span className="text-sm font-medium">Blocked (Prerequisite not met)</span>
-            </div>
-            <div className="flex items-center">
-              <span className="px-2 py-0.5 text-xs rounded-full border bg-red-100 text-red-800 border-red-300 mr-2">Blocked</span>
-              <span className="text-sm font-medium">Blocked (Incomplete or Failed)</span>
-            </div>
-            {student?.isIrregular && (
-              <div className="flex items-center">
-                <span className="px-2 py-0.5 text-xs rounded-full border border-amber-300 text-amber-700 bg-amber-50 mr-2">Equivalent</span>
-                <span className="text-sm font-medium">Equivalent Course from Other Curriculum</span>
-              </div>
-            )}
-          </div>
-        </div>
+            
         
         <div className="mt-6 space-y-4">
           {[1, 2, 3, 4].map(year => {
@@ -757,6 +752,29 @@ const CurriculumCheckerMain = ({ onBack }) => {
         <div className="flex-1 flex items-center justify-center">
           <div className="p-4 text-center border border-gray-200 ">
             <p className="text-gray-600">Sign in to access curriculum checking features</p>
+          </div>
+        </div>
+      )}
+      {previewOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center absolute inset-0 bg-black/40">
+          <div className="bg-white max-w-4xl w-full max-h-[90vh] overflow-auto rounded-lg p-4">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-bold">Print Preview - {previewTarget?.student?.name}</h3>
+              <div className="flex gap-2">
+                <button onClick={printPreview} className="bg-green-600 text-white px-3 py-1 rounded">Print</button>
+                <button onClick={() => { setPreviewOpen(false); setPreviewTarget(null); }} className="bg-gray-200 px-3 py-1 rounded">Close</button>
+              </div>
+            </div>
+            <div className="prose max-w-none">
+              {previewTarget ? (
+                <CurriculumPreview
+                  curriculumId={previewTarget.studentCurriculum?.curriculumId || previewTarget.student?.curriculumId}
+                  student={previewTarget.student}
+                />
+              ) : (
+                <div className="text-gray-600">No preview data available.</div>
+              )}
+            </div>
           </div>
         </div>
       )}

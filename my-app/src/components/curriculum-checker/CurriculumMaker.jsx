@@ -3,9 +3,11 @@ import { createCurriculum, getCurriculums, addCourse, getCoursesByCurriculum, ge
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, deleteDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-// Using Tailwind + Bootstrap Icons for UI; all logic remains intact.
+import { FileText } from 'lucide-react';
+import CurriculumPreview from './CurriculumPReview';
+import { X } from 'lucide-react';
 
-const CurriculumMaker = ({ onBack }) => {
+const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const { currentUser, isOnline } = useAuth();
   const [curriculums, setCurriculums] = useState([]);
   const [selectedCurriculum, setSelectedCurriculum] = useState(null);
@@ -47,6 +49,9 @@ const CurriculumMaker = ({ onBack }) => {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('success');
+  const [pdfOpen, setPdfOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewCurriculumId, setPreviewCurriculumId] = useState(null);
   // Sorting state
   const [sortField, setSortField] = useState('courseCode');
   const [sortDirection, setSortDirection] = useState('asc');
@@ -124,6 +129,13 @@ const CurriculumMaker = ({ onBack }) => {
       loadAllCourses();
     }
   }, [currentUser, loadCurriculums, loadAllCourses]);
+
+  useEffect(() => {
+    if (initialCurriculumId && curriculums && curriculums.length > 0) {
+      const found = curriculums.find((c) => c.id === initialCurriculumId);
+      if (found) setSelectedCurriculum(found);
+    }
+  }, [initialCurriculumId, curriculums]);
 
   useEffect(() => {
     if (selectedCurriculum && currentUser) {
@@ -614,6 +626,11 @@ const CurriculumMaker = ({ onBack }) => {
               </div>
             )}
 
+            <p
+              className="text-xs font-medium text-gray-500  uppercase tracking-wide"
+            >
+              Curriculum
+            </p>
             <h3 className="text-lg font-bold mb-6 pr-8">{curriculum.name}</h3>
 
             <div className="flex flex-wrap gap-2">
@@ -626,6 +643,7 @@ const CurriculumMaker = ({ onBack }) => {
                 </span>
               ))}
             </div>
+           
           </div>
         ))}
       </div>
@@ -655,39 +673,26 @@ const CurriculumMaker = ({ onBack }) => {
 
     return (
       <div>
-        <div className="mb-3 flex flex-wrap gap-2 border-b border-gray-300">
-  {[1, 2, 3, 4].map((year, idx) => (
-    <button
-      key={year}
-      onClick={() => { setTabValue(idx); setSelectedYear(idx + 1); }}
-      className={`
-            px-2 py-1 cursor-pointer
-        ${tabValue === idx 
-          ? 'border-b-2 border-blue-600 text-blue-600 ' 
-              : 'border-b-2 border-transparent hover:text-blue-600 hover:border-blue-600'
-        }
-      `}
-    >
-      {yearLabels[idx]}
-    </button>
-  ))}
+    
 
-  <button
-    onClick={() => { setTabValue(4); setSelectedYear('irregular'); }}
-    className={`
-            px-2 py-1 cursor-pointer
-      ${tabValue === 4
-        ? 'border-b-2 border-blue-600 text-blue-600' 
-              : 'border-b-2 border-transparent hover:text-blue-600 hover:border-blue-600'
-      }
-    `}
-  >
-    Irregular Students
-  </button>
-</div>
+      <div className="mb-3 flex flex-wrap gap-2 border-b border-gray-300">
+        {[1, 2, 3, 4].map((year, idx) => (
+          <button
+            key={year}
+            onClick={() => { setTabValue(idx); setSelectedYear(year); }}
+            className={`px-2 py-1 cursor-pointer ${tabValue === idx ? 'border-b-2 border-blue-600 text-blue-600' : 'border-b-2 border-transparent hover:text-blue-600 hover:border-blue-600'}`}>
+            {yearLabels[idx]}
+          </button>
+        ))}
 
+        <button
+          onClick={() => { setTabValue(4); setSelectedYear('irregular'); }}
+          className={`px-2 py-1 cursor-pointer ${tabValue === 4 ? 'border-b-2 border-blue-600 text-blue-600' : 'border-b-2 border-transparent hover:text-blue-600 hover:border-blue-600'}`}>
+          Irregular Students
+        </button>
+      </div>
 
-        <div>
+      <div>
           {([1, 2, selectedYear === 3 ? 3 : null].filter(Boolean)).map((semester) => (
             <div key={semester} className="mt-4 mb-8">
               <div className="mb-3 flex items-center justify-between gap-2">
@@ -1064,20 +1069,36 @@ const CurriculumMaker = ({ onBack }) => {
             <div className="flex-1 flex flex-col">
               <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-300 mb-10">
                 <div className="flex items-center justify-between">
+                  
                   <div className="flex items-center gap-6">
                     <button
                       onClick={() => setSelectedCurriculum(null)}
                       aria-label="Back to list"
                       title="Back to list"
-              className="group flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+                      className="group flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
                     >
                       <span className="hidden sm:inline text-sm font-medium">Back</span>
                     </button>
+
                     <div>
                       <div className="text-base text-gray-700">Curriculum</div>
-                      <div className="text-2xl font-semibold text-blue-600">{selectedCurriculum.name}</div>
+                      <div className="text-2xl font-semibold text-blue-600">
+                        {selectedCurriculum?.name}
+                      </div>
                     </div>
                   </div>
+
+                  {/* Right Side */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => { setPreviewCurriculumId(selectedCurriculum?.id || ''); setPreviewOpen(true); }}
+                      className="inline-flex items-center text-sm gap-2 bg-red-600 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-2 focus:ring-offset-white"
+                    >
+                      View PDF <FileText className="h-4 w-4" />
+                    </button>
+                  </div>
+
                 </div>
               </div>
 
@@ -1230,6 +1251,52 @@ const CurriculumMaker = ({ onBack }) => {
               >
                 Create
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Curriculum PDF Modal */}
+      {pdfOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setPdfOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-4xl bg-white rounded-lg shadow p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-lg font-semibold">Curriculum PDF{selectedCurriculum ? ` - ${selectedCurriculum.name}` : ''}</div>
+              <button onClick={() => setPdfOpen(false)} className="text-gray-600 hover:text-gray-800">
+                <i className="bi bi-x-lg"></i>
+              </button>
+            </div>
+            <div className="h-[80vh] overflow-auto">
+              <CurriculumPDF curriculum={selectedCurriculum} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Curriculum Preview Modal (inline) */}
+      {previewOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setPreviewOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-5xl bg-white rounded-lg shadow p-4 max-h-[90vh] overflow-auto">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-lg font-semibold">Curriculum Preview{selectedCurriculum ? ` - ${selectedCurriculum.name}` : ''}</div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { try { window.print(); } catch (e) { console.error(e); } }}
+                  title="Print PDF"
+                  className="inline-flex items-center gap-2 mr-3 text-sm text-white cursor-pointer bg-blue-500 px-3 py-1.5  rounded hover:bg-blue-600"
+                >
+                  <i className="bi bi-printer" aria-hidden></i>
+                  <span className="hidden sm:inline">Print PDF</span>
+                </button>
+                <button onClick={() => setPreviewOpen(false)} className="cursor-pointer text-gray-600 hover:text-red-500">
+                  <X className="h-7 w-7" />
+                </button>
+              </div>
+            </div>
+            <div className="h-[80vh] overflow-auto">
+              <CurriculumPreview curriculumId={previewCurriculumId || selectedCurriculum?.id} onClose={() => setPreviewOpen(false)} />
             </div>
           </div>
         </div>
