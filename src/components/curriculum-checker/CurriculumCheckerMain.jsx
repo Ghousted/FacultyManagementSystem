@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAllCourses } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { LayoutPanelLeft, List, Printer } from 'lucide-react'; 
+import { LayoutPanelLeft, List, Printer, Search } from 'lucide-react'; 
 import CurriculumPreview from './CurriculumPReview';
 
 const CurriculumCheckerMain = ({ onBack }) => {
@@ -19,9 +19,10 @@ const CurriculumCheckerMain = ({ onBack }) => {
   const [allCourses, setAllCourses] = useState([]);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewTarget, setPreviewTarget] = useState(null); // { student, studentCurriculum }
+  const [printOnlyOpen, setPrintOnlyOpen] = useState(false);
   const [expandedYears, setExpandedYears] = useState({ 1: true, 2: true, 3: true, 4: true });
   const [showEquivalentCourses, setShowEquivalentCourses] = useState(false);
-  const [studentView, setStudentView] = useState('grid'); // 'grid' | 'list'
+  const [studentView, setStudentView] = useState('list'); // 'grid' | 'list'
 
   useEffect(() => {
     if (currentUser) {
@@ -87,12 +88,23 @@ const CurriculumCheckerMain = ({ onBack }) => {
     if (result.success) setAllCourses(result.data);
   };
 
-  // Open preview modal that renders CurriculumPreview (use component's own print styles)
-  const handlePrintStudentPDF = (student, studentCurriculum) => {
-    if (!student || !studentCurriculum) return;
-    setPreviewTarget({ student, studentCurriculum });
-    setPreviewOpen(true);
-  };
+  // Print directly (no modal): render a hidden print-only preview then call window.print()
+  // Accept optional summerCourses (from processedCourses) so preview can show summer data
+  const handlePrintStudentPDF = (student, studentCurriculum, summerCourses = []) => {
+  if (!student || !studentCurriculum) return;
+  // Filter courses to only include 1st year
+  const firstYearCourses = studentCurriculum.courses.filter(c => c.yearLevel === 1);
+  const firstYearSummerCourses = summerCourses.filter(c => c.yearLevel === 1 && c.semester === 3);
+  setPreviewTarget({
+    student,
+    studentCurriculum: {
+      ...studentCurriculum,
+      courses: firstYearCourses
+    },
+    summerCourses: firstYearSummerCourses
+  });
+  setPrintOnlyOpen(true);
+};
 
   const printPreview = () => {
     if (!previewTarget) return;
@@ -107,6 +119,21 @@ const CurriculumCheckerMain = ({ onBack }) => {
     setPreviewOpen(false);
     setPreviewTarget(null);
   };
+
+  // When `printOnlyOpen` becomes true, wait briefly for the preview to render then trigger print
+  useEffect(() => {
+    if (!printOnlyOpen) return;
+    const t = setTimeout(() => {
+      try {
+        window.print();
+      } catch (e) {
+        // ignore
+      }
+      setPrintOnlyOpen(false);
+      setPreviewTarget(null);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [printOnlyOpen]);
 
   const handleStudentSelect = async (student) => {
     setSelectedStudent(student);
@@ -351,64 +378,48 @@ const CurriculumCheckerMain = ({ onBack }) => {
         </div>
       </div>
 
-      <div className="mb-6">
-        <div className="flex border-b border-gray-200">
+      <div className="flex justify-between items-center mb-6">
+        <div className="flex gap-2 text-sm">
           {[1, 2, 3, 4].map(year => (
             <button
               key={year}
-              className={`px-4 py-2 ${tabValue === year - 1 ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'}`}
+              className={`px-3 py-1 rounded-full ${tabValue === year - 1 
+                          ? 'bg-blue-500 text-white' 
+                        : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white cursor-pointer'
+                        }`}
               onClick={() => setTabValue(year - 1)}
             >
               {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
             </button>
           ))}
           <button
-            className={`px-4 py-2 ${tabValue === 4 ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'}`}
+            className={`px-3 py-1 rounded-full ${tabValue === 4 ? 'bg-blue-500 text-white' : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white cursor-pointer'}`}
             onClick={() => setTabValue(4)}
           >
             Irregular Students
           </button>
         </div>
+        <div className="w-full sm:max-w-90">
+  <label className="sr-only" htmlFor="student-search">
+    Search students
+  </label>
+
+  <div className="relative">
+    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+
+    <input
+      id="student-search"
+      type="text"
+      placeholder="Search students by name..."
+      value={searchTerm}
+      onChange={(e) => setSearchTerm(e.target.value)}
+      className="w-full text-sm sm:w-90 border border-gray-300 rounded-full pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+    />
+  </div>
+</div>
       </div>
 
-      {/* Search + View Toggle */}
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="w-full sm:max-w-90">
-          <label className="sr-only" htmlFor="student-search">Search students</label>
-          <div className="relative">
-            <input
-              id="student-search"
-              type="text"
-              placeholder="Search students by name..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-        className="w-full sm:w-90 border border-gray-300 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-            />
-          </div>
-        </div>
-        <div className="flex items-center gap-2 self-end md:self-auto">
-          <button
-            type="button"
-            onClick={() => setStudentView('grid')}
-            className={`p-2 rounded-lg border text-sm flex items-center justify-center ${studentView === 'grid' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-            aria-pressed={studentView === 'grid'}
-            aria-label="Grid view"
-            title="Grid view"
-          >
-            <LayoutPanelLeft className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setStudentView('list')}
-            className={`p-2 rounded-lg border text-sm flex items-center justify-center ${studentView === 'list' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-            aria-pressed={studentView === 'list'}
-            aria-label="List view"
-            title="List view"
-          >
-            <List className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+      
 
       {studentView === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -507,14 +518,19 @@ const CurriculumCheckerMain = ({ onBack }) => {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => handlePrintStudentPDF(student, studentCurriculum)}
-              className="inline-flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300"
+              onClick={() => handlePrintStudentPDF(
+                student,
+                studentCurriculum,
+                // pass processed summer courses (3rd year summer = semester 3)
+                processedCourses.filter(c => c.yearLevel === 3 && c.semester === 3)
+              )}
+              className="inline-flex items-center text-sm gap-2 bg-green-600 text-white px-2 py-1.5 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300"
             >
               <Printer className="w-4 h-4" />
-              <span>Print PDF</span>
+              <span>Print Curriculum</span>
             </button>
           </div>
         </div>
@@ -770,12 +786,25 @@ const CurriculumCheckerMain = ({ onBack }) => {
                 <CurriculumPreview
                   curriculumId={previewTarget.studentCurriculum?.curriculumId || previewTarget.student?.curriculumId}
                   student={previewTarget.student}
+                  summerCourses={previewTarget.summerCourses || []}
                 />
               ) : (
                 <div className="text-gray-600">No preview data available.</div>
               )}
             </div>
           </div>
+        </div>
+      )}
+      {printOnlyOpen && previewTarget && (
+        <div className="print-only-preview" aria-hidden>
+          <div style={{ position: 'fixed', left: '-9999px', top: 0 }}>
+            <CurriculumPreview
+              curriculumId={previewTarget.studentCurriculum?.curriculumId || previewTarget.student?.curriculumId}
+              student={previewTarget.student}
+              summerCourses={previewTarget.summerCourses || []}
+            />
+          </div>
+          <style>{`@media screen { .print-only-preview { display: none; } } @media print { body * { visibility: hidden !important; } .print-only-preview, .print-only-preview * { visibility: visible !important; } .print-only-preview { position: static !important; left: 0 !important; width: 100% !important; } }`}</style>
         </div>
       )}
     </div>

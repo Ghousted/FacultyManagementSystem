@@ -1,0 +1,3 @@
+- fix printing for students curriculum 1 sheet only
+- curriculum checker ui
+- payables

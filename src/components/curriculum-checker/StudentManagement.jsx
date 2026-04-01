@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
+import { BadgePlus, List, LayoutPanelLeft, Pencil, Trash, Search, Pen} from 'lucide-react';
 
 const StudentManagement = ({ onBack }) => {
   const { currentUser } = useAuth();
@@ -31,6 +32,7 @@ const StudentManagement = ({ onBack }) => {
   const [studentForm, setStudentForm] = useState({
     name: '',
     email: '',
+    contactNumber: '',
     studentNumber: '',
     yearLevel: 1,
     curriculumId: '',
@@ -60,6 +62,12 @@ const StudentManagement = ({ onBack }) => {
   // Dropdown state for grid view
   const [openDropdown, setOpenDropdown] = useState(null);
 
+  // Selection state for bulk actions
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [multiEditOpen, setMultiEditOpen] = useState(false);
+  const [multiDeleteOpen, setMultiDeleteOpen] = useState(false);
+  const [multiEditYear, setMultiEditYear] = useState(1);
+
   const handleSort = (column) => {
     if (sortBy === column) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -67,6 +75,69 @@ const StudentManagement = ({ onBack }) => {
       setSortBy(column);
       setSortOrder('asc');
     }
+  };
+
+  // Toggle a single student's selection
+  const toggleSelectId = (id) => {
+    setSelectedIds(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(x => x !== id);
+      }
+      return [...prev, id];
+    });
+  };
+
+  // Batch edit: update year level for selected students
+  const handleMultiEditSave = async () => {
+    if (!currentUser) {
+      setError('Please sign in to update students');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const updates = selectedIds.map(async (id) => {
+        const studentRef = doc(db, 'students', id);
+        await updateDoc(studentRef, { yearLevel: multiEditYear, updatedAt: new Date() });
+      });
+
+      await Promise.all(updates);
+
+      setStudents(prev => prev.map(s => selectedIds.includes(s.id) ? { ...s, yearLevel: multiEditYear } : s));
+      setSuccess('Students updated successfully!');
+      setSelectedIds([]);
+      setMultiEditOpen(false);
+    } catch (err) {
+      setError('Failed to update students: ' + err.message);
+    }
+    setLoading(false);
+  };
+
+  // Batch delete: confirm then delete selected studs
+  const handleConfirmMultiDelete = async () => {
+    if (!currentUser) {
+      setError('Please sign in to delete students');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const deletes = selectedIds.map(async (id) => {
+        await deleteDoc(doc(db, 'students', id));
+      });
+      await Promise.all(deletes);
+
+      setStudents(prev => prev.filter(s => !selectedIds.includes(s.id)));
+      if (selectedIds.includes(selectedStudent?.id)) setSelectedStudent(null);
+      setSuccess('Selected students deleted successfully!');
+      setSelectedIds([]);
+      setMultiDeleteOpen(false);
+    } catch (err) {
+      setError('Failed to delete students: ' + err.message);
+    }
+    setLoading(false);
   };
 
   // Helper: format student number as XXXX-XXXXX, limiting input
@@ -151,18 +222,20 @@ const StudentManagement = ({ onBack }) => {
       return;
     }
     
-    // Validate student number format
+    // Validate student number format only if provided
     const studentNumberPattern = /^\d{4}-\d{5}$/;
-    if (!studentForm.studentNumber || !studentNumberPattern.test(studentForm.studentNumber)) {
+    if (studentForm.studentNumber && !studentNumberPattern.test(studentForm.studentNumber)) {
       setError('Please enter a valid student number in the format XXXX-XXXXX');
       return;
     }
-    
-    // Check for duplicate student number
-    const existingStudent = students.find(student => student.studentNumber === studentForm.studentNumber);
-    if (existingStudent) {
-      setError('A student with this student number already exists');
-      return;
+
+    // Check for duplicate student number only if provided
+    if (studentForm.studentNumber) {
+      const existingStudent = students.find(student => student.studentNumber === studentForm.studentNumber);
+      if (existingStudent) {
+        setError('A student with this student number already exists');
+        return;
+      }
     }
     
     setLoading(true);
@@ -170,7 +243,7 @@ const StudentManagement = ({ onBack }) => {
     const result = await addStudent(studentForm);
     if (result.success) {
       setSuccess('Student added successfully!');
-      setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: 1, curriculumId: '', isIrregular: false });
+      setStudentForm({ name: '', email: '', contactNumber: '', studentNumber: '', yearLevel: 1, curriculumId: '', isIrregular: false });
       setStudentDialogOpen(false);
       loadStudents();
     } else {
@@ -231,6 +304,7 @@ const StudentManagement = ({ onBack }) => {
       id: student.id,
       name: student.name,
       email: student.email,
+      contactNumber: student.contactNumber || '',
       studentNumber: student.studentNumber,
       yearLevel: student.yearLevel,
       curriculumId: student.curriculumId,
@@ -251,18 +325,20 @@ const StudentManagement = ({ onBack }) => {
       return;
     }
     
-    // Validate student number format
+    // Validate student number format only if provided
     const studentNumberPattern = /^\d{4}-\d{5}$/;
-    if (!editingData.studentNumber || !studentNumberPattern.test(editingData.studentNumber)) {
+    if (editingData.studentNumber && !studentNumberPattern.test(editingData.studentNumber)) {
       setError('Please enter a valid student number in the format XXXX-XXXXX');
       return;
     }
-    
-    // Check for duplicate student number (excluding current student)
-    const existingStudent = students.find(student => student.studentNumber === editingData.studentNumber && student.id !== studentId);
-    if (existingStudent) {
-      setError('A student with this student number already exists');
-      return;
+
+    // Check for duplicate student number (excluding current student) only if provided
+    if (editingData.studentNumber) {
+      const existingStudent = students.find(student => student.studentNumber === editingData.studentNumber && student.id !== studentId);
+      if (existingStudent) {
+        setError('A student with this student number already exists');
+        return;
+      }
     }
     
     setLoading(true);
@@ -493,17 +569,16 @@ const StudentManagement = ({ onBack }) => {
   const renderStudentList = () => (
     <div>
      
-     <div className='flex-1 items-center  gap-4 mb-4'>
-      <div className=" flex flex-wrap gap-2 border-b border-gray-300">
+     <div className='flex-1 flex justify-between items-center  gap-4 mb-4'>
+      <div className=" flex flex-wrap gap-2  border-gray-300 text-sm">
   {[1, 2, 3, 4].map((year, idx) => (
     <button
       key={year}
       onClick={() => setStudentListTab(idx + 1)}
       className={`
-        px-2 py-1 cursor-pointer
-        ${studentListTab === idx + 1
-          ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
-          : 'text-gray-700 border-b-2 border-transparent hover:text-blue-500'
+          px-3 py-1 rounded-full ${studentListTab === idx + 1
+          ? 'bg-blue-500 text-white' 
+          : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white cursor-pointer'
         }
       `}
     >
@@ -514,10 +589,10 @@ const StudentManagement = ({ onBack }) => {
   <button
     onClick={() => setStudentListTab(5)}
     className={`
-        px-2 py-1 cursor-pointer
-      ${studentListTab === 5
-        ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
-        : 'text-gray-700 border-b-2 border-transparent hover:text-blue-500'
+        px-3 py-1 rounded-full cursor-pointer
+        ${studentListTab === 5
+        ? 'bg-blue-500 text-white'
+        : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white'
       }
     `}
   >
@@ -526,47 +601,92 @@ const StudentManagement = ({ onBack }) => {
 </div>
 
 
+     <div className="flex items-center gap-2">
+ 
+<div className="relative w-full sm:w-70">
+  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+  
+  <input
+    className="w-full border text-sm border-gray-300 rounded-xl pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+    placeholder="Search students name..."
+    value={searchTerm}
+    onChange={(e) => setSearchTerm(e.target.value)}
+  />
+</div>
+
+  
+
+
+</div>
      </div>
 
-     <div className="flex items-center justify-between gap-4 mb-6">
- 
- <div>
-   <input
-        className="w-full sm:w-90 border border-gray-300 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-        placeholder="Search students name or curriculum..."
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-      />
 
-</div>
+      {/* Bulk action bar when items selected */}
+      {selectedIds.length > 0 && (
+        <div className="mb-3 flex items-center  gap-4">
+          <div className="text-sm text-gray-700">{selectedIds.length} selected</div>
+          <div className="flex items-center ga">
+            <button
+              onClick={() => {
+                const first = students.find(s => s.id === selectedIds[0]);
+                setMultiEditYear(first ? first.yearLevel : 1);
+                setMultiEditOpen(true);
+              }}
+              className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setMultiDeleteOpen(true)}
+              className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+            >
+              <Trash className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Multi-edit Year Modal */}
+      {multiEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setMultiEditOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-6">
+            <div className="text-xl font-semibold mb-4">Edit Year Level for Selected Students</div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+              <select
+                className="w-full border border-gray-300 rounded px-3 py-2"
+                value={multiEditYear}
+                onChange={(e) => setMultiEditYear(parseInt(e.target.value, 10))}
+              >
+                {[1,2,3,4].map(y => (
+                  <option key={y} value={y}>{y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : '4th'} Year</option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setMultiEditOpen(false)} className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100">Cancel</button>
+              <button onClick={handleMultiEditSave} disabled={loading} className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-    <div className="flex items-center gap-2 ">
-    
-      <button
-        onClick={() => setViewMode('grid')}
-        className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
-          viewMode === 'grid'
-            ? 'bg-blue-600 text-white border-blue-600'
-            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-        }`}
-      >
-        <i className="bi bi-grid text-base"></i>
-      </button>
-        <button
-        onClick={() => setViewMode('list')}
-        className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
-          viewMode === 'list'
-            ? 'bg-blue-600 text-white border-blue-600'
-            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-        }`}
-      >
-            <i className="bi bi-list text-base"></i>
-      </button>
-</div>
-
-
-</div>
-
+      {/* Multi-delete Confirmation Modal */}
+      {multiDeleteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setMultiDeleteOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+            <div className="text-xl font-semibold mb-4">Confirm Delete</div>
+            <div className="text-gray-700 mb-6">
+              Are you sure you want to delete the selected students? This action cannot be undone.
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setMultiDeleteOpen(false)} className="px-4 cursor-pointer py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100">Cancel</button>
+              <button onClick={handleConfirmMultiDelete} disabled={loading} className="px-4 py-1.5 cursor-pointer rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">{loading ? 'Deleting...' : 'Delete'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="">
         {(() => {
@@ -622,11 +742,20 @@ const StudentManagement = ({ onBack }) => {
             return (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredStudents.map((student) => (
-                  <div
-                    key={student.id}
-                    className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md cursor-pointer transition-shadow relative"
-                    onClick={() => handleSelectStudent(student)}
-                  >
+                      <div
+                          key={student.id}
+                          className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md cursor-pointer transition-shadow relative"
+                          onClick={() => handleSelectStudent(student)}
+                        >
+                          <div className="absolute top-2 left-2">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4"
+                              checked={selectedIds.includes(student.id)}
+                              onClick={(e) => { e.stopPropagation(); toggleSelectId(student.id); }}
+                              onChange={() => {}}
+                            />
+                          </div>
                     <div className="absolute bottom-2 right-2">
                       <div className="relative">
                         <button
@@ -666,7 +795,7 @@ const StudentManagement = ({ onBack }) => {
                     </div>
                     <div className="mb-2">
                       <div className="font-semibold text-blue-700 text-lg">{student.name}</div>
-                      <div className="text-sm text-gray-600">{student.studentNumber || 'N/A'}</div>
+                      <div className="text-sm text-gray-600">{student.studentNumber || ''}</div>
                     </div>
                     <div className="text-sm text-gray-700 mb-1">
                       <i className="bi bi-envelope mr-1"></i>{student.email}
@@ -690,11 +819,24 @@ const StudentManagement = ({ onBack }) => {
               <table className="min-w-full text-sm">
                 <thead className="bg-blue-700 text-white sticky top-0">
                   <tr>
+                    <th className="p-2 w-[5%] text-left">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={filteredStudents.length > 0 && filteredStudents.every(s => selectedIds.includes(s.id))}
+                        onChange={() => {
+                          if (filteredStudents.length > 0 && filteredStudents.every(s => selectedIds.includes(s.id))) {
+                            setSelectedIds([]);
+                          } else {
+                            setSelectedIds(filteredStudents.map(s => s.id));
+                          }
+                        }}
+                      />
+                    </th>
                     <th className="p-2 w-[20%] text-left">Student Number</th>
                     <th className="p-2 w-[20%] text-left">Name</th>
                     <th className="p-2 w-[20%] text-left">Email</th>
-                    <th className="p-2 w-[10%] text-left">Year Level</th>
-                    <th className="p-2 w-[20%] text-left">Curriculum</th>
+                    <th className="p-2 w-[20%] text-left">Contact No.</th>
                     <th className="p-2 w-[10%] text-left">Actions</th>
                   </tr>
                 </thead>
@@ -707,7 +849,16 @@ const StudentManagement = ({ onBack }) => {
                         onClick={() => handleSelectStudent(student)}
                       >
                         <td className="p-2">
-                          <span className="font-semibold">{student.studentNumber || 'N/A'}</span>
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={selectedIds.includes(student.id)}
+                            onClick={(e) => { e.stopPropagation(); toggleSelectId(student.id); }}
+                            onChange={() => {}}
+                          />
+                        </td>
+                        <td className="p-2">
+                          <span className="font-semibold">{student.studentNumber || ''}</span>
                         </td>
                         <td className="p-2">
                           <span className="font-semibold">{student.name}</span>
@@ -715,20 +866,9 @@ const StudentManagement = ({ onBack }) => {
                         <td className="p-2">
                           <span>{student.email}</span>
                         </td>
+                    
                         <td className="p-2">
-                          <span>
-                            {student.yearLevel === 1
-                              ? '1st'
-                              : student.yearLevel === 2
-                              ? '2nd'
-                              : student.yearLevel === 3
-                              ? '3rd'
-                              : '4th'}{' '}
-                            Year
-                          </span>
-                        </td>
-                        <td className="p-2">
-                          <span>{getCurriculumName(student.curriculumId)}</span>
+                          <span>{student.contactNumber || ''}</span>
                         </td>
                         <td className="p-2">
                           <div className="flex items-center gap-2">
@@ -737,18 +877,18 @@ const StudentManagement = ({ onBack }) => {
                                 e.stopPropagation();
                                 handleStartEdit(student);
                               }}
-                              className="px-2 py-1 rounded text-xs font-medium bg-green-600 text-white border border-green-600 hover:bg-green-700"
+                              className="p-1 cursor-pointer rounded text-xs font-medium bg-green-600 text-white border border-green-600 hover:bg-green-700"
                             >
-                              Edit
+                              <Pencil className="w-4 h-4" />
                             </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteStudent(student.id);
                               }}
-                              className="px-2 py-1 rounded text-xs font-medium bg-red-600 text-white border border-red-600 hover:bg-red-700"
+                              className="p-1 cursor-pointer rounded text-xs font-medium bg-red-600 text-white border border-red-600 hover:bg-red-700"
                             >
-                              Delete
+                              <Trash className="w-4 h-4" />
                             </button>
                           </div>
                         </td>
@@ -984,7 +1124,7 @@ const StudentManagement = ({ onBack }) => {
               setSelectedStudent(null); 
               setStudentListTab(selectedStudent.isIrregular ? 5 : selectedStudent.yearLevel); 
             } : onBack}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            className="flex cursor-pointer items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
             aria-label="Back"
           >
             <span className="hidden sm:inline text-sm font-medium">Back</span>
@@ -1000,7 +1140,7 @@ const StudentManagement = ({ onBack }) => {
               </>
             ) : (
               <>
-                <div className="text-2xl font-bold text-blue-600 mb-2">Student Management</div>
+                <div className="text-2xl font-bold text-blue-600 ">Student Management</div>
                 <div className="text-gray-600">Manage students and track their curriculum progress</div>
               </>
             )}
@@ -1019,9 +1159,9 @@ const StudentManagement = ({ onBack }) => {
               });
               setStudentDialogOpen(true);
             }}
-            className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+            className="inline-flex items-center text-sm gap-2 cursor-pointer bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700"
           >
-            <i className="bi bi-plus-lg"></i>
+            <BadgePlus className="w-4 h-4" />
             <span>Add Student</span>
           </button>
         )}
@@ -1100,6 +1240,16 @@ const StudentManagement = ({ onBack }) => {
                 />
               </div>
               <div>
+                <label className="block text-sm text-gray-600 mb-1">Contact Number</label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  placeholder="Enter contact number"
+                  value={editingData.contactNumber || ''}
+                  onChange={(e) => setEditingData({ ...editingData, contactNumber: e.target.value })}
+                />
+              </div>
+              <div>
                 <label className="block text-sm text-gray-600 mb-1">Year Level</label>
                 <select
                   className="w-full border border-gray-300 rounded px-3 py-2"
@@ -1146,7 +1296,7 @@ const StudentManagement = ({ onBack }) => {
               </button>
               <button
                 onClick={() => handleSaveEdit(editingData.id)}
-                disabled={loading || !editingData.name || !editingData.email || !editingData.curriculumId || !editingData.studentNumber}
+                disabled={loading || !editingData.name}
                 className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 Save Changes
@@ -1181,11 +1331,59 @@ const StudentManagement = ({ onBack }) => {
                 <label className="block text-sm text-gray-600 mb-1">Student Name</label>
                 <input
                   className="w-full border border-gray-300 rounded px-3 py-2"
-                              placeholder="Last Name, First Name, Middle Name"
+                  placeholder="Last Name, First Name, Middle Name"
                   value={studentForm.name}
                   onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
+                  required
                 />
               </div>
+             <div>
+              <label className="block text-sm text-gray-600 mb-1">Contact Number</label>
+              <input
+                type="tel"
+                className="w-full border border-gray-300 rounded px-3 py-2"
+                placeholder="Enter contact number (eg. 0917 123 4567)"
+                value={studentForm.contactNumber || ''}
+                onChange={(e) => {
+                  let input = e.target.value.replace(/\D/g, ''); // remove non-numeric characters
+
+                  // Handle international format starting with 63
+                  if (input.startsWith('63')) {
+                    input = '+' + input;
+                  } else if (input.startsWith('0')) {
+                    input = input; // local format
+                  }
+
+                  // Format local numbers as 0917 123 4567
+                  if (input.startsWith('0')) {
+                    if (input.length > 4 && input.length <= 7) {
+                      input = input.slice(0, 4) + ' ' + input.slice(4);
+                    } else if (input.length > 7) {
+                      input = input.slice(0, 4) + ' ' + input.slice(4, 7) + ' ' + input.slice(7, 11);
+                    }
+                  }
+
+                  // Format international +63 numbers as +63 917 123 4567
+                  if (input.startsWith('+63')) {
+                    let withoutPrefix = input.slice(3); // remove +63
+                    if (withoutPrefix.length > 3 && withoutPrefix.length <= 6) {
+                      withoutPrefix = withoutPrefix.slice(0, 3) + ' ' + withoutPrefix.slice(3);
+                    } else if (withoutPrefix.length > 6) {
+                      withoutPrefix =
+                        withoutPrefix.slice(0, 3) +
+                        ' ' +
+                        withoutPrefix.slice(3, 6) +
+                        ' ' +
+                        withoutPrefix.slice(6, 10);
+                    }
+                    input = '+63 ' + withoutPrefix;
+                  }
+
+                  setStudentForm({ ...studentForm, contactNumber: input });
+                }}
+              />
+            </div>
+                  
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Email</label>
                 <input
@@ -1243,7 +1441,7 @@ const StudentManagement = ({ onBack }) => {
               </button>
               <button
                 onClick={handleAddStudent}
-                disabled={loading || !studentForm.name || !studentForm.studentNumber || !studentForm.curriculumId}
+                disabled={loading || !studentForm.name}
                 className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 Add Student
@@ -1267,14 +1465,14 @@ const StudentManagement = ({ onBack }) => {
                   setDeleteDialogOpen(false);
                   setStudentToDelete(null);
                 }}
-                className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100"
+                className="px-4 cursor-pointer py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDelete}
                 disabled={loading}
-                className="px-4 py-1.5 rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                className="px-4 py-1.5 cursor-pointer rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
               >
                 {loading ? 'Deleting...' : 'Delete'}
               </button>

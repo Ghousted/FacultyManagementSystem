@@ -5,7 +5,7 @@ import { doc, deleteDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { FileText } from 'lucide-react';
 import CurriculumPreview from './CurriculumPReview';
-import { X } from 'lucide-react';
+import { X, ChevronUp, ChevronDown, ChevronsUpDown, Pencil, Trash, Printer, BadgePlus, Check } from 'lucide-react';
 
 const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const { currentUser, isOnline } = useAuth();
@@ -52,6 +52,8 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const [pdfOpen, setPdfOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewCurriculumId, setPreviewCurriculumId] = useState(null);
+  // Render a print-only preview element (hidden on screen, visible only during printing)
+  const [printOnlyOpen, setPrintOnlyOpen] = useState(false);
   // Sorting state
   const [sortField, setSortField] = useState('courseCode');
   const [sortDirection, setSortDirection] = useState('asc');
@@ -163,6 +165,21 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       return () => clearTimeout(t);
     }
   }, [snackbarOpen]);
+
+  // When printOnlyOpen becomes true, wait briefly for the preview to render then trigger print
+  useEffect(() => {
+    if (!printOnlyOpen) return;
+    const timer = setTimeout(() => {
+      try {
+        window.print();
+      } catch (e) {
+        console.error('Print failed', e);
+      }
+      // close the print-only preview after print dialog
+      setPrintOnlyOpen(false);
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [printOnlyOpen]);
 
   // Helper function to show snackbar messages
   const showMessage = (message, severity = 'success') => {
@@ -570,7 +587,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
             onClick={onBack}
             aria-label="Back to dashboard"
             title="Back to dashboard"
-              className="group flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+            className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
           >
             <span className="hidden sm:inline text-sm font-medium">Back</span>
           </button>
@@ -581,10 +598,10 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
         </div>
         <button
           onClick={() => setCurriculumDialogOpen(true)}
-          className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white"
+          className="inline-flex  cursor-pointer items-center text-sm gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300 focus:ring-offset-2 focus:ring-offset-white"
         >
-          <i className="bi bi-plus-lg"></i>
-          <span>Create</span>
+          <BadgePlus className="w-4 h-4" />
+          <span>Add  Curriculum</span>
         </button>
       </div>
 
@@ -661,6 +678,9 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
           </button>
         </div>
       )}
+
+      {/* Print-only preview (hidden on screen, visible only when printing) */}
+      {/* print-only preview moved to global scope so printing works from any view */}
       
     </div>
   );
@@ -675,19 +695,27 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       <div>
     
 
-      <div className="mb-3 flex flex-wrap gap-2 border-b border-gray-300">
+      <div className="mb-3 flex flex-wrap gap-2 text-sm">
         {[1, 2, 3, 4].map((year, idx) => (
           <button
             key={year}
             onClick={() => { setTabValue(idx); setSelectedYear(year); }}
-            className={`px-2 py-1 cursor-pointer ${tabValue === idx ? 'border-b-2 border-blue-600 text-blue-600' : 'border-b-2 border-transparent hover:text-blue-600 hover:border-blue-600'}`}>
+            className={`px-3 py-1 rounded-full  ${tabValue === idx 
+                        ? 'bg-blue-500 text-white' 
+                        : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white cursor-pointer'
+                      }`}
+          >
             {yearLabels[idx]}
           </button>
         ))}
 
         <button
           onClick={() => { setTabValue(4); setSelectedYear('irregular'); }}
-          className={`px-2 py-1 cursor-pointer ${tabValue === 4 ? 'border-b-2 border-blue-600 text-blue-600' : 'border-b-2 border-transparent hover:text-blue-600 hover:border-blue-600'}`}>
+          className={`px-3 py-1 rounded-full cursor-pointer ${tabValue === 4 
+                      ? 'bg-blue-500 text-white' 
+                      : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white'
+                    }`}
+        >
           Irregular Students
         </button>
       </div>
@@ -695,11 +723,11 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       <div>
           {([1, 2, selectedYear === 3 ? 3 : null].filter(Boolean)).map((semester) => (
             <div key={semester} className="mt-4 mb-8">
-              <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
                 <h3 className="text-lg font-semibold text-blue-700">{semLabel(semester)} Semester</h3>
                 <div className="relative w-full max-w-xs">
                   <input
-                    className="w-full px-3 py-1.5 rounded-md border border-gray-300 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 "
+                    className="w-full px-3 py-1.5 text-sm rounded-full border border-gray-300 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 "
                     placeholder="Search code or title"
                     value={tableFilters[semester] || ''}
                     onChange={(e) => handleFilterChange(semester, e.target.value)}
@@ -711,13 +739,17 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="sticky top-0 z-10 bg-blue-700 text-white">
-                      <th className="p-2 w-[15%] text-left" aria-sort={sortField === 'courseCode' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                        <button title="Sort by Course Code" onClick={() => handleSort('courseCode')} className="inline-flex items-center gap-1">
+                       <th className="p-2 w-[15%] text-left" aria-sort={sortField === 'courseCode' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                        <button 
+                          title="Sort by Course Code" 
+                          onClick={() => handleSort('courseCode')} 
+                          className="inline-flex items-center gap-1 cursor-pointer"
+                        >
                           <span>Course Code</span>
                           {sortField === 'courseCode' ? (
-                            <i className={`bi ${sortDirection === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'} text-xs`}></i>
+                            <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
                           ) : (
-                            <i className="bi bi-arrow-down-up text-xs opacity-80"></i>
+                            <ChevronsUpDown className="w-4 opacity-80" />
                           )}
                         </button>
                       </th>
@@ -725,30 +757,30 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                         <button title="Sort by Course Title" onClick={() => handleSort('courseTitle')} className="inline-flex items-center gap-1">
                           <span>Course Title</span>
                           {sortField === 'courseTitle' ? (
-                            <i className={`bi ${sortDirection === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'} text-xs`}></i>
+                            <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
                           ) : (
-                            <i className="bi bi-arrow-down-up text-xs opacity-80"></i>
+                            <ChevronsUpDown className="w-4 opacity-80" />
                           )}
                         </button>
                       </th>
-                      <th className="p-2 w-[10%] text-left" aria-sort={sortField === 'units' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                      <th className="p-2 w-[5%] text-left" aria-sort={sortField === 'units' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
                         <button title="Sort by Units" onClick={() => handleSort('units')} className="inline-flex items-center gap-1">
                           <span>Units</span>
                           {sortField === 'units' ? (
-                            <i className={`bi ${sortDirection === 'asc' ? 'bi-caret-up-fill' : 'bi-caret-down-fill'} text-xs`}></i>
+                            <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
                           ) : (
-                            <i className="bi bi-arrow-down-up text-xs opacity-80"></i>
+                            <ChevronsUpDown className="w-4 opacity-80" />
                           )}
                         </button>
                       </th>
-                      <th className="p-2 w-[25%] text-left">Prerequisites</th>
-                      <th className="p-2 w-[15%] text-left">Equivalent Subjects</th>
+                      <th className="p-2 w-[20%] text-left">Prerequisites</th>
+                      <th className="p-2 w-[20%] text-left">Equivalent Subjects</th>
                       <th className="p-2 w-[10%] text-left">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-white text-xs">Major</span>
+                          <span className="font-semibold text-white text-sm">Major</span>
                         </div>
                       </th>
-                      <th className="p-2 w-[10%] text-left">
+                      <th className="p-2 w-[15%] text-left">
                         <div className="flex items-center gap-2">
                           <input
                             type="checkbox"
@@ -756,7 +788,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                             onChange={(e) => handleSelectAllAvailable(selectedYear, semester, e.target.checked)}
                             className="h-4 w-4 accent-blue-600"
                           />
-                          <span className="font-semibold text-white text-xs">Available</span>
+                          <span className="font-semibold text-white text-sm">Available</span>
                         </div>
                       </th>
                       <th className="p-2 w-[15%] text-left">Actions</th>
@@ -780,7 +812,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                       );
 
                       return (
-                        <tr key={course.id} className={`${isEditing ? 'bg-amber-50' : 'hover:bg-gray-100'} odd:bg-white even:bg-gray-50 border-t`}> 
+                        <tr key={course.id} className={`${isEditing ? 'bg-amber-50' : 'hover:bg-gray-100'} odd:bg-white even:bg-gray-50 border-t border-gray-300`}> 
                           <td className="p-2 align-top">
                             {isEditing ? (
                               <input
@@ -803,7 +835,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                               <span>{course.courseTitle}</span>
                             )}
                           </td>
-                          <td className="p-2 align-top">
+                          <td className="p-2 align-top text-center">
                             {isEditing ? (
                               <input
                                 type="number"
@@ -812,8 +844,8 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                                 onChange={(e) => handleInputChange('units', e.target.value)}
                               />
                             ) : (
-                              <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-medium">
-                                <i className="bi bi-stack me-1"></i>{course.units}
+                              <span className="font-medium text-gray-800">
+                                {course.units}
                               </span>
                             )}
                           </td>
@@ -908,28 +940,28 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                                 <button
                                   onClick={hasChanges ? handleSaveCourse : handleCancelEdit}
                                   disabled={loading}
-                                  className={`px-3 py-1 rounded text-xs font-medium border ${
+                                  className={`p-1 rounded text-xs font-medium border ${
                                     hasChanges ? 'bg-green-600 text-white border-green-600 hover:bg-green-700' : 'bg-blue-500 hover:bg-blue-600 text-white border-blue-600'
                                   }`}
                                 >
-                                  {hasChanges ? 'Save' : 'Cancel'}
+                                  {hasChanges ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
                                 </button>
                               ) : (
                                 <button
                                   onClick={() => handleEditCourse(course)}
-                                  className="px-3 py-1 rounded text-xs font-medium bg-green-600 text-white border border-green-600 hover:bg-green-700"
+                                  className="p-1 rounded cursor-pointer  font-medium bg-green-600 text-white border border-green-600 hover:bg-green-700"
                                   title="Edit course"
                                 >
-                                  Edit
+                                  <Pencil className="w-4 h-4" />
                                 </button>
                               )}
                               <button
                                 onClick={() => handleDeleteCourse(course.id)}
-                                disabled={loading}
-                                className="px-3 py-1 rounded text-xs font-medium bg-red-600 text-white border border-red-600 hover:bg-red-700"
+                c                disabled={loading}
+                                className="p-1 rounded cursor-pointer  font-medium bg-red-600 text-white border border-red-600 hover:bg-red-700"
                                 title="Delete course"
                               >
-                                Delete
+                                <Trash className="w-4 h-4" />
                               </button>
                             </div>
                           </td>
@@ -1023,8 +1055,10 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                             !newCourseData[semester]?.courseTitle ||
                             !newCourseData[semester]?.units
                           }
-                          className="px-3 py-1 rounded text-xs font-medium bg-green-600 text-white border border-green-600 disabled:opacity-50"
+                          
+                          className="px-3 py-1 flex items-center gap-1 rounded-lg text-xs font-medium bg-green-600 text-white border border-green-600 disabled:opacity-50"
                         >
+                          <BadgePlus className="w-4 h-4 inline" />
                           Add
                         </button>
                       </td>
@@ -1056,7 +1090,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                   <tfoot>
                     <tr className="bg-blue-50">
                       <td className="p-2 text-right font-medium" colSpan={2}>Total Units</td>
-                      <td className="p-2 font-semibold text-blue-700">
+                      <td className="p-2 font-semibold text-center text-blue-700">
                         {getTotalUnitsByYearAndSemester(selectedYear, semester)}
                       </td>
                       <td colSpan={4}></td>
@@ -1117,10 +1151,15 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                   <div>
                     <button
                       type="button"
-                      onClick={() => { setPreviewCurriculumId(selectedCurriculum?.id || ''); setPreviewOpen(true); }}
-                      className="inline-flex items-center text-sm gap-2 bg-red-600 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-2 focus:ring-offset-white"
+                      onClick={() => {
+                        if (!selectedCurriculum) return;
+                        setPreviewCurriculumId(selectedCurriculum?.id || '');
+                        setPrintOnlyOpen(true);
+                      }}
+                      className="inline-flex items-center text-sm gap-2 bg-green-600 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300 focus:ring-offset-2 focus:ring-offset-white"
                     >
-                      View PDF <FileText className="h-4 w-4" />
+                      <Printer className="w-4 h-4" />
+                      Print Curriculum 
                     </button>
                   </div>
 
@@ -1415,6 +1454,16 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Print-only preview (hidden on screen, visible only when printing) */}
+      {printOnlyOpen && previewCurriculumId && (
+        <div className="print-only-preview" aria-hidden>
+          <div style={{ position: 'fixed', left: '-9999px', top: 0 }}>
+            <CurriculumPreview curriculumId={previewCurriculumId} />
+          </div>
+          <style>{`@media screen { .print-only-preview { display: none; } } @media print { body * { visibility: hidden !important; } .print-only-preview, .print-only-preview * { visibility: visible !important; } .print-only-preview { position: static !important; left: 0 !important; width: 100% !important; } }`}</style>
         </div>
       )}
     </div>

@@ -771,7 +771,6 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                         </div>
                       </th>
                       <th className="p-3 w-32 text-center">Status</th>
-                      <th className="p-3 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -807,30 +806,12 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                               {totalBalance > 0 ? 'Outstanding' : 'Paid'}
                             </span>
                           </td>
-                          <td className="p-2 text-center">
-                            <button
-                              className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                setSelectedStudentForTransactions(student);
-                                setStudentTransactionsModalOpen(true);
-                                // Load all transactions for the student
-                                const result = await getAllStudentPayments(student.id);
-                                if (result.success) {
-                                  setStudentTransactions(result.data);
-                                } else {
-                                  setError(result.error);
-                                }
-                              }}
-                            >
-                        <i className='bi bi-clock'></i> Transactions
-                            </button>
-                          </td>
+                          
                         </tr>
                       );
                     })}
                     <tr className="bg-blue-50 font-semibold text-blue-900 border-t-2 border-blue-200">
-                      <td colSpan={4} className="p-3 text-right">Total Outstanding Balance</td>
+                      <td colSpan={3} className="p-3 text-right">Total Outstanding Balance</td>
                       <td className="p-3 text-center font-bold text-lg">
                         ₱{filteredStudents.reduce((sum, student) => sum + calculateTotalBalance(student.id), 0).toLocaleString()}
                       </td>
