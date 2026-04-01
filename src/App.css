@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+/* Re-enable number input spinners for specific fields */
+input[type="number"].show-spinner {
+	appearance: auto;
+	-moz-appearance: number-input;
+	-webkit-appearance: none; /* base, overridden below for spin buttons */
+}
+
+/* WebKit browsers (Chrome, Edge) */
+input[type="number"].show-spinner::-webkit-inner-spin-button,
+input[type="number"].show-spinner::-webkit-outer-spin-button {
+	-webkit-appearance: inner-spin-button;
+	opacity: 1;
+	display: block;
+}
