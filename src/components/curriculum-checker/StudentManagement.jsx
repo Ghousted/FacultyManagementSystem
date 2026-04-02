@@ -10,7 +10,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { BadgePlus, List, LayoutPanelLeft, Pencil, Trash, Search, Pen} from 'lucide-react';
+import { BadgePlus, Pencil, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown} from 'lucide-react';
 
 const StudentManagement = ({ onBack }) => {
   const { currentUser } = useAuth();
@@ -607,7 +607,7 @@ const StudentManagement = ({ onBack }) => {
   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
   
   <input
-    className="w-full border text-sm border-gray-300 rounded-xl pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+    className="w-full border text-sm border-gray-300 rounded-full pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
     placeholder="Search students name..."
     value={searchTerm}
     onChange={(e) => setSearchTerm(e.target.value)}
@@ -833,10 +833,11 @@ const StudentManagement = ({ onBack }) => {
                         }}
                       />
                     </th>
-                    <th className="p-2 w-[20%] text-left">Student Number</th>
+                    <th className="p-2 w-[20%] text-left">Student No.</th>
                     <th className="p-2 w-[20%] text-left">Name</th>
                     <th className="p-2 w-[20%] text-left">Email</th>
                     <th className="p-2 w-[20%] text-left">Contact No.</th>
+                    <th className="p-2 w-[15%] text-left">Curriculum</th>
                     <th className="p-2 w-[10%] text-left">Actions</th>
                   </tr>
                 </thead>
@@ -869,6 +870,9 @@ const StudentManagement = ({ onBack }) => {
                     
                         <td className="p-2">
                           <span>{student.contactNumber || ''}</span>
+                        </td>
+                        <td className="p-2">
+                          <span>{getCurriculumName(student.curriculumId)}</span>
                         </td>
                         <td className="p-2">
                           <div className="flex items-center gap-2">
@@ -912,56 +916,18 @@ const StudentManagement = ({ onBack }) => {
     const isThirdYearTab = courseTab === 2;
 
     return (
-      <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full">
 
-        <div className="mb-3 p-3 bg-white rounded-xl shadow-md border border-gray-300">
-          <div className="font-semibold mb-2">
-            Academic Eligibility Summary - {currentYear === 1 ? '1st' : currentYear === 2 ? '2nd' : currentYear === 3 ? '3rd' : '4th'} Year
-          </div>
-          <div className="flex gap-6 flex-wrap">
-            <div>
-              <div className="text-sm text-gray-600">1st Semester Dean's Lister:</div>
-              <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
-                calculateDeansListerEligibility(1, currentYear)
-                  ? 'bg-green-50 border-green-200 text-green-700'
-                  : 'bg-gray-50 border-gray-200 text-gray-700'
-              }`}>
-                {calculateDeansListerEligibility(1, currentYear) ? 'Eligible' : 'Not Eligible'}
-              </span>
-            </div>
-            <div>
-              <div className="text-sm text-gray-600">2nd Semester Dean's Lister:</div>
-              <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
-                calculateDeansListerEligibility(2, currentYear)
-                  ? 'bg-green-50 border-green-200 text-green-700'
-                  : 'bg-gray-50 border-gray-200 text-gray-700'
-              }`}>
-                {calculateDeansListerEligibility(2, currentYear) ? 'Eligible' : 'Not Eligible'}
-              </span>
-            </div>
-            <div>
-              <div className="text-sm text-gray-600">Scholarship Eligibility:</div>
-              <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
-                scholarshipEligibility.eligible
-                  ? 'bg-blue-50 border-blue-200 text-blue-700'
-                  : 'bg-gray-50 border-gray-200 text-gray-700'
-              }`}>
-                {scholarshipEligibility.eligible ? `${scholarshipEligibility.percentage}% Scholarship` : 'Not Eligible'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-4 mt-4 flex flex-wrap gap-6 border-b border-gray-300">
+        <div className="mt-2 mb-4 gap-2 flex">
           {[1, 2, 3, 4].map((year, idx) => (
             <button
               key={year}
               onClick={() => setCourseTab(idx)}
               className={`
-                px-2 py-0.5 cursor-pointer
+                px-3 py-1 rounded-full text-sm 
                 ${courseTab === idx
-                  ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
-                  : 'text-gray-700 border-b-2 border-transparent hover:text-blue-500'
+                  ? 'bg-blue-500 text-white' 
+                        : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white cursor-pointer'
                 }
               `}
             >
@@ -982,12 +948,12 @@ const StudentManagement = ({ onBack }) => {
     <thead className="bg-blue-700 text-white">
       <tr>
         <th className="p-2 w-[12%] text-left cursor-pointer" onClick={() => handleSort('courseCode')}>
-          Course Code {sortBy === 'courseCode' && (sortOrder === 'asc' ? '↑' : '↓')}
+          Course Code {sortBy === 'courseCode' && (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />)}
         </th>
         <th className="p-2 w-[35%] text-left cursor-pointer" onClick={() => handleSort('courseTitle')}>
           Course Title {sortBy === 'courseTitle' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
-        <th className="p-2 w-[8%] text-left cursor-pointer" onClick={() => handleSort('units')}>
+        <th className="p-2 w-[8%] text-center cursor-pointer" onClick={() => handleSort('units')}>
           Units {sortBy === 'units' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
         <th className="p-2 w-[20%] text-left">Prerequisites</th>
@@ -1025,7 +991,7 @@ const StudentManagement = ({ onBack }) => {
             <td className="p-2">
               <span>{course.courseTitle}</span>
             </td>
-            <td className="p-2">{course.units}</td>
+            <td className="p-2 text-center">{course.units}</td>
             <td className="p-2">
               {course.prerequisites.length > 0 ? (
                 <div className="flex flex-wrap gap-1">
@@ -1115,57 +1081,154 @@ const StudentManagement = ({ onBack }) => {
     );
   };
 
+  // Header summary values (displayed inside the Selected Student header)
+  const headerYear = courseTab + 1;
+  const headerScholarshipEligibility = calculateScholarshipEligibility(headerYear);
+
   return (
     <div className="">
-      <div className=" bg-white text-black p-6 rounded-2xl mb-10 flex items-center justify-between border border-gray-300 shadow-lg">
-        <div className="flex items-center gap-6">
-          <button
-            onClick={selectedStudent ? () => { 
-              setSelectedStudent(null); 
-              setStudentListTab(selectedStudent.isIrregular ? 5 : selectedStudent.yearLevel); 
-            } : onBack}
-            className="flex cursor-pointer items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
-            aria-label="Back"
-          >
-            <span className="hidden sm:inline text-sm font-medium">Back</span>
-          </button>
+      <div className="bg-white text-black p-6 rounded-2xl mb-6 flex items-center justify-between border border-gray-300 shadow-lg">
+  
+  {/* LEFT SIDE */}
+  <div className="flex items-center gap-6">
+    <button
+      onClick={
+        selectedStudent
+          ? () => {
+              setSelectedStudent(null);
+              setStudentListTab(
+                selectedStudent.isIrregular ? 5 : selectedStudent.yearLevel
+              );
+            }
+          : onBack
+      }
+      className="flex cursor-pointer items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+      aria-label="Back"
+    >
+      <span className="hidden sm:inline text-sm font-medium">Back</span>
+    </button>
+
+    <div>
+      {selectedStudent ? (
+        <div className="flex  gap-20">
           <div>
-            {selectedStudent ? (
-              <>
-                <div className="text-2xl font-bold text-blue-600">Selected Student</div>
-                <div className="text-gray-600">{selectedStudent.name}</div>
-                <div className="text-gray-600">
-                  {selectedStudent.yearLevel === 1 ? '1st' : selectedStudent.yearLevel === 2 ? '2nd' : selectedStudent.yearLevel === 3 ? '3rd' : '4th'} Year{selectedStudent.isIrregular ? ' - Irregular' : ''} Student
+          
+            <div className="text-blue-600 font-medilum text-xl">{selectedStudent.name}</div>
+            <div className="text-gray-600">
+              {selectedStudent.yearLevel === 1
+                ? "1st"
+                : selectedStudent.yearLevel === 2
+                ? "2nd"
+                : selectedStudent.yearLevel === 3
+                ? "3rd"
+                : "4th"}{" "}
+              Year
+              {selectedStudent.isIrregular ? " - Irregular" : ""} Student
+            </div>
+          </div>
+
+          {/* Academic Eligibility Summary */}
+          <div>
+            <div className="font-semibold uppercase text-sm text-gray-800">
+              Academic Eligibility Summary
+            </div>
+
+            <div className="flex gap-6 flex-wrap">
+              {/* 1st Sem */}
+              <div>
+                <div className="text-xs text-gray-600">
+                  1st Semester Dean's Lister:
                 </div>
-              </>
-            ) : (
-              <>
-                <div className="text-2xl font-bold text-blue-600 ">Student Management</div>
-                <div className="text-gray-600">Manage students and track their curriculum progress</div>
-              </>
-            )}
+                <span
+                  className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
+                    calculateDeansListerEligibility(1, headerYear)
+                      ? "bg-green-50 border-green-200 text-green-700"
+                      : "bg-gray-50 border-gray-200 text-gray-700"
+                  }`}
+                >
+                  {calculateDeansListerEligibility(1, headerYear)
+                    ? "Eligible"
+                    : "Not Eligible"}
+                </span>
+              </div>
+
+              {/* 2nd Sem */}
+              <div>
+                <div className="text-xs text-gray-600">
+                  2nd Semester Dean's Lister:
+                </div>
+                <span
+                  className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
+                    calculateDeansListerEligibility(2, headerYear)
+                      ? "bg-green-50 border-green-200 text-green-700"
+                      : "bg-gray-50 border-gray-200 text-gray-700"
+                  }`}
+                >
+                  {calculateDeansListerEligibility(2, headerYear)
+                    ? "Eligible"
+                    : "Not Eligible"}
+                </span>
+              </div>
+
+              {/* Scholarship */}
+              <div>
+                <div className="text-xs text-gray-600">
+                  Scholarship Eligibility:
+                </div>
+                <span
+                  className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
+                    headerScholarshipEligibility.eligible
+                      ? "bg-blue-50 border-blue-200 text-blue-700"
+                      : "bg-gray-50 border-gray-200 text-gray-700"
+                  }`}
+                >
+                  {headerScholarshipEligibility.eligible
+                    ? `${headerScholarshipEligibility.percentage}% Scholarship`
+                    : "Not Eligible"}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
-        {!selectedStudent && (
-          <button
-            onClick={() => {
-              setStudentForm({
-                name: '',
-                email: '',
-                studentNumber: '',
-                yearLevel: studentListTab === 0 ? 1 : studentListTab === 5 ? 1 : studentListTab,
-                curriculumId: '',
-                isIrregular: studentListTab === 5,
-              });
-              setStudentDialogOpen(true);
-            }}
-            className="inline-flex items-center text-sm gap-2 cursor-pointer bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700"
-          >
-            <BadgePlus className="w-4 h-4" />
-            <span>Add Student</span>
-          </button>
-        )}
-      </div>
+      ) : (
+        <>
+          <div className="text-2xl font-bold text-blue-600">
+            Student Management
+          </div>
+          <div className="text-gray-600">
+            Manage students and track their curriculum progress
+          </div>
+        </>
+      )}
+    </div>
+  </div>
+
+  {/* RIGHT SIDE */}
+  {!selectedStudent && (
+    <button
+      onClick={() => {
+        setStudentForm({
+          name: "",
+          email: "",
+          studentNumber: "",
+          yearLevel:
+            studentListTab === 0
+              ? 1
+              : studentListTab === 5
+              ? 1
+              : studentListTab,
+          curriculumId: "",
+          isIrregular: studentListTab === 5,
+        });
+        setStudentDialogOpen(true);
+      }}
+      className="inline-flex items-center text-sm gap-2 cursor-pointer bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700"
+    >
+      <BadgePlus className="w-4 h-4" />
+      <span>Add Student</span>
+    </button>
+  )}
+</div>
 
       {!currentUser && (
         <div className="mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-4 py-2">

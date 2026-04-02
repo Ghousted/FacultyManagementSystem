@@ -475,7 +475,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                   {/* Name */}
                   <div className="flex items-end flex-1 gap-3 text-sm">
                     <span className="pl-2 text-sm">Name:</span>
-                    <div className="w-full max-w-[380px] border-b border-gray-400 pb-1">{student?.name || ''}</div>
+                    <div className="w-full max-w-[300px] border-b border-gray-400 pb-1">{student?.name || ''}</div>
                   </div>
                 </div>
 
@@ -490,7 +490,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                   {/* Email */}
                   <div className="flex items-end flex-1 gap-3 text-sm">
                     <span className="pl-2 text-sm">Email:</span>
-                    <div className="w-full max-w-[380px] border-b border-gray-400 pb-1">{student?.email || ''}</div>
+                    <div className="w-full max-w-[300px] border-b border-gray-400 pb-1">{student?.email || ''}</div>
                   </div>
                 </div>
               </div>
@@ -541,8 +541,8 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                 .one-by-one { position: absolute; right: 0mm; top: 0mm; }
                 .one-box { width: 1in; height: 1in; border: 1px solid #000; display:flex; align-items:center; justify-content:center; font-size:14px; }
                 .header-logos img { display: inline-block; }
-                .tcc-logo { width: 36px; height: 36px; object-fit: contain; }
-                .org-logo { width: 36px; height: 36px; object-fit: contain; }
+                .tcc-logo { width: 48px; height: 48px; object-fit: contain; }
+                .org-logo { width: 48px; height: 48px; object-fit: contain; margin-left: -6px; }
 
                 /* Ensure preview-meta (photo + summer box) is visible and positioned in print */
                 .print-area .preview-meta { position: absolute; right: 24mm; top: 6mm; display:flex; flex-direction:column; gap:4px; align-items:flex-end; }

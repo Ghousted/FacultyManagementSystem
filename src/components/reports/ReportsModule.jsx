@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { exportDeanListToExcel } from '../../utils/excelExport';
 import { getStudents, getCoursesByCurriculum } from '../../models/curriculumModels';
-import { Settings2, Download, CalendarCheck, X} from 'lucide-react';
+import { Settings2, Download, CalendarCheck, X, ChevronDown, ChevronUp, ChevronsUpDown} from 'lucide-react';
 
 const yearTabs = [
   { label: '1st Year', value: 1 },
@@ -109,7 +109,7 @@ const StudentDetailsModal = ({ isOpen, onClose, student }) => {
               GWA: <span className="text-green-700">{parseFloat(student.gwa).toFixed(2)}</span>
           </p>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto border border-gray-200 rounded-lg shadow-sm">
           <table className="min-w-full text-sm border rounded-lg overflow-hidden">
             <thead>
               <tr className="bg-blue-100">
@@ -299,20 +299,20 @@ const ReportsModule = ({ onBackToDashboard }) => {
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => setIsModalOpen(true)}
-              className="rounded-lg text-sm px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow flex items-center gap-1"
+              className="rounded-lg text-sm px-3 py-1.5 cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow flex items-center gap-1"
             >
               <Settings2 className="h-4 w-4" /> Configure
             </button>
             <button
               onClick={handleDownload}
-              className="rounded-lg text-sm px-3 py-1 bg-green-600 hover:bg-green-700 text-white font-semibold shadow flex items-center gap-1"
+              className="rounded-lg text-sm px-3 py-1.5 cursor-pointer bg-green-600 hover:bg-green-700 text-white font-semibold shadow flex items-center gap-1"
             >
               <Download className="h-4 w-4" /> Export Excel
             </button>
           </div>
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto border-x border-gray-300 rounded-xl shadow-sm mb-4">
   <table className="min-w-full text-sm border-separate border-spacing-0 rounded-xl overflow-hidden shadow-sm">
     <thead>
       <tr className="bg-blue-100 text-left">

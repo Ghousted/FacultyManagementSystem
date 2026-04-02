@@ -10,6 +10,7 @@ import {
   getAllStudentPayments
 } from '../../models/payablesModels';
 import { useAuth } from '../../contexts/AuthContext';
+import { BadgePlus,  Search, ChevronUp, ChevronDown, ChevronsUpDown, Funnel, X, Printer, Pencil, Delete, History, Settings2, Download, Receipt, Trash } from 'lucide-react';
 
 const PayablesSystem = ({ onBackToDashboard }) => {
   const { currentUser } = useAuth();
@@ -553,89 +554,62 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   const renderStudentList = () => (
     <div>
 
-       <div className="mb-4">
-    <div className="flex gap-2 border-b border-gray-300">
-      {[1, 2, 3, 4].map(year => (
-        <button
-          key={year}
-          className={`
-            px-2 py-1 cursor-pointer
-            ${tabValue === year - 1 
-              ? 'border-b-2 border-blue-600 text-blue-600 font-semibold' 
-              : 'border-b-2 border-transparent'
-            }
-            hover:border-blue-600
-          `}
-          onClick={() => setTabValue(year - 1)}
-        >
-          {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
-        </button>
-      ))}
-
-      <button
-        className={`
-            px-2 py-1 cursor-pointer
-          ${tabValue === 4
-            ? 'border-b-2 border-blue-600 text-blue-600 font-semibold'
-            : 'border-b-2 border-transparent'
-          }
-          hover:border-blue-600
-        `}
-        onClick={() => setTabValue(4)}
-      >
-        Irregular Students
-      </button>
-    </div>
-  </div>
-
-
-      <div className="flex items-center justify-between gap-1 mb-6">
-        <input
-          type="text"
-          placeholder="Search students by name..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full sm:max-w-sm px-4 py-1.5 border border-gray-300 rounded-xl"
-        />
-        <div className='flex items-center gap-2'>
-          <div className="flex items-center gap-2 ">
-         
+       <div className="mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        {/* Tabs */}
+        <div className="flex flex-wrap gap-2">
+          {[1, 2, 3, 4].map(year => (
             <button
-              onClick={() => setViewMode('grid')}
-              className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
-                viewMode === 'grid'
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
+              key={year}
+              className={`
+                px-3 py-1.5 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
+                ${tabValue === year - 1 
+                  ? 'bg-blue-600 text-white border-blue-700 scale-105'
+                  : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                }
+                hover:border-blue-600
+              `}
+              onClick={() => setTabValue(year - 1)}
             >
-              <i className="bi bi-grid text-base"></i>
+              {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
             </button>
+          ))}
 
-               <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
-                viewMode === 'list'
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              <i className="bi bi-list text-base"></i>
-            </button>
-            
-          </div>
           <button
-          className="px-5 cursor-pointer py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700"
-          onClick={handleAddPayable}
-        >
-           Add Payables
-        </button>
+            className={`
+              px-3 py-1.5 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
+              ${tabValue === 4
+                ? 'bg-blue-600 text-white border-blue-700 scale-105'
+                : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+              }
+              hover:border-blue-600
+            `}
+            onClick={() => setTabValue(4)}
+          >
+            Irregular Students
+          </button>
+        </div>
+
+        {/* Search + Add */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search students by name..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-1.5 border border-gray-300 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+</div>
+          <button
+            className="px-3 py-1.5 bg-green-600  text-sm text-white rounded-full hover:bg-green-700 flex items-center gap-1"
+            onClick={handleAddPayable}
+          >
+            <BadgePlus className='w-4 h-4' />
+            Add Payables
+          </button>
         </div>
       </div>
-
-  
-
-      
-    
 
       {/* Student Display */}
       <div>
@@ -750,30 +724,64 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             return (
               <div className="bg-white border border-gray-300 rounded-lg shadow-lg overflow-hidden">
                 <table className="w-full table-auto">
-                  <thead className="bg-blue-600 text-white">
-                    <tr>
-                      <th className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none" onClick={() => setSortBy(sortBy === 'id-asc' ? 'id-desc' : 'id-asc')}>
-                        <div className="flex items-center justify-between">
-                          <span>Student ID</span>
-                          {sortBy === 'id-asc' ? <i className="bi bi-chevron-up"></i> : sortBy === 'id-desc' ? <i className="bi bi-chevron-down"></i> : <i className="bi bi-chevron-expand"></i>}
-                        </div>
-                      </th>
-                      <th className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none" onClick={() => setSortBy(sortBy === 'name-asc' ? 'name-desc' : 'name-asc')}>
-                        <div className="flex items-center justify-between">
-                          <span>Student Name</span>
-                          {sortBy === 'name-asc' ? <i className="bi bi-chevron-up"></i> : sortBy === 'name-desc' ? <i className="bi bi-chevron-down"></i> : <i className="bi bi-chevron-expand"></i>}
-                        </div>
-                      </th>
-                      <th className="p-3 w-40 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none" onClick={() => setSortBy(sortBy === 'balance-asc' ? 'balance-desc' : 'balance-asc')}>
-                        <div className="flex items-center justify-between">
-                          <span>Total Balance</span>
-                          {sortBy === 'balance-asc' ? <i className="bi bi-chevron-up"></i> : sortBy === 'balance-desc' ? <i className="bi bi-chevron-down"></i> : <i className="bi bi-chevron-expand"></i>}
-                        </div>
-                      </th>
-                      <th className="p-3 w-32 text-center">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                 <thead className="bg-blue-600 text-white text-sm">
+  <tr>
+    {/* Student ID */}
+    <th
+      className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[20%]"
+      onClick={() => setSortBy(sortBy === 'id-asc' ? 'id-desc' : 'id-asc')}
+    >
+      <div className="flex items-center gap-2">
+        <span>Student ID</span>
+        {sortBy === 'id-asc' ? (
+          <ChevronUp className="w-4 h-4" />
+        ) : sortBy === 'id-desc' ? (
+          <ChevronDown className="w-4 h-4" />
+        ) : (
+          <ChevronsUpDown className="w-4 h-4 opacity-70" />
+        )}
+      </div>
+    </th>
+
+    {/* Student Name */}
+    <th
+      className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[40%]"
+      onClick={() => setSortBy(sortBy === 'name-asc' ? 'name-desc' : 'name-asc')}
+    >
+      <div className="flex items-center gap-2">
+        <span>Student Name</span>
+        {sortBy === 'name-asc' ? (
+          <ChevronUp className="w-4 h-4" />
+        ) : sortBy === 'name-desc' ? (
+          <ChevronDown className="w-4 h-4" />
+        ) : (
+          <ChevronsUpDown className="w-4 h-4 opacity-70" />
+        )}
+      </div>
+    </th>
+
+    {/* Total Balance */}
+    <th
+      className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[20%]"
+      onClick={() => setSortBy(sortBy === 'balance-asc' ? 'balance-desc' : 'balance-asc')}
+    >
+      <div className="flex items-center gap-2">
+        <span>Total Balance</span>
+        {sortBy === 'balance-asc' ? (
+          <ChevronUp className="w-4 h-4" />
+        ) : sortBy === 'balance-desc' ? (
+          <ChevronDown className="w-4 h-4" />
+        ) : (
+          <ChevronsUpDown className="w-4 h-4 opacity-70" />
+        )}
+      </div>
+    </th>
+
+    {/* Status */}
+    <th className="p-3 text-center w-[20%]">Status</th>
+  </tr>
+</thead>
+                  <tbody className='text-sm'>
                     {filteredStudents.map((student, index) => {
                       const totalBalance = calculateTotalBalance(student.id);
                       return (
@@ -797,7 +805,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                             </div>
                           </td>
                           <td className="p-2">
-                            <span className={`font-bold ${totalBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            <span className={`font-bold ${totalBalance > 0 ? 'text-red-700  ' : 'text-green-700'}`}>
                               ₱{totalBalance.toLocaleString()}
                             </span>
                           </td>
@@ -811,10 +819,11 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                       );
                     })}
                     <tr className="bg-blue-50 font-semibold text-blue-900 border-t-2 border-blue-200">
-                      <td colSpan={3} className="p-3 text-right">Total Outstanding Balance</td>
-                      <td className="p-3 text-center font-bold text-lg">
+                      <td colSpan={2} className="py-1.5 x-3 text-right w-[60%]">Total Outstanding Balance</td>
+                      <td className="px-2 py-3 text-left font-bold ">
                         ₱{filteredStudents.reduce((sum, student) => sum + calculateTotalBalance(student.id), 0).toLocaleString()}
                       </td>
+                      <td></td>
                     </tr>
                   </tbody>
                 </table>
@@ -1064,9 +1073,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  className="px-4 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                  className="px-2 py-1.5 text-sm bg-green-600 text-white rounded-full hover:bg-green-700 disabled:opacity-50"
                   onClick={handleAddIndividualPayable}
                 >
+                  <BadgePlus className='w-4 h-4 inline-flex mr-1' />
                   Add Previous Balance
                 </button>
                
@@ -1080,7 +1090,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                     <i className="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
                     <input
                       type="text"
-                      className="w-full pl-9 pr-3 py-1.5 border text-sm border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full pl-9 pr-3 py-1.5 border text-sm border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="Search payables by type..."
                       value={payablesSearch}
                       onChange={(e) => setPayablesSearch(e.target.value)}
@@ -1089,9 +1099,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                  
                 </div>
                <div className="flex items-center gap-2">
-                    <i className="bi bi-funnel text-gray-500"></i>
+                    <Funnel className="w-4 h-4 text-gray-600" />
                     <select
-                      className="p-2 border border-gray-300 rounded focus-outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      className="px-2 py-1.5 border border-gray-300 rounded-full focus-outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                       value={payablesFilter}
                       onChange={(e) => setPayablesFilter(e.target.value)}
                     >
@@ -1131,7 +1141,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   const totalPaid = studentPayment.paidAmount + stagedPayment;
                   const remaining = payable.amount - totalPaid;
                   return (
-                    <div key={payable.id} className="border border-gray-200 rounded p-4 bg-white">
+                    <div key={payable.id} className="border border-gray-200 rounded-xl shadow p-4 bg-white">
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex-1">
                           <div className="flex items-center gap-1 mb-1">
@@ -1146,85 +1156,126 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                             Total Amount: ₱{Number(payable.amount || 0).toLocaleString()}
                           </p>
                         </div>
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(studentPayment.status) === 'success' ? 'bg-green-100 text-green-800' : getStatusColor(studentPayment.status) === 'warning' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium 
+                                          ${getStatusColor(studentPayment.status) === 'success' 
+                                            ? 'bg-green-100 text-green-800 border border-green-300' 
+                                            : getStatusColor(studentPayment.status) === 'warning' 
+                                            ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' 
+                                            : 'bg-red-100 text-red-800 border border-red-300'}`}
+                        >
                           {getStatusLabel(studentPayment.status)}
                         </span>
+                        
+                         <div className="flex items-center gap-0.5">
+                        <button
+                          className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenActionMenuId(null);
+                            handleStartEditPayables(payable.id);
+                          }}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            setOpenActionMenuId(null);
+                            setTransactionPayable(payable);
+                            setTransactionModalOpen(true);
+                            const result = await getStudentPayments(selectedStudentModal.id, payable.id);
+                            if (result.success) {
+                              setTransactionPayments(result.data);
+                            } else {
+                              setError(result.error);
+                            }
+                          }}
+                        >
+                          <History className="w-4 h-4" />
+                        </button>
+                        <button
+                          className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenActionMenuId(null);
+                            setDeleteTarget(payable);
+                            setDeleteDialogOpen(true);
+                          }}
+                        >
+                          <Trash className="w-4 h-4" />
+                        </button>
                       </div>
-                      <div className="flex items-center gap-2">
+
+                      </div>
+                      <div>
+                       <div className="flex items-center text-xs gap-2 mb-1">
+                        <span>Mode of Payment:</span>
+
+                        <div className="flex items-center gap-1">
+                          <input 
+                            type="radio" 
+                          
+                            value="cash"
+                          
+                          />
+                          <label 
+                            htmlFor={`paymentMode-cash-${payable.id}`} 
+                            className="text-xs cursor-pointer"
+                          >
+                            Cash
+                          </label>
+                          <input 
+                            type="radio" 
+                          
+                            value="cash"
+                          
+                          />
+                          <label 
+                            htmlFor={`paymentMode-cash-${payable.id}`} 
+                            className="text-xs cursor-pointer"
+                          >
+                            GCash
+                          </label>
+                          <input 
+                            type="radio" 
+                          
+                            value="cash"
+                          
+                          />
+                          <label 
+                            htmlFor={`paymentMode-cash-${payable.id}`} 
+                            className="text-xs cursor-pointer"
+                          >
+                            Bank Transfer
+                          </label>
+                        </div>
+                      </div>
+                                              <div className="flex items-center gap-2">
                         <input
                           type="number"
                           inputMode="decimal"
                           min="0"
                           step="0.01"
-                          className="flex-1 p-2 border border-gray-300 rounded show-spinner"
+                          className="w-2/3 flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-lg show-spinner"
                           placeholder="New Payment Amount"
                           value={stagedPayments?.[payable.id] || ''}
                           onChange={(e) => selectedStudentModal && handleStagedPaidAmountChange(payable.id, e.target.value)}
                           onWheel={(e) => e.currentTarget.blur()}
                           onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
                         />
-                        <div className="relative">
-                          <button
-                            className="p-2 rounded hover:bg-gray-50"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenActionMenuId(prev => prev === payable.id ? null : payable.id);
-                            }}
-                            aria-haspopup="menu"
-                            aria-expanded={openActionMenuId === payable.id}
-                            title="Actions"
-                          >
-                            <i className="bi bi-three-dots-vertical"></i>
-                          </button>
-                          {openActionMenuId === payable.id && (
-                            <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-md shadow-lg z-30">
-                              <button
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-left"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenActionMenuId(null);
-                                  handleStartEditPayables(payable.id);
-                                }}
-                              >
-                                <i className="bi bi-pencil-square"></i>
-                                Edit
-                              </button>
-                              <button
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-left"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  setOpenActionMenuId(null);
-                                  setTransactionPayable(payable);
-                                  setTransactionModalOpen(true);
-                                  const result = await getStudentPayments(selectedStudentModal.id, payable.id);
-                                  if (result.success) {
-                                    setTransactionPayments(result.data);
-                                  } else {
-                                    setError(result.error);
-                                  }
-                                }}
-                              >
-                                <i className="bi bi-clock-history"></i>
-                                View Transaction History
-                              </button>
-                              <button
-                                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 text-left text-red-600"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenActionMenuId(null);
-                                  setDeleteTarget(payable);
-                                  setDeleteDialogOpen(true);
-                                }}
-                              >
-                                <i className="bi bi-trash"></i>
-                                Delete
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                        <input 
+                          type="text"
+                          className="w-1/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+                          placeholder="Reference (e.g., receipt number)"
+                          
+                        />
+                     
                       </div>
-                      <div className="flex flex-col gap-1 mt-2">
-                        <p className="text-sm text-gray-600">
+                      </div>
+                     
+                      <div className="flex items-center justify-between gap-1 mt-4">
+                        <p className="text-xs text-gray-600">
                           Remaining: ₱{remaining.toLocaleString()}
                         </p>
                         <p className="text-xs text-gray-500">

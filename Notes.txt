@@ -1,3 +1,5 @@
 - fix printing for students curriculum 1 sheet only
-- curriculum checker ui
-- payables
+- payables -- add payment mode (cash gcash bank transfer), add print
+- fix excel format
+- curr maker -- for prerequesites show modal select course through checkbox, same as in equiv subjects
+- reports component - sort name gwa

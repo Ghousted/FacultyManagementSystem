@@ -1093,7 +1093,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                       <td className="p-2 font-semibold text-center text-blue-700">
                         {getTotalUnitsByYearAndSemester(selectedYear, semester)}
                       </td>
-                      <td colSpan={4}></td>
+                      <td colSpan={5}></td>
                     </tr>
                   </tfoot>
                 </table>
