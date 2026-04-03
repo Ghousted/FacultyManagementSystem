@@ -144,6 +144,8 @@ const ReportsModule = ({ onBackToDashboard }) => {
   const [selectedYear, setSelectedYear] = useState(1);
   const [selectedSem, setSelectedSem] = useState(1);
   const [deansList, setDeansList] = useState([]);
+  const [sortBy, setSortBy] = useState(null); // 'name' | 'gwa'
+  const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
   const [loading, setLoading] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -235,6 +237,15 @@ const ReportsModule = ({ onBackToDashboard }) => {
     exportDeanListToExcel(deansList);
   };
 
+  const toggleSort = field => {
+    if (sortBy === field) {
+      setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortDir('asc');
+    }
+  };
+
   return (
     <div className="mt-6">
       <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-300 mb-6">
@@ -316,8 +327,32 @@ const ReportsModule = ({ onBackToDashboard }) => {
   <table className="min-w-full text-sm border-separate border-spacing-0 rounded-xl overflow-hidden shadow-sm">
     <thead>
       <tr className="bg-blue-100 text-left">
-        <th className="p-3 border-b font-semibold text-blue-700">Name</th>
-        <th className="p-3 border-b font-semibold text-blue-700 text-center">GWA</th>
+        <th
+          className="p-3 border-b font-semibold text-blue-700 cursor-pointer"
+          onClick={() => toggleSort('name')}
+          role="button"
+          title="Sort by name"
+        >
+          <div className="flex items-center gap-2">
+            <span>Name</span>
+            <span className="text-blue-500">
+              {sortBy === 'name' ? (sortDir === 'asc' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />) : <ChevronsUpDown className="w-4 h-4" />}
+            </span>
+          </div>
+        </th>
+        <th
+          className="p-3 border-b font-semibold text-blue-700 text-center cursor-pointer"
+          onClick={() => toggleSort('gwa')}
+          role="button"
+          title="Sort by GWA"
+        >
+          <div className="flex items-center justify-center gap-2">
+            <span>GWA</span>
+            <span className="text-blue-500">
+              {sortBy === 'gwa' ? (sortDir === 'asc' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />) : <ChevronsUpDown className="w-4 h-4" />}
+            </span>
+          </div>
+        </th>
       </tr>
     </thead>
     <tbody>
@@ -339,7 +374,24 @@ const ReportsModule = ({ onBackToDashboard }) => {
           </td>
         </tr>
       ) : (
-        deansList.slice(0, visibleRows).map((student, idx) => (
+        // apply sorting to a copy of the list
+        [...deansList]
+          .sort((a, b) => {
+            if (!sortBy) return 0;
+            if (sortBy === 'name') {
+              return sortDir === 'asc'
+                ? a.name.localeCompare(b.name)
+                : b.name.localeCompare(a.name);
+            }
+            if (sortBy === 'gwa') {
+              const ag = parseFloat(a.gwa) || 0;
+              const bg = parseFloat(b.gwa) || 0;
+              return sortDir === 'asc' ? ag - bg : bg - ag;
+            }
+            return 0;
+          })
+          .slice(0, visibleRows)
+          .map((student, idx) => (
           <tr
             key={student.id || idx}
             ref={idx === visibleRows - 1 ? lastRowRef : null}

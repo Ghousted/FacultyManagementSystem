@@ -1,5 +1,5 @@
-- fix printing for students curriculum 1 sheet only
-- payables -- add payment mode (cash gcash bank transfer), add print
-- fix excel format
-- curr maker -- for prerequesites show modal select course through checkbox, same as in equiv subjects
-- reports component - sort name gwa
+Payables –  include a print feature
+Excel Export – Fix the formatting of the generated file.
+Curriculum Maker – For prerequisites, display a modal with course selection using checkboxes (same behavior as equivalent subjects).
+Navigation Fix – When going back, it should return to the previously selected student instead of going back to the top.
+Student Management - Add sorting in header of table

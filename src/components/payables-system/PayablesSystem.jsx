@@ -58,6 +58,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   // Staged payment edits (not yet saved to Firestore)
   const [stagedPayments, setStagedPayments] = useState({}); // { payableId: paidAmount }
   const [confirmLoading, setConfirmLoading] = useState(false);
+  // Per-payable payment mode and reference (not yet persisted)
+  const [stagedPaymentModes, setStagedPaymentModes] = useState({}); // { payableId: 'cash'|'gcash'|'bank' }
+  const [stagedPaymentReferences, setStagedPaymentReferences] = useState({}); // { payableId: reference }
   
   // Individual student payable states
   const [individualPayableDialogOpen, setIndividualPayableDialogOpen] = useState(false);
@@ -395,7 +398,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           amount,
           currentPaid,
           newPayment: newPaymentAmount,
-          newTotalPaid: currentPaid + newPaymentAmount
+          newTotalPaid: currentPaid + newPaymentAmount,
+          mode: stagedPaymentModes?.[payableId] || 'cash',
+          reference: stagedPaymentReferences?.[payableId] || ''
         });
       }
     });
@@ -412,7 +417,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     try {
       // For each change, compute status and send update
       for (const change of summaryData.changes) {
-        const { payableId, newPayment } = change;
+        const { payableId, newPayment, mode, reference } = change;
         // Find payable to get total amount
         const payable = Object.values(payables).flat().find(p => p.id === payableId);
         if (!payable) continue;
@@ -422,7 +427,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
         const updateObj = {
           [`studentPayments.${studentId}.paidAmount`]: newTotalPaid,
-          [`studentPayments.${studentId}.status`]: newStatus
+          [`studentPayments.${studentId}.status`]: newStatus,
+          [`studentPayments.${studentId}.lastPaymentMode`]: mode || 'cash',
+          [`studentPayments.${studentId}.lastPaymentReference`]: reference || ''
         };
         const result = await updatePayable(payableId, updateObj);
         if (!result.success) {
@@ -434,6 +441,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             studentId,
             payableId,
             amount: newPayment,
+            mode: mode || 'cash',
+            reference: reference || '',
             description: `Payment for ${change.type}`,
             date: new Date().toISOString()
           });
@@ -446,6 +455,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       setStudentModalOpen(false);
       setSelectedStudentModal(null);
       setStagedPayments({});
+      setStagedPaymentModes({});
+      setStagedPaymentReferences({});
       // reload payables to reflect persisted state
       await loadPayables();
     } catch (error) {
@@ -457,6 +468,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
   const handleDiscardStagedPayments = () => {
     setStagedPayments({});
+    setStagedPaymentModes({});
+    setStagedPaymentReferences({});
   };
 
   // Collect a student's payables: all current-year payables plus any individual
@@ -508,6 +521,20 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       default:
         return 'Unknown';
     }
+  };
+
+  const getFormattedDate = (dateValue) => {
+    if (!dateValue) return '';
+    const d = new Date(dateValue);
+    if (Number.isNaN(d.getTime())) return '';
+    const month = d.toLocaleString('en-US', { month: 'short' });
+    return `${month}. ${d.getDate()}, ${d.getFullYear()}`;
+  };
+
+  const formatDateFull = (date) => {
+    const d = new Date(date);
+    const months = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.'];
+    return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
   };
 
   // Stage paid amount changes locally. Changes will not be saved until user clicks Confirm.
@@ -854,11 +881,11 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             <div className="flex items-center gap-6">
               <button
                 onClick={onBackToDashboard}
-                className="text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-full"
+                className="text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-full cursor-pointer"
               >
                 Back
               </button>
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col ">
               <h5 className="text-2xl font-bold text-blue-600">
                   Payables Management System
                 </h5>
@@ -1053,7 +1080,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             setSelectedStudentModal(null);
             setStagedPayments({});
           }}></div>
-          <div className="bg-white rounded-xl max-w-4xl w-full max-h-160 relative z-10 flex flex-col overflow-hidden">
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-160 relative z-10 flex flex-col overflow-hidden">
             <div className="flex items-center px-6 py-4 justify-between shadow-b shadow-2xs  sticky top-0 z-20 bg-blue-100">
               <div>
                 <h2 className="text-xl font-bold">
@@ -1073,7 +1100,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  className="px-2 py-1.5 text-sm bg-green-600 text-white rounded-full hover:bg-green-700 disabled:opacity-50"
+                  className="px-2 py-1.5 text-sm bg-green-600 cursor-pointer text-white rounded-full hover:bg-green-700 disabled:opacity-50"
                   onClick={handleAddIndividualPayable}
                 >
                   <BadgePlus className='w-4 h-4 inline-flex mr-1' />
@@ -1156,17 +1183,11 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                             Total Amount: ₱{Number(payable.amount || 0).toLocaleString()}
                           </p>
                         </div>
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium 
-                                          ${getStatusColor(studentPayment.status) === 'success' 
-                                            ? 'bg-green-100 text-green-800 border border-green-300' 
-                                            : getStatusColor(studentPayment.status) === 'warning' 
-                                            ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' 
-                                            : 'bg-red-100 text-red-800 border border-red-300'}`}
-                        >
+                        <span className={`inline-flex mr-1 items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(studentPayment.status) === 'success' ? 'bg-green-100 text-green-800 border border-green-300' : getStatusColor(studentPayment.status) === 'warning' ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' : 'bg-red-100 text-red-800 border border-red-300'}`}>
                           {getStatusLabel(studentPayment.status)}
                         </span>
-                        
-                         <div className="flex items-center gap-0.5">
+
+                        <div className="flex items-center gap-0.5">
                         <button
                           className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
                           onClick={(e) => {
@@ -1213,45 +1234,53 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                         <span>Mode of Payment:</span>
 
                         <div className="flex items-center gap-1">
-                          <input 
-                            type="radio" 
-                          
+                          <input
+                            id={`paymentMode-cash-${payable.id}`}
+                            name={`paymentMode-${payable.id}`}
+                            type="radio"
                             value="cash"
-                          
+                            checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'cash'}
+                            onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'cash' }))}
                           />
-                          <label 
-                            htmlFor={`paymentMode-cash-${payable.id}`} 
-                            className="text-xs cursor-pointer"
+                          <label
+                            htmlFor={`paymentMode-cash-${payable.id}`}
+                            className="text-xs cursor-pointer ml-1 mr-3"
                           >
                             Cash
                           </label>
-                          <input 
-                            type="radio" 
-                          
-                            value="cash"
-                          
+
+                          <input
+                            id={`paymentMode-gcash-${payable.id}`}
+                            name={`paymentMode-${payable.id}`}
+                            type="radio"
+                            value="gcash"
+                            checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'gcash'}
+                            onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'gcash' }))}
                           />
-                          <label 
-                            htmlFor={`paymentMode-cash-${payable.id}`} 
-                            className="text-xs cursor-pointer"
+                          <label
+                            htmlFor={`paymentMode-gcash-${payable.id}`}
+                            className="text-xs cursor-pointer ml-1 mr-3"
                           >
                             GCash
                           </label>
-                          <input 
-                            type="radio" 
-                          
-                            value="cash"
-                          
+
+                          <input
+                            id={`paymentMode-bank-${payable.id}`}
+                            name={`paymentMode-${payable.id}`}
+                            type="radio"
+                            value="bank"
+                            checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'bank'}
+                            onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'bank' }))}
                           />
-                          <label 
-                            htmlFor={`paymentMode-cash-${payable.id}`} 
-                            className="text-xs cursor-pointer"
+                          <label
+                            htmlFor={`paymentMode-bank-${payable.id}`}
+                            className="text-xs cursor-pointer ml-1"
                           >
                             Bank Transfer
                           </label>
                         </div>
                       </div>
-                                              <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2">
                         <input
                           type="number"
                           inputMode="decimal"
@@ -1264,11 +1293,13 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           onWheel={(e) => e.currentTarget.blur()}
                           onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
                         />
-                        <input 
+                        <input
                           type="text"
-                          className="w-1/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+                          className={`w-1/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${((stagedPaymentModes?.[payable.id] || 'cash') === 'cash') ? 'opacity-50 cursor-not-allowed' : ''}`}
                           placeholder="Reference (e.g., receipt number)"
-                          
+                          value={stagedPaymentReferences?.[payable.id] || ''}
+                          onChange={(e) => setStagedPaymentReferences(prev => ({ ...prev, [payable.id]: e.target.value }))}
+                          disabled={(stagedPaymentModes?.[payable.id] || 'cash') === 'cash'}
                         />
                      
                       </div>
@@ -1279,7 +1310,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           Remaining: ₱{remaining.toLocaleString()}
                         </p>
                         <p className="text-xs text-gray-500">
-                          Last updated: {new Date().toLocaleDateString()}
+                          Last updated: {getFormattedDate(new Date())}
                         </p>
                       </div>
                     </div>
@@ -1313,13 +1344,13 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   setSelectedStudentModal(null);
                   setStagedPayments({});
                 }}
-                className="px-6 py-1.5 text-sm rounded-lg bg-gray-400 text-white hover:bg-gray-500"
+                className="px-6 py-1.5 text-sm rounded-lg bg-gray-400 text-white hover:bg-gray-500 cursor-pointer"
               >
                 Close
               </button>
               <button 
                 onClick={handleShowSummary} 
-                className="px-4 py-1.5 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700  disabled:opacity-50"
+                className="px-4 py-1.5 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700  disabled:opacity-50 cursor-pointer"
                 disabled={Object.keys(stagedPayments).length === 0 || confirmLoading}
               >
                 {confirmLoading ? 'Confirming...' : 'Confirm Changes'}
@@ -1334,14 +1365,14 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {summaryModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => setSummaryModalOpen(false)}></div>
-          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-140 overflow-y-auto relative z-10">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-lg p-6 max-w-xl w-full max-h-140 overflow-y-auto relative z-10">
+            <div className="flex items-center justify-between ">
               <h2 className="text-xl font-bold">Confirm Payment Changes</h2>
               <button
                 onClick={() => setSummaryModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-red-600 cursor-pointer transition-colors"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
             {selectedStudentModal && (
@@ -1350,58 +1381,122 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               </p>
             )}
             <div className="mb-4">
-              <h3 className="text-lg font-semibold mb-2">Summary of Changes:</h3>
               {summaryData.changes.length === 0 ? (
                 <p className="text-gray-600">
                   No changes to confirm.
                 </p>
               ) : (
                 <div>
-                  {summaryData.changes.map((change) => (
-                    <div key={change.payableId} className="border border-gray-200 rounded p-4 mb-4">
-                      <h4 className="text-lg font-bold">{change.type}</h4>
-                      <p className="text-sm text-gray-600">
-                        Total Amount: ₱{change.amount.toLocaleString()}
-                      </p>
-                      <div className="flex justify-between items-center mt-2">
-                        <div>
-                          <p className="text-sm text-gray-600">
-                            Current Paid: ₱{change.currentPaid.toLocaleString()} (Balance: ₱{(change.amount - change.currentPaid).toLocaleString()})
-                          </p>
-                          <p className="text-sm text-blue-600">
-                            New Payment: ₱{change.newPayment.toLocaleString()} (New Total Paid: ₱{change.newTotalPaid.toLocaleString()})
-                          </p>
-                        </div>
-                        <p className={`text-sm ${change.newPayment > 0 ? 'text-green-600' : 'text-gray-600'}`}>
-                          {change.newPayment > 0 ? `+₱${change.newPayment.toLocaleString()}` : 'No change'}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="mt-6 p-4 bg-gray-100 rounded">
-                    <h3 className="text-lg font-semibold mb-2">
-                      Balance Summary:
-                    </h3>
-                    <p className="text-base">
-                      Current Total Balance: ₱{summaryData.totalCurrentBalance.toLocaleString()}
-                    </p>
-                    <p className="text-base text-blue-600">
-                      New Total Balance: ₱{summaryData.totalNewBalance.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
+  {summaryData.changes.map((change) => {
+    const totalAmount = Number(change.amount || 0);
+    const prevPaid = Number(change.currentPaid || 0);
+    const newPaid = Number(change.newTotalPaid || 0);
+    const newPayment = Number(change.newPayment || 0);
+
+    const prevBalance = totalAmount - prevPaid;
+    const newBalance = totalAmount - newPaid;
+
+    return (
+      <div key={change.payableId} className="border border-gray-200 rounded-xl p-4 mb-4 shadow-sm bg-white">
+        
+        {/* Header */}
+        <div className="flex justify-between items-center mb-1">
+          <h4 className="text-lg font-semibold">{change.type}</h4>
+          <span className={`text-xs font-semibold px-2 py-1 rounded-full 
+            ${newPayment > 0 ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-gray-100 text-gray-500 border border-gra'}`}>
+              
+            {newPayment > 0 ? 'Paid' : 'No Payment'}
+          </span>
+        </div>
+
+        {/* Basic Info */}
+        <div className="flex justify-between text-sm text-gray-600 mb-2">
+          <p>Total: <span className="font-semibold">₱{totalAmount.toLocaleString()}</span></p>
+          <p>
+            Payment Mode: 
+            <span className="font-semibold capitalize ml-1">{change.mode || 'cash'}</span>
+          </p>
+        </div>
+
+        {change.reference && (
+          <p className="text-xs text-gray-500 mb-2">
+            Ref #: <span className="font-mono">{change.reference}</span>
+          </p>
+        )}
+
+        {/* Divider */}
+        <div className="border-t border-gray-200 my-2"></div>
+
+        {/* Before & After */}
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          
+          {/* Before */}
+          <div>
+            <p className="text-gray-500 mb-1">Before</p>
+            <p>Paid: <span className="font-semibold">₱{prevPaid.toLocaleString()}</span></p>
+            <p className={prevBalance > 0 ? 'text-red-600' : 'text-green-600'}>
+              Balance: ₱{prevBalance.toLocaleString()}
+            </p>
+          </div>
+
+          {/* After */}
+          <div>
+            <p className="text-gray-500 mb-1">After</p>
+            <p>Paid: <span className="font-semibold">₱{newPaid.toLocaleString()}</span></p>
+            <p className={newBalance > 0 ? 'text-red-600' : 'text-green-600'}>
+              Balance: ₱{newBalance.toLocaleString()}
+            </p>
+          </div>
+
+        </div>
+
+        {/* New Payment Highlight */}
+        <div className="mt-3 flex justify-between items-center">
+          <p className="text-sm text-gray-600">
+            New Payment
+          </p>
+          <p className={`text-base font-bold ${newPayment > 0 ? 'text-green-600' : 'text-gray-500'}`}>
+            {newPayment > 0 ? `+₱${newPayment.toLocaleString()}` : '—'}
+          </p>
+        </div>
+
+      </div>
+    );
+  })}
+
+  {/* Summary */}
+  <div className="mt-6 px-4 py-2 border border-gray-200 bg-gray-100 rounded-xl">
+    <h3 className="text-lg font-semibold mb-2">
+      Payment Summary
+    </h3>
+
+    <div className="flex justify-between text-sm ">
+      <span className="text-gray-600">Current Balance</span>
+      <span className="font-semibold">
+        ₱{summaryData.totalCurrentBalance.toLocaleString()}
+      </span>
+    </div>
+
+    <div className="flex justify-between text-sm">
+      <span className="text-blue-600 font-medium">Updated Balance</span>
+      <span className="font-bold text-blue-600">
+        ₱{summaryData.totalNewBalance.toLocaleString()}
+      </span>
+    </div>
+  </div>
+</div>
               )}
             </div>
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setSummaryModalOpen(false)}
-                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+               className="px-4 py-1.5  bg-gray-300 rounded-lg text-sm hover:bg-gray-400 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleFinalConfirm}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm cursor-pointer hover:bg-blue-700 disabled:bg-gray-400"
                 disabled={confirmLoading}
               >
                 {confirmLoading ? 'Confirming...' : 'Confirm All Changes'}
@@ -1422,8 +1517,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               yearLevel: ''
             });
           }}></div>
-          <div className="bg-white rounded-lg p-6 max-w-md w-full  overflow-y-auto relative z-10">
-            <h2 className="text-xl font-bold mb-4">
+          <div className="bg-white rounded-lg px-8 py-6 max-w-md w-full  overflow-y-auto relative z-10">
+            <h2 className="text-lg font-bold ">
               Add Previous Balance / Custom Charge
             </h2>
             {selectedStudentModal && (
@@ -1434,7 +1529,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             <div className="space-y-4">
               <input
                 type="text"
-                className="w-full p-2 border border-gray-300 rounded"
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
                 placeholder="Payable Type (e.g., 2nd Year Balance, Laboratory Fee, etc.)"
                 value={individualPayableForm.type}
                 onChange={(e) => handleIndividualPayableInputChange('type', e.target.value)}
@@ -1445,7 +1540,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                className="w-full p-2 border border-gray-300 rounded show-spinner"
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
                 placeholder="Amount"
                 value={individualPayableForm.amount}
                 onChange={(e) => handleIndividualPayableInputChange('amount', e.target.value)}
@@ -1456,7 +1551,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               <div>
                 <label className="block text-sm font-medium mb-1">Year Level (when the charge was incurred)</label>
                 <select
-                  className="w-full p-2 border border-gray-300 rounded"
+                  className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
                   value={individualPayableForm.yearLevel}
                   onChange={(e) => handleIndividualPayableInputChange('yearLevel', e.target.value)}
                 >
@@ -1469,7 +1564,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               </div>
 
               <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-                <p className="text-sm text-blue-800">
+                <p className="text-xs text-blue-800">
                   This will add a payable specifically for {selectedStudentModal?.name}.
                   Other students will not see this charge.
                 </p>
@@ -1483,12 +1578,12 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   amount: '',
                   yearLevel: ''
                 });
-              }} className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400">
+              }} className="px-4 py-2 bg-gray-300 rounded-lg hover:bg-gray-400 cursor-pointer text-sm">
                 Cancel
               </button>
               <button
                 onClick={handleSaveIndividualPayable}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 cursor-pointer text-sm"
                 disabled={!individualPayableForm.type || !individualPayableForm.amount || !individualPayableForm.yearLevel || loading}
               >
                 {loading ? 'Adding...' : 'Add Previous Balance'}
@@ -1559,10 +1654,15 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {transactionModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => setTransactionModalOpen(false)}></div>
-          <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-140 overflow-y-auto relative z-10">
+          <div className="bg-white rounded-lg p-6 max-w-xl w-full max-h-140 overflow-y-auto relative z-10">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold">Transaction History</h2>
-              <button onClick={() => setTransactionModalOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+              <button 
+                onClick={() => setTransactionModalOpen(false)} 
+                className="text-gray-400 hover:text-red-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
             {transactionPayable && (
               <div className="mb-4">
@@ -1580,17 +1680,32 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   const totalAmount = Number(transactionPayable?.amount || 0);
                   const remainingAfter = Math.max(0, totalAmount - paidSoFar);
                   return (
-                    <div key={payment.id || idx} className="border border-gray-200 rounded p-4">
+                    <div>
+                      <div key={payment.id || idx} className="border border-gray-200 rounded-xl shadow p-4">
                       <div className="flex justify-between items-start gap-4">
                         <div className="flex-1">
                           <p className="font-bold text-lg">₱{Number(payment.amount || 0).toLocaleString()}</p>
                           {payment.description && <p className="text-sm text-gray-600">{payment.description}</p>}
                         </div>
                         <div className="text-right">
-                          <p className="text-sm text-gray-500">{payment.date ? new Date(payment.date).toLocaleDateString() : ''}</p>
+                          <p className="text-sm text-gray-500">{getFormattedDate(payment.date)}</p>
+                          <p className="text-sm text-gray-600">Mode: <span className="font-semibold">{payment.mode || payment.method || payment.paymentMode || 'N/A'}</span></p>
+                          {payment.reference && <p className="text-sm text-gray-500">Ref: <span className="font-mono">{payment.reference}</span></p>}
                           <p className="text-sm mt-2">Remaining: <span className={`font-semibold ${remainingAfter > 0 ? 'text-red-600' : 'text-green-600'}`}>₱{remainingAfter.toLocaleString()}</span></p>
                         </div>
+                        
                       </div>
+                      
+                    </div>
+
+                    {idx === transactionPayments.length - 1 && (
+                      <div className='mt-2 text-end'>
+                        Total Balance: 
+                        <span className={`font-bold ${remainingAfter > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          ₱{remainingAfter.toLocaleString()}
+                        </span>
+                      </div>
+                    )}
                     </div>
                   );
                 })
@@ -1620,10 +1735,12 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   <div key={payment.id} className="border border-gray-200 rounded p-4">
                     <div className="flex justify-between items-center">
                       <div>
-                        <p className="font-bold">₱{payment.amount.toLocaleString()}</p>
+                        <p className="font-bold">₱{Number(payment.amount || 0).toLocaleString()}</p>
                         <p className="text-sm text-gray-600">{payment.description}</p>
+                        <p className="text-sm text-gray-600">Mode: <span className="font-semibold">{payment.mode || payment.method || payment.paymentMode || 'N/A'}</span></p>
+                        {payment.reference && <p className="text-sm text-gray-500">Ref: <span className="font-mono">{payment.reference}</span></p>}
                       </div>
-                      <p className="text-sm text-gray-500">{new Date(payment.date).toLocaleDateString()}</p>
+                      <p className="text-sm text-gray-500">{getFormattedDate(payment.date)}</p>
                     </div>
                   </div>
                 ))

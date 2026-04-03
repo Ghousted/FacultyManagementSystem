@@ -1275,7 +1275,7 @@ const StudentManagement = ({ onBack }) => {
                   type="text"
                   inputMode="numeric"
                   maxLength={10}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   placeholder="Enter student number (e.g., 2024-00001)"
                   value={editingData.studentNumber || ''}
                   onChange={(e) => setEditingData({ ...editingData, studentNumber: formatStudentNumber(e.target.value) })}
@@ -1286,7 +1286,7 @@ const StudentManagement = ({ onBack }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Student Name</label>
                 <input
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   placeholder="Last Name, First Name, Middle Name"
                   value={editingData.name}
                   onChange={(e) => setEditingData({ ...editingData, name: e.target.value })}
@@ -1296,7 +1296,7 @@ const StudentManagement = ({ onBack }) => {
                 <label className="block text-sm text-gray-600 mb-1">Email</label>
                 <input
                   type="email"
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   placeholder="name@example.com"
                   value={editingData.email || ''}
                   onChange={(e) => setEditingData({ ...editingData, email: e.target.value })}
@@ -1306,16 +1306,32 @@ const StudentManagement = ({ onBack }) => {
                 <label className="block text-sm text-gray-600 mb-1">Contact Number</label>
                 <input
                   type="text"
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   placeholder="Enter contact number"
                   value={editingData.contactNumber || ''}
-                  onChange={(e) => setEditingData({ ...editingData, contactNumber: e.target.value })}
+                  onChange ={(e) => {
+                    let input = e.target.value.replace(/\D/g, ''); // remove non-numeric characters
+
+                    // Handle international format starting with 63
+                    if (input.startsWith('63')) {
+                      input = '+' + input;
+                    } else if (input.startsWith('0')) {
+                      input = input; // local format
+                    }
+                    // Format local numbers as 0917 123 4567
+                    if (input.startsWith('0') && input.length > 4) {
+                      input = input.replace(/(\d{4})(\d{3})(\d{4})/, '$1 $2 $3');
+                    } else if (input.startsWith('+63') && input.length > 5) {
+                      input = input.replace(/(\+\d{2})(\d{4})(\d{3})(\d{4})/, '$1 $2 $3 $4');
+                    }
+                    setEditingData({ ...editingData, contactNumber: input });
+                  }}
                 />
               </div>
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Year Level</label>
                 <select
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   value={editingData.yearLevel}
                   onChange={(e) => setEditingData({ ...editingData, yearLevel: parseInt(e.target.value, 10) })}
                 >
@@ -1329,7 +1345,7 @@ const StudentManagement = ({ onBack }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Curriculum</label>
                 <select
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   value={editingData.curriculumId}
                   onChange={(e) => setEditingData({ ...editingData, curriculumId: e.target.value })}
                 >
@@ -1382,8 +1398,8 @@ const StudentManagement = ({ onBack }) => {
                   type="text"
                   inputMode="numeric"
                   maxLength={10}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
-                  placeholder="Enter student number (e.g., 2024-00001)"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
+                  placeholder="(e.g., 2024-00001)"
                   value={studentForm.studentNumber || ''}
                   onChange={(e) => setStudentForm({ ...studentForm, studentNumber: formatStudentNumber(e.target.value) })}
                   pattern="^\\d{4}-\\d{5}$"
@@ -1393,7 +1409,7 @@ const StudentManagement = ({ onBack }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Student Name</label>
                 <input
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
                   placeholder="Last Name, First Name, Middle Name"
                   value={studentForm.name}
                   onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
@@ -1404,8 +1420,8 @@ const StudentManagement = ({ onBack }) => {
               <label className="block text-sm text-gray-600 mb-1">Contact Number</label>
               <input
                 type="tel"
-                className="w-full border border-gray-300 rounded px-3 py-2"
-                placeholder="Enter contact number (eg. 0917 123 4567)"
+                className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
+                placeholder="(eg. 0917 123 4567)"
                 value={studentForm.contactNumber || ''}
                 onChange={(e) => {
                   let input = e.target.value.replace(/\D/g, ''); // remove non-numeric characters
@@ -1451,7 +1467,7 @@ const StudentManagement = ({ onBack }) => {
                 <label className="block text-sm text-gray-600 mb-1">Email</label>
                 <input
                   type="email"
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
                   placeholder="name@example.com"
                   value={studentForm.email || ''}
                   onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
@@ -1460,7 +1476,7 @@ const StudentManagement = ({ onBack }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Year Level</label>
                 <select
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
                   value={studentForm.yearLevel}
                   onChange={(e) => setStudentForm({ ...studentForm, yearLevel: parseInt(e.target.value, 10) })}
                 >
@@ -1474,7 +1490,7 @@ const StudentManagement = ({ onBack }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Curriculum</label>
                 <select
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
                   value={studentForm.curriculumId}
                   onChange={(e) => setStudentForm({ ...studentForm, curriculumId: e.target.value })}
                 >

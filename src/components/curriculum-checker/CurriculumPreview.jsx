@@ -63,7 +63,6 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
   };
 
   useEffect(() => {
-    // update when prop changes; if no prop, fallback to parsing pathname/hash
     if (propCurriculumId) {
       setCurriculumId(propCurriculumId);
       return;
@@ -71,7 +70,6 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
     if (!curriculumId) {
       const hash = window.location.hash || '';
       const path = window.location.pathname || '';
-      // Try to extract id from hash first (app uses hash routing), then fallback to pathname
       let m = null;
       if (hash) {
         m = hash.match(/#\/curriculum-preview\/(.+)/) || hash.match(/curriculums\/(.+?)\/pdf/);
@@ -83,7 +81,6 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
     }
   }, [propCurriculumId, curriculumId]);
 
-  // keep in sync if parent changes id
   useEffect(() => {
     if (propCurriculumId && propCurriculumId !== curriculumId) setCurriculumId(propCurriculumId);
   }, [propCurriculumId]);
@@ -105,7 +102,6 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
     })();
   }, [curriculumId]);
 
-  // When preview opens or curriculum changes, ensure view is at top so print starts from top
   useEffect(() => {
     try {
       if (containerRef?.current && typeof containerRef.current.scrollIntoView === 'function') {
@@ -117,7 +113,6 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
     }
   }, [curriculumId]);
 
-  // Clear document title during print so browser header won't show the page title
   useEffect(() => {
     let prevTitle = document.title;
     const handleBeforePrint = () => {
@@ -424,7 +419,6 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
   return (
     <div className="p-6 w-full mx-auto">
 
- 
       <div ref={containerRef} className="print-area">
         {curriculum ? (
           <div>
@@ -442,14 +436,12 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                   <img src={logoImg} alt="Logo" className="org-logo" />
                 </div>
 
-                {/* 1" x 1" image box at far right */}
                 <div className="one-by-one absolute" aria-hidden>
                   <div className="one-box">1x1</div>
                 </div>
               </div>
             </div>
 
-            {/* Floating photo + summer data box at top-right */}
             <div className="preview-meta">
               <div className="photo">
                 {student?.photoUrl || student?.photoURL ? (
@@ -458,67 +450,51 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                   <div className="photo-initials">{getInitials(student?.name)}</div>
                 )}
               </div>
-             
+
             </div>
 
           <div className="mb-8 w-full">
             <div className="flex items-start gap-24 justify-between">
               <div className="student-info flex-1">
-                {/* First row: Student No & Name */}
                 <div className="flex items-end gap-6">
-                  {/* Student No */}
                   <div className="flex items-end gap-2 text-sm">
                     <span className="min-w-[90px] text-sm">Student no:</span>
                     <div className="w-36 border-b border-gray-400 pb-1">{student?.studentNumber || ''}</div>
                   </div>
 
-                  {/* Name */}
                   <div className="flex items-end flex-1 gap-3 text-sm">
                     <span className="pl-2 text-sm">Name:</span>
                     <div className="w-full max-w-[300px] border-b border-gray-400 pb-1">{student?.name || ''}</div>
                   </div>
                 </div>
 
-                {/* Second row: Contact & Email */}
                 <div className="flex items-end gap-6 mt-1">
-                  {/* Contact No */}
                   <div className="flex items-end gap-2 text-sm">
                     <span className="min-w-[90px] text-sm">Contact no:</span>
                     <div className="w-36 border-b border-gray-400 pb-1">{student?.contact || ''}</div>
                   </div>
 
-                  {/* Email */}
                   <div className="flex items-end flex-1 gap-3 text-sm">
                     <span className="pl-2 text-sm">Email:</span>
                     <div className="w-full max-w-[300px] border-b border-gray-400 pb-1">{student?.email || ''}</div>
                   </div>
                 </div>
               </div>
-
-              {/* right-side reserved for 1x1 box only (photo removed) */}
             </div>
           </div>
 
             <style>{`
               @page { size: 8.5in 13in; margin: 0mm; }
               @media print {
-                /* ensure print starts at the very top */
-                html, body { margin: 0; padding: 0; height: 100%; }
+                html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
                 body { -webkit-print-color-adjust: exact; }
                 .no-print { display: none !important; }
-
-                /* Hide everything except the print-area */
                 body * { visibility: hidden; }
                 .print-area, .print-area * { visibility: visible; }
-
-                /* Remove outer padding applied for the modal on screen */
                 .p-6 { padding: 0 !important; margin: 0 !important; }
-
-                /* Position the printable area to fill the page exactly */
                 .print-area { position: fixed; left: 0; top: 0; width: 8.5in; height: 13in; padding: 8mm !important; box-sizing: border-box; }
-
-                /* layout and typography for print */
-    .year-section { page-break-after: avoid; }
+                .year-section, table, tr, .semester-box { page-break-inside: avoid !important; }
+                .print-area { page-break-after: avoid !important; page-break-before: avoid !important; }
                 .year-label { font-weight: 700; text-transform: uppercase; margin-bottom: 6px; font-size: 11px; }
                 .year-columns { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; align-items: start; }
                 .semester-box {  display: flex; flex-direction: column; height: 100%; }
@@ -531,27 +507,18 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                 .address { font-size: 11px; margin-top: 2px; }
                 .curr-name { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-top: 8px; }
                 tr { page-break-inside: avoid; }
-
-                /* Header and logos */
                 .print-header .header-row { align-items: center; }
                 .left-logo, .right-logo { width: 56px; }
                 .header-center { padding: 0 8px; }
-
-                /* 1x1 box position */
                 .one-by-one { position: absolute; right: 0mm; top: 0mm; }
                 .one-box { width: 1in; height: 1in; border: 1px solid #000; display:flex; align-items:center; justify-content:center; font-size:14px; }
                 .header-logos img { display: inline-block; }
                 .tcc-logo { width: 48px; height: 48px; object-fit: contain; }
                 .org-logo { width: 48px; height: 48px; object-fit: contain; margin-left: -6px; }
-
-                /* Ensure preview-meta (photo + summer box) is visible and positioned in print */
                 .print-area .preview-meta { position: absolute; right: 24mm; top: 6mm; display:flex; flex-direction:column; gap:4px; align-items:flex-end; }
                 .print-area .photo { width: 1in; height: 1in; }
                 .print-area .photo img { width: 1in; height: 1in; object-fit: cover; }
-                /* hide initials in print (removes SD) */
                 .print-area .photo-initials { display: none !important; }
-
-                /* column width and alignment: Grade | Code | Title | Units */
                 .semester-box th:nth-child(1), .semester-box td:nth-child(1) { width: 10%; text-align: center; font-size: 9px; }
                 .semester-box th:nth-child(2), .semester-box td:nth-child(2) { width: 12%; text-align: left; font-size: 9px; }
                 .semester-box th:nth-child(3), .semester-box td:nth-child(3) { width: 73%; text-align: left; font-size: 9px; }
