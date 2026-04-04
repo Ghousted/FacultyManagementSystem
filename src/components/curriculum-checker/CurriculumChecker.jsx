@@ -2,6 +2,7 @@ import { useState } from 'react';
 import CurriculumMaker from './CurriculumMaker';
 import StudentManagement from './StudentManagement';
 import CurriculumCheckerMain from './CurriculumCheckerMain';
+import { ArrowBigLeft } from 'lucide-react';
 
 const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId }) => {
   const [currentView, setCurrentView] = useState(initialView || 'main'); // 'main', 'curriculum-maker', 'student-management', 'curriculum-checker'
@@ -48,11 +49,11 @@ const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId
           <div className="flex items-center gap-6">
             <button
               onClick={onBackToDashboard}
-              className="group flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+              className="group flex items-center gap-2 bg-blue-600 text-white p-2 cursor-pointer rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
               aria-label="Back to dashboard"
               title="Back to dashboard"
             >
-              <span className="hidden sm:inline text-sm font-medium">Back</span>
+              <ArrowBigLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
             </button>
             <div className="flex flex-col gap-2">
               <h5 className="text-2xl font-bold text-blue-600">

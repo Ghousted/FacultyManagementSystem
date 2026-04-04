@@ -5,7 +5,7 @@ import { doc, deleteDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { FileText } from 'lucide-react';
 import CurriculumPreview from './CurriculumPReview';
-import { X, ChevronUp, ChevronDown, ChevronsUpDown, Pencil, Trash, Printer, BadgePlus, Check } from 'lucide-react';
+import { X, ChevronUp, ChevronDown, ChevronsUpDown, Pencil, Trash, Printer, BadgePlus, Check , Search, ArrowBigLeft } from 'lucide-react';
 
 const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const { currentUser, isOnline } = useAuth();
@@ -75,6 +75,23 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     2: { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true },
     3: { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true }
   });
+
+  // Prerequisite selection modal state
+  const [prereqModalOpen, setPrereqModalOpen] = useState(false);
+  const [prereqTarget, setPrereqTarget] = useState({ type: null, courseId: null, year: null, semester: null });
+  const [tempSelectedPrereqs, setTempSelectedPrereqs] = useState([]);
+  const [prereqViewYear, setPrereqViewYear] = useState(1);
+  const [prereqSearchTerm, setPrereqSearchTerm] = useState('');
+
+  // Equivalent selection modal state
+  const [equivModalOpen, setEquivModalOpen] = useState(false);
+  const [equivTarget, setEquivTarget] = useState({ type: null, courseId: null, year: null, semester: null });
+  const [tempSelectedEquivs, setTempSelectedEquivs] = useState([]);
+  const [equivSelectedCurriculumId, setEquivSelectedCurriculumId] = useState(null);
+  const [equivSearchTerm, setEquivSearchTerm] = useState('');
+  // Equivalents modal sorting state
+  const [equivSortField, setEquivSortField] = useState('courseCode');
+  const [equivSortDirection, setEquivSortDirection] = useState('asc');
 
   // Equivalent subject selection state
   const [selectedEquivalent, setSelectedEquivalent] = useState([]);
@@ -371,6 +388,87 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setHasChanges(false);
   };
 
+  // Open prerequisites modal for editing an existing course
+  const openPrereqModalForEditing = (course) => {
+    setPrereqTarget({ type: 'editing', courseId: course.id, year: course.yearLevel, semester: course.semester });
+    // If we are currently editing this course we should prefer the in-memory editingData so changes persist
+    if (editingCourse === course.id && editingData && Array.isArray(editingData.prerequisites)) {
+      setTempSelectedPrereqs(editingData.prerequisites || []);
+    } else {
+      setTempSelectedPrereqs(course.prerequisites || []);
+    }
+    setPrereqViewYear(1);
+    setPrereqSearchTerm('');
+    setPrereqModalOpen(true);
+  };
+
+  // Open prerequisites modal for the new-course row (table)
+  const openPrereqModalForNewCourse = (year, semester) => {
+    setPrereqTarget({ type: 'new', courseId: null, year, semester });
+    setTempSelectedPrereqs(newCourseData[semester]?.prerequisites || []);
+    setPrereqViewYear(1);
+    setPrereqSearchTerm('');
+    setPrereqModalOpen(true);
+  };
+
+  // Open prerequisites modal for the Add Course form modal
+  const openPrereqModalForForm = () => {
+    setPrereqTarget({ type: 'form', courseId: null, year: selectedYear, semester: selectedSemester });
+    setTempSelectedPrereqs(courseForm.prerequisites || []);
+    setPrereqViewYear(1);
+    setPrereqSearchTerm('');
+    setPrereqModalOpen(true);
+  };
+
+  const savePrereqsFromModal = () => {
+    if (prereqTarget.type === 'editing') {
+      setEditingData(prev => ({ ...prev, prerequisites: tempSelectedPrereqs }));
+      setHasChanges(true);
+    } else if (prereqTarget.type === 'new') {
+      setNewCourseData(prev => ({
+        ...prev,
+        [prereqTarget.semester]: {
+          ...(prev[prereqTarget.semester] || {}),
+          prerequisites: tempSelectedPrereqs
+        }
+      }));
+    } else if (prereqTarget.type === 'form') {
+      setCourseForm(prev => ({ ...prev, prerequisites: tempSelectedPrereqs }));
+    }
+    setPrereqModalOpen(false);
+  };
+
+  // Equivalent modals
+  const openEquivModalForEditing = (course) => {
+    setEquivTarget({ type: 'editing', courseId: course.id, year: course.yearLevel, semester: course.semester });
+    setTempSelectedEquivs(editingEquivalents || []);
+    // prefer the course's curriculum or current selected curriculum
+    setEquivSelectedCurriculumId(course.curriculumId || selectedCurriculum?.id || null);
+    setEquivSearchTerm('');
+    setEquivModalOpen(true);
+  };
+
+  const openEquivModalForNewCourse = (semester) => {
+    setEquivTarget({ type: 'new', courseId: null, year: selectedYear, semester });
+    setTempSelectedEquivs(selectedEquivalent || []);
+    setEquivSelectedCurriculumId(selectedCurriculum?.id || null);
+    setEquivSearchTerm('');
+    setEquivModalOpen(true);
+  };
+
+  const saveEquivsFromModal = () => {
+    if (equivTarget.type === 'editing') {
+      setEditingEquivalents(tempSelectedEquivs);
+      // ensure editingData has an equivalentSubjectId
+      const eqId = editingData.equivalentSubjectId || (tempSelectedEquivs.length > 0 ? 'EQ_' + Math.random().toString(36).substr(2, 9) : '');
+      setEditingData(prev => ({ ...prev, equivalentSubjectId: eqId }));
+      setHasChanges(true);
+    } else if (equivTarget.type === 'new') {
+      setSelectedEquivalent(tempSelectedEquivs);
+    }
+    setEquivModalOpen(false);
+  };
+
   const handleCancelEdit = () => {
     setEditingCourse(null);
     setEditingData({});
@@ -587,18 +685,18 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
             onClick={onBack}
             aria-label="Back to dashboard"
             title="Back to dashboard"
-            className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+            className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
           >
-            <span className="hidden sm:inline text-sm font-medium">Back</span>
+            <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
           </button>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col ">
               <h2 className="text-2xl font-bold text-blue-600">
               Curriculum Maker</h2>
           <p className="text-gray-600">Select a curriculum to manage courses</p></div>         
         </div>
         <button
           onClick={() => setCurriculumDialogOpen(true)}
-          className="inline-flex  cursor-pointer items-center text-sm gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300 focus:ring-offset-2 focus:ring-offset-white"
+          className="inline-flex  cursor-pointer items-center text-sm gap-2 bg-green-600 text-white px-4 py-2 rounded-full hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300 focus:ring-offset-2 focus:ring-offset-white"
         >
           <BadgePlus className="w-4 h-4" />
           <span>Add  Curriculum</span>
@@ -616,39 +714,31 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                 : 'border-gray-200 bg-white hover:border-blue-400'
             }`}
           >
-            <button
-              type="button"
-              aria-label="More options"
-              onClick={(e) => handleMenuOpen(e, curriculum)}
-              disabled={loading}
-              className="absolute top-3 right-3 p-2 rounded-full hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-300"
-            >
-              <i className="bi bi-three-dots-vertical"></i>
-            </button>
-
-            {menuAnchorEl && selectedCurriculumForMenu?.id === curriculum.id && (
-              <div className="absolute right-4 top-12 z-50 w-40 bg-white border border-gray-200 rounded-md shadow-md overflow-hidden">
-                <button
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
-                  onClick={(e) => { e.stopPropagation(); handleEditCurriculum(); }}
-                >
-                  <span>Edit</span>
-                </button>
-                <button
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-red-600 flex items-center gap-2"
-                  onClick={(e) => { e.stopPropagation(); handleDeleteCurriculumClick(); }}
-                >
-                  <span>Delete</span>
-                </button>
-              </div>
-            )}
-
-            <p
+           
+           <div className='flex items-start justify-between'>
+             <div>
+              <p
               className="text-xs font-medium text-gray-500  uppercase tracking-wide"
             >
               Curriculum
             </p>
             <h3 className="text-lg font-bold mb-6 pr-8">{curriculum.name}</h3>
+             </div>
+             <div className='flex items-start gap-1'>
+                <button
+                  className="rounded-full p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-500 cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setSelectedCurriculumForMenu(curriculum); handleEditCurriculum(); }}
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <button
+                  className="rounded-full p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-500 cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setSelectedCurriculumForMenu(curriculum); handleDeleteCurriculumClick(); }}
+                >
+                  <Trash className="w-4 h-4" />
+                </button>
+             </div>
+           </div>
 
             <div className="flex flex-wrap gap-2">
               {curriculum.yearLevels.map((year) => (
@@ -700,9 +790,10 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
           <button
             key={year}
             onClick={() => { setTabValue(idx); setSelectedYear(year); }}
-            className={`px-3 py-1 rounded-full  ${tabValue === idx 
-                        ? 'bg-blue-500 text-white' 
-                        : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white cursor-pointer'
+                className={`px-3 py-1  rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+                      ${tabValue === idx 
+                        ? 'bg-blue-600 text-white border-blue-700 scale-105'
+                        : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
                       }`}
           >
             {yearLabels[idx]}
@@ -711,10 +802,11 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
 
         <button
           onClick={() => { setTabValue(4); setSelectedYear('irregular'); }}
-          className={`px-3 py-1 rounded-full cursor-pointer ${tabValue === 4 
-                      ? 'bg-blue-500 text-white' 
-                      : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white'
-                    }`}
+          className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+                      ${tabValue === 4 
+                        ? 'bg-blue-600 text-white border-blue-700 scale-105'
+                    : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                      }`}
         >
           Irregular Students
         </button>
@@ -851,19 +943,14 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                           </td>
                           <td className="p-2 align-top">
                             {isEditing ? (
-                              <input
-                                className="w-full border border-gray-300 rounded px-2 py-1"
-                                placeholder="Comma-separated codes"
-                                value={(editingData.prerequisites || []).join(', ')}
-                                onChange={(e) => {
-                                  const arr = e.target.value
-                                    .split(',')
-                                    .map((s) => s.trim())
-                                    .filter(Boolean);
-                                  setEditingData((prev) => ({ ...prev, prerequisites: arr }));
-                                  setHasChanges(true);
-                                }}
-                              />
+                              <div>
+                                <button
+                                  onClick={() => openPrereqModalForEditing(course)}
+                          className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
+                                >
+                                  {(editingData.prerequisites || []).length > 0 ? (editingData.prerequisites || []).join(', ') : 'Select Prerequisites'}
+                                </button>
+                              </div>
                             ) : data.prerequisites.length > 0 ? (
                               <div className="flex flex-wrap gap-1">
                                 {data.prerequisites.map((pr) => (
@@ -878,26 +965,14 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                           </td>
                           <td className="p-2 align-top">
                             {isEditing ? (
-                              <input
-                                className="w-full border border-gray-300 rounded px-2 py-1"
-                                placeholder="Comma-separated codes"
-                                value={(editingEquivalents || []).join(', ')}
-                                onChange={(e) => {
-                                  const arr = e.target.value
-                                    .split(',')
-                                    .map((s) => s.trim())
-                                    .filter(Boolean);
-                                  setEditingEquivalents(arr);
-                                  let eqId = data.equivalentSubjectId;
-                                  if (!eqId && arr.length > 0) {
-                                    eqId = 'EQ_' + Math.random().toString(36).substr(2, 9);
-                                  } else if (arr.length === 0) {
-                                    eqId = '';
-                                  }
-                                  setEditingData((prev) => ({ ...prev, equivalentSubjectId: eqId }));
-                                  setHasChanges(true);
-                                }}
-                              />
+                              <div>
+                                <button
+                                  onClick={() => openEquivModalForEditing(course)}
+                          className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
+                                >
+                                  {(editingEquivalents || []).length > 0 ? (editingEquivalents || []).join(', ') : 'Select Equivalent Subjects'}
+                                </button>
+                              </div>
                             ) : equivalents.length > 0 ? (
                               <div className="flex flex-wrap gap-1">
                                 {equivalents.map((eq) => (
@@ -997,38 +1072,20 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                         />
                       </td>
                       <td className="p-2">
-                        <input
-                          className="w-full border border-gray-300 rounded px-2 py-1"
-                          placeholder="Prerequisites (comma-separated)"
-                          value={(newCourseData[semester]?.prerequisites || []).join(', ')}
-                          onChange={(e) => {
-                            const arr = e.target.value
-                              .split(',')
-                              .map((s) => s.trim())
-                              .filter(Boolean);
-                            setNewCourseData((prev) => ({
-                              ...prev,
-                              [semester]: {
-                                ...(prev[semester] || { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true }),
-                                prerequisites: arr,
-                              },
-                            }));
-                          }}
-                        />
+                        <button
+                          onClick={() => openPrereqModalForNewCourse(selectedYear, semester)}
+                          className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
+                        >
+                          {(newCourseData[semester]?.prerequisites || []).length > 0 ? (newCourseData[semester].prerequisites || []).join(', ') : 'Select Prerequisites'}
+                        </button>
                       </td>
                       <td className="p-2">
-                        <input
-                          className="w-full border border-gray-300 rounded px-2 py-1"
-                          placeholder="Equivalent Codes (optional)"
-                          value={(selectedEquivalent || []).join(', ')}
-                          onChange={(e) => {
-                            const arr = e.target.value
-                              .split(',')
-                              .map((s) => s.trim())
-                              .filter(Boolean);
-                            setSelectedEquivalent(arr);
-                          }}
-                        />
+                        <button
+                          onClick={() => openEquivModalForNewCourse(semester)}
+                          className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
+                        >
+                          {(selectedEquivalent || []).length > 0 ? (selectedEquivalent || []).join(', ') : 'Select Equivalent Subjects '}
+                        </button>
                       </td>
                       <td className="p-2">
                         <input
@@ -1056,7 +1113,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                             !newCourseData[semester]?.units
                           }
                           
-                          className="px-3 py-1 flex items-center gap-1 rounded-lg text-xs font-medium bg-green-600 text-white border border-green-600 disabled:opacity-50"
+                          className="px-3 py-1 flex cursor-pointer items-center gap-1 rounded-lg text-xs font-medium bg-green-600 text-white border border-green-600 disabled:opacity-50"
                         >
                           <BadgePlus className="w-4 h-4 inline" />
                           Add
@@ -1126,7 +1183,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
             <div className="flex-1">{renderCurriculumList()}</div>
           ) : (
             <div className="flex-1 flex flex-col">
-              <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-300 mb-10">
+              <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-300 mb-4">
                 <div className="flex items-center justify-between">
                   
                   <div className="flex items-center gap-6">
@@ -1134,9 +1191,9 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                       onClick={() => setSelectedCurriculum(null)}
                       aria-label="Back to list"
                       title="Back to list"
-                      className="group flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+                      className="group flex cursor-pointer items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
                     >
-                      <span className="hidden sm:inline text-sm font-medium">Back</span>
+                      <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
                     </button>
 
                     <div>
@@ -1156,7 +1213,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                         setPreviewCurriculumId(selectedCurriculum?.id || '');
                         setPrintOnlyOpen(true);
                       }}
-                      className="inline-flex items-center text-sm gap-2 bg-green-600 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300 focus:ring-offset-2 focus:ring-offset-white"
+                      className="inline-flex items-center text-sm gap-2 bg-green-600 text-white px-4 py-2 rounded-full cursor-pointer hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300 focus:ring-offset-2 focus:ring-offset-white"
                     >
                       <Printer className="w-4 h-4" />
                       Print Curriculum 
@@ -1208,13 +1265,13 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       {editCurriculumDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setEditCurriculumDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-lg bg-white rounded-lg shadow p-4">
+          <div className="relative z-10 w-full max-w-md bg-white rounded-lg shadow p-8">
             <div className="text-lg font-semibold mb-2">Edit Curriculum</div>
             <div className="space-y-3">
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Curriculum Name</label>
                 <input
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg text-sm px-3 py-1.5"
                   value={editingCurriculumData.name}
                   onChange={(e) => setEditingCurriculumData({ ...editingCurriculumData, name: e.target.value })}
                 />
@@ -1223,7 +1280,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                 <label className="block text-sm text-gray-600 mb-1">Description</label>
                 <textarea
                   rows={3}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg text-sm px-3 py-1.5 resize-none"
                   value={editingCurriculumData.description}
                   onChange={(e) => setEditingCurriculumData({ ...editingCurriculumData, description: e.target.value })}
                 />
@@ -1232,14 +1289,14 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={() => setEditCurriculumDialogOpen(false)}
-                className="px-4 py-2 rounded border border-gray-300 bg-white hover:bg-gray-50"
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleUpdateCurriculum}
                 disabled={loading}
-                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-1.5 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 Update
               </button>
@@ -1252,22 +1309,22 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       {deleteCurriculumDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setDeleteCurriculumDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md bg-white rounded-lg shadow p-4">
+          <div className="relative z-10 w-full max-w-md bg-white rounded-lg shadow p-8">
             <div className="text-lg font-semibold mb-2">Confirm Delete</div>
-            <div className="text-sm text-gray-700">
+            <div className=" text-gray-700">
               Are you sure you want to delete "{selectedCurriculumForMenu?.name}"? This will also delete all associated courses and cannot be undone.
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-8 flex justify-end gap-2">
               <button
                 onClick={() => setDeleteCurriculumDialogOpen(false)}
-                className="px-4 py-2 rounded border border-gray-300 bg-white hover:bg-gray-50"
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDeleteCurriculum}
                 disabled={loading}
-                className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                className="px-4 py-1.5 rounded-full text-sm bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 cursor-pointer"
               >
                 Delete
               </button>
@@ -1280,14 +1337,15 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       {curriculumDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setCurriculumDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-lg bg-white rounded-lg shadow p-4">
-            <div className="text-lg font-semibold mb-2">Create New Curriculum</div>
+          <div className="relative z-10 w-full max-w-lg bg-white rounded-2xl shadow-lg p-8">
+            <div className="text-lg font-semibold mb-4">Create New Curriculum</div>
             <div className="space-y-3">
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Curriculum Name</label>
                 <input
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
                   value={curriculumForm.name}
+                  placeholder='e.g. "BS Computer Science 2024"'
                   onChange={(e) => setCurriculumForm({ ...curriculumForm, name: e.target.value })}
                 />
               </div>
@@ -1295,23 +1353,24 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                 <label className="block text-sm text-gray-600 mb-1">Description</label>
                 <textarea
                   rows={3}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm resize-none"
                   value={curriculumForm.description}
+                  placeholder='Enter curriculum description...'
                   onChange={(e) => setCurriculumForm({ ...curriculumForm, description: e.target.value })}
                 />
               </div>
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-6 flex justify-end gap-2">
               <button
                 onClick={() => setCurriculumDialogOpen(false)}
-                className="px-4 py-2 rounded border border-gray-300 bg-white hover:bg-gray-50"
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreateCurriculum}
                 disabled={loading}
-                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 Create
               </button>
@@ -1424,17 +1483,12 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-sm text-gray-600 mb-1">Prerequisites (comma-separated)</label>
-                <input
-                  className="w-full border border-gray-300 rounded px-3 py-2"
-                  value={(courseForm.prerequisites || []).join(', ')}
-                  onChange={(e) => {
-                    const arr = e.target.value
-                      .split(',')
-                      .map((s) => s.trim())
-                      .filter(Boolean);
-                    setCourseForm({ ...courseForm, prerequisites: arr });
-                  }}
-                />
+                <button
+                  onClick={openPrereqModalForForm}
+                  className="w-full text-left border border-gray-300 rounded px-3 py-2 bg-white hover:bg-gray-50"
+                >
+                  {(courseForm.prerequisites || []).length > 0 ? (courseForm.prerequisites || []).join(', ') : 'Select Prerequisites'}
+                </button>
                 <div className="text-xs text-gray-500 mt-1">Select from existing course codes: {getAllCourseCodes().join(', ')}</div>
               </div>
             </div>
@@ -1458,6 +1512,393 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       )}
 
       {/* Print-only preview (hidden on screen, visible only when printing) */}
+      {/* Prerequisites Selection Modal */}
+      {prereqModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Overlay */}
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setPrereqModalOpen(false)}
+          ></div>
+
+          {/* Modal */}
+          <div className="relative z-10 w-full max-w-2xl bg-white rounded-lg shadow-xl max-h-[85vh] overflow-auto">
+            {/* Header */}
+            <div className="sticky top-0 z-20 bg-white flex items-center justify-between py-3 px-5 border-b border-gray-200 shadow-sm">
+              <h3 className="text-xl font-semibold text-gray-800">Select Prerequisites</h3>
+              <button
+                onClick={() => setPrereqModalOpen(false)}
+                className="p-1 text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md"
+                aria-label="Close modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4 pb-20">
+              <div className="flex items-center gap-3">
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">Filter Year</label>
+                  <select
+                    value={prereqViewYear}
+                    onChange={(e) => setPrereqViewYear(parseInt(e.target.value, 10))}
+                    className="px-2 py-1.5 text-sm rounded-lg border border-gray-300 cursor-pointer focus-outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    {/* build options dynamically from available years */}
+                    {(() => {
+                      const yrs = Array.from(new Set(courses.map(c => c.yearLevel).filter(Boolean))).sort((a,b)=>a-b);
+                      if (yrs.length === 0) return <option value={1}>1</option>;
+                        return yrs.map(y => (
+                          <option key={y} value={y}>
+                            {y === 1 ? '1st Year' : y === 2 ? '2nd Year' : y === 3 ? '3rd Year' : `${y}th Year`}
+                          </option>
+                        ));                    
+                    })()}
+                  </select>
+                </div>
+
+                <div className="flex-1">
+                  <label className="block text-xs text-gray-600 mb-1">Search</label>
+                  <input
+                    value={prereqSearchTerm}
+                    onChange={(e) => setPrereqSearchTerm(e.target.value)}
+                    placeholder="Search across all years"
+                    className="w-full px-2 py-1.5 text-sm rounded-lg border border-gray-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {(() => {
+                const candidates = courses
+                  .filter((c) => c.courseCode)
+                  .filter((c) => {
+                    if (!prereqTarget.year || !prereqTarget.semester) return false;
+                    const y = c.yearLevel || 0;
+                    const s = c.semester || 0;
+                    if (y < prereqTarget.year) return true;
+                    if (y === prereqTarget.year && s < prereqTarget.semester) return true;
+                    return false;
+                  })
+                  .sort((a, b) => (a.yearLevel - b.yearLevel) || (a.semester - b.semester) || (a.courseCode || '').localeCompare(b.courseCode || ''));
+
+                if (candidates.length === 0) {
+                  return (
+                    <div className="text-sm text-gray-500 text-center py-8">
+                      No prior subjects available to select.
+                    </div>
+                  );
+                }
+
+                // If search term is provided, filter globally across all years
+                const q = (prereqSearchTerm || '').toLowerCase().trim();
+                const visible = q
+                  ? candidates.filter(c => (c.courseCode || '').toLowerCase().includes(q) || (c.courseTitle || '').toLowerCase().includes(q))
+                  : candidates.filter(c => (c.yearLevel || 0) === prereqViewYear);
+
+                const maxYear = courses.reduce((m, c) => Math.max(m, c.yearLevel || 0), 0);
+                // show helpful notices
+                if (prereqViewYear > maxYear) {
+                  return (
+                    <div className="text-sm text-red-600 text-center py-4">Selected year is beyond available subjects.</div>
+                  );
+                }
+                let warnMessage = '';
+                if (prereqTarget.year) {
+                  const targetY = prereqTarget.year || 0;
+                  const targetS = prereqTarget.semester || 0;
+                  if (prereqViewYear > targetY) {
+                    warnMessage = 'Please choose prerequisites from previous years/semesters only.';
+                  } else if (prereqViewYear === targetY && !q) {
+                    warnMessage = 'Please choose prerequisites from earlier semesters only.';
+                  }
+                }
+
+                const grouped = visible.reduce((acc, c) => {
+                  const y = c.yearLevel || 0;
+                  const s = c.semester || 0;
+                  acc[y] = acc[y] || {};
+                  acc[y][s] = acc[y][s] || [];
+                  acc[y][s].push(c);
+                  return acc;
+                }, {});
+
+                const years = Object.keys(grouped).map(Number).sort((a, b) => a - b);
+
+                return (
+                  <div className="space-y-6">
+                    {warnMessage && (
+                      <div className="text-sm text-yellow-800 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
+                        {warnMessage}
+                      </div>
+                    )}
+                    {years.map((year) => (
+                      <div key={year} className="">
+                        {([1, 2, 3]).filter((sem) => grouped[year] && grouped[year][sem]).map((sem) => {
+                          const list = grouped[year][sem];
+                          const codes = list.map(x => x.courseCode).filter(Boolean);
+                          const allChecked = codes.length > 0 && codes.every(code => tempSelectedPrereqs.includes(code));
+                          return (
+                            <div key={sem} className="mb-5">
+                              <div className='flex items-center justify-between'>
+                                <h4 className="text-sm  text-gray-800">
+                                  {year === 1 ? '1st Year' : year === 2 ? '2nd Year' : year === 3 ? '3rd Year' : `Year ${year}`}
+                                </h4>
+                                <h5 className="text-sm text-gray-700">
+                                  {sem === 1 ? '1st' : sem === 2 ? '2nd' : 'Summer'} Semester
+                                </h5>
+                              </div>
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full text-xs border border-gray-200 rounded-lg">
+                                  <thead className="bg-blue-500 text-white">
+                                    <tr>
+                                      <th className="p-1.5 text-left w-12">
+                                         <input
+                                            type="checkbox"
+                                            checked={allChecked}
+                                            onChange={(e) => {
+                                              if (e.target.checked) setTempSelectedPrereqs(prev => Array.from(new Set([...prev, ...codes])));
+                                              else setTempSelectedPrereqs(prev => prev.filter(x => !codes.includes(x)));
+                                            }}
+                                            className="h-4 w-4 accent-blue-600 rounded focus:ring-blue-500"
+                                          />
+                                      </th>
+                                      <th className="p-1.5 text-left">Code</th>
+                                      <th className="p-1.5 text-left">Title</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                  {list.map((c) => (
+                                    <tr
+                                      key={c.id}
+                                      className="border-b border-gray-300 hover:bg-gray-50 transition-colors cursor-pointer"
+                                      onClick={(e) => {
+                                        if (e.target && e.target.closest && e.target.closest('input')) return;
+                                        const code = c.courseCode;
+                                        if (!code) return;
+                                        setTempSelectedPrereqs(prev => prev.includes(code) ? prev.filter(x => x !== code) : Array.from(new Set([...prev, code])));
+                                      }}
+                                    >
+                                      <td colSpan="3" className="p-0">
+                                        <label htmlFor={`checkbox-${c.id}`} className="flex items-center p-1.5">
+                                          <input
+                                            type="checkbox"
+                                            id={`checkbox-${c.id}`}
+                                            checked={tempSelectedPrereqs.includes(c.courseCode)}
+                                            onChange={(e) => {
+                                              if (e.target.checked) setTempSelectedPrereqs(prev => Array.from(new Set([...prev, c.courseCode])));
+                                              else setTempSelectedPrereqs(prev => prev.filter(x => x !== c.courseCode));
+                                            }}
+                                            className="h-4 w-4 accent-blue-600 rounded focus:ring-blue-500 mr-3"
+                                          />
+                                          <span className="font-medium text-blue-700 w-20">{c.courseCode}</span>
+                                          <span className="text-gray-700">{c.courseTitle}</span>
+                                        </label>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="sticky bottom-0 z-10 bg-white flex justify-end gap-3 py-3 px-5 border-t border-gray-200">
+              <button
+                onClick={() => setPrereqModalOpen(false)}
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={savePrereqsFromModal}
+                className="px-6 py-1.5 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Equivalent Subjects Selection Modal */}
+      {equivModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 backdrop-blur-[2px] bg-black/40" onClick={() => setEquivModalOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-2xl bg-white rounded-lg shadow p-4 max-h-[80vh] overflow-auto">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-lg font-semibold">Select Equivalent Subjects</div>
+              <button onClick={() => setEquivModalOpen(false)} className="text-gray-600 cursor-pointer hover:text-red-800 bg-gray-100 rounded-full p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+              <div className="space-y-3 pb-20">
+              <div className="flex items-center gap-3">
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">Curriculum</label>
+                  <select
+                    value={equivSelectedCurriculumId || ''}
+                    onChange={(e) => setEquivSelectedCurriculumId(e.target.value || null)}
+                    className="text-sm px-2 py-1.5 rounded-lg cursor-pointer border border-gray-300 focus:outline-none"
+                  >
+                    <option value="">All Curriculums</option>
+                    {curriculums && curriculums.length > 0 && curriculums.map(cur => (
+                      <option key={cur.id} value={cur.id}>{cur.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex-1">
+                  <label className="block text-xs text-gray-600 mb-1">Search</label>
+                  <input
+                    value={equivSearchTerm}
+                    onChange={(e) => setEquivSearchTerm(e.target.value)}
+                    placeholder="Search codes or courses"
+                    className="w-full text-sm px-2 py-1.5 rounded-lg cursor-pointer border border-gray-300 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {(() => {
+                if (!allCourses || allCourses.length === 0) return <div className="text-sm text-gray-500">No available courses.</div>;
+                const q = (equivSearchTerm || '').toLowerCase().trim();
+                const curr = curriculums && curriculums.find(c => c.id === equivSelectedCurriculumId);
+                let candidates = allCourses.filter(c => c.courseCode);
+                if (q) {
+                  candidates = candidates.filter(c => (c.courseCode || '').toLowerCase().includes(q) || (c.courseTitle || '').toLowerCase().includes(q));
+                } else if (equivSelectedCurriculumId) {
+                  candidates = candidates.filter(c => (c.curriculumId && c.curriculumId === equivSelectedCurriculumId) || (c.curriculumName && curr && c.curriculumName === curr.name));
+                }
+                candidates = candidates.sort((a, b) => {
+                  const fa = ((a[equivSortField] || '') + '').toLowerCase();
+                  const fb = ((b[equivSortField] || '') + '').toLowerCase();
+                  if (fa < fb) return equivSortDirection === 'asc' ? -1 : 1;
+                  if (fa > fb) return equivSortDirection === 'asc' ? 1 : -1;
+                  return 0;
+                });
+
+                const codes = candidates.map(c=>c.courseCode).filter(Boolean);
+                const allChecked = codes.length > 0 && codes.every(code => tempSelectedEquivs.includes(code));
+
+                return (
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="min-w-full text-xs">
+                      <thead className="sticky top-0 z-10 bg-blue-500 text-white">
+                        <tr>
+                          <th className="p-1.5 w-12 text-left">
+                            <input
+                              type="checkbox"
+                              checked={allChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) setTempSelectedEquivs(prev => Array.from(new Set([...prev, ...codes])));
+                                else setTempSelectedEquivs(prev => prev.filter(x => !codes.includes(x)));
+                              }}
+                              className="h-4 w-4 accent-blue-600"
+                            />
+                          </th>
+                          <th className="p-1.5 text-left">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (equivSortField === 'courseCode') setEquivSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                                else { setEquivSortField('courseCode'); setEquivSortDirection('asc'); }
+                              }}
+                              className="inline-flex items-center gap-1"
+                            >
+                              <span>Code</span>
+                              {equivSortField === 'courseCode' ? (
+                                <ChevronUp className={`w-4 ${equivSortDirection === 'asc' ? '' : 'rotate-180'}`} />
+                              ) : (
+                                <ChevronsUpDown className="w-4 opacity-80" />
+                              )}
+                            </button>
+                          </th>
+                          <th className="p-1.5 text-left">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (equivSortField === 'courseTitle') setEquivSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                                else { setEquivSortField('courseTitle'); setEquivSortDirection('asc'); }
+                              }}
+                              className="inline-flex items-center gap-1"
+                            >
+                              <span>Courses</span>
+                              {equivSortField === 'courseTitle' ? (
+                                <ChevronUp className={`w-4 ${equivSortDirection === 'asc' ? '' : 'rotate-180'}`} />
+                              ) : (
+                                <ChevronsUpDown className="w-4 opacity-80" />
+                              )}
+                            </button>
+                          </th>
+                          <th className="p-1.5 text-left">Curriculum</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {candidates.map(c => (
+                          <tr
+                            key={c.id}
+                            className={`border-b border-gray-300 hover:bg-gray-50 cursor-pointer ${tempSelectedEquivs.includes(c.courseCode) ? 'bg-amber-50' : ''}`}
+                            onClick={(e) => {
+                              if (e.target && e.target.closest && e.target.closest('input')) return;
+                              const code = c.courseCode;
+                              if (!code) return;
+                              setTempSelectedEquivs(prev => prev.includes(code) ? prev.filter(x => x !== code) : Array.from(new Set([...prev, code])));
+                            }}
+                          >
+                            <td className="p-1.5">
+                              <input
+                                type="checkbox"
+                                checked={tempSelectedEquivs.includes(c.courseCode)}
+                                onChange={(e) => {
+                                  if (e.target.checked) setTempSelectedEquivs(prev => Array.from(new Set([...prev, c.courseCode])));
+                                  else setTempSelectedEquivs(prev => prev.filter(x => x !== c.courseCode));
+                                }}
+                                className="h-4 w-4 accent-blue-600"
+                              />
+                            </td>
+                            <td className="p-1.5 font-medium text-blue-700">{c.courseCode}</td>
+                            <td className="p-1.5">{c.courseTitle}</td>
+                            <td className="p-1.5 text-xs text-gray-600">
+                              {c.curriculumName || (curriculums && curriculums.find(cur => cur.id === c.curriculumId)?.name) || (curr && curr.name) || ''}
+                            </td>
+                          </tr>
+                        ))}
+                        {candidates.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="p-4 text-center text-gray-500">No subjects found.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="sticky bottom-0 z-10 bg-white flex justify-end gap-3 py-3 px-5 border-t border-gray-200">
+              <button
+                onClick={() => setEquivModalOpen(false)}
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEquivsFromModal}
+                className="px-6 py-1.5 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {printOnlyOpen && previewCurriculumId && (
         <div className="print-only-preview" aria-hidden>
           <div style={{ position: 'fixed', left: '-9999px', top: 0 }}>

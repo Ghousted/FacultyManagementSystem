@@ -85,7 +85,6 @@ const Dashboard = () => {
     className="w-full h-72 transition-all duration-300 border border-gray-300 bg-white rounded-2xl 
                h
                flex items-center justify-center"
-    onClick={() => handleSystemSelect('Reports')}
   >
     <div className="flex flex-col items-center justify-center text-center space-y-4">
       <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center">

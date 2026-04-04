@@ -1,5 +1,4 @@
-Payables –  include a print feature
-Excel Export – Fix the formatting of the generated file.
-Curriculum Maker – For prerequisites, display a modal with course selection using checkboxes (same behavior as equivalent subjects).
+Payables –  include a print feature / ui
 Navigation Fix – When going back, it should return to the previously selected student instead of going back to the top.
-Student Management - Add sorting in header of table
+Student Management - Add sorting in header of table use icons chevron from lucide react
+Export Excel - Fix Irregular students 

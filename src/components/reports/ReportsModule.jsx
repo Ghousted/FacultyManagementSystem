@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { exportDeanListToExcel } from '../../utils/excelExport';
 import { getStudents, getCoursesByCurriculum } from '../../models/curriculumModels';
-import { Settings2, Download, CalendarCheck, X, ChevronDown, ChevronUp, ChevronsUpDown} from 'lucide-react';
+import { Settings2, Download, CalendarCheck, X, ChevronDown, ChevronUp, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
 
 const yearTabs = [
   { label: '1st Year', value: 1 },
@@ -233,8 +233,69 @@ const ReportsModule = ({ onBackToDashboard }) => {
     setVisibleRows(prev => Math.min(prev + 4, deansList.length));
   };
 
-  const handleDownload = () => {
-    exportDeanListToExcel(deansList);
+  const handleDownload = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    setLoading(true);
+    try {
+      const studentsRes = await getStudents();
+      if (!studentsRes.success) {
+        return;
+      }
+      const students = studentsRes.data;
+      const semVal = selectedSem;
+      const allCandidates = [];
+
+      for (const tab of yearTabs) {
+        const yearVal = tab.value;
+        const filtered = students.filter(s => {
+          if (yearVal === 'irregular') return s.isIrregular;
+          return !s.isIrregular && s.yearLevel === yearVal;
+        });
+
+        for (const student of filtered) {
+          if (!student.curriculumId) continue;
+          const coursesRes = await getCoursesByCurriculum(student.curriculumId);
+          if (!coursesRes.success) continue;
+          const courses = coursesRes.data.filter(c => c.semester === semVal && (yearVal === 'irregular' || c.yearLevel === yearVal));
+          const grades = student.grades || {};
+          let totalUnits = 0;
+          let weightedSum = 0;
+          let eligible = true;
+          const gradeDetails = [];
+
+          for (const course of courses) {
+            const grade = parseFloat(grades[course.courseCode]);
+            if (isNaN(grade)) continue;
+            gradeDetails.push({
+              subject: course.courseTitle,
+              grade,
+              code: course.courseCode,
+              units: course.units || 3,
+              isMajor: course.isMajor || false
+            });
+            totalUnits += parseFloat(course.units) || 0;
+            weightedSum += grade * (parseFloat(course.units) || 1);
+            if (course.isMajor && grade > criteria.major) eligible = false;
+            if (!course.isMajor && grade > criteria.minor) eligible = false;
+          }
+
+          const gwa = totalUnits > 0 ? weightedSum / totalUnits : null;
+          if (gwa === null || gwa > criteria.gwa) eligible = false;
+          if (eligible && gradeDetails.length > 0) {
+            allCandidates.push({
+              name: student.name,
+              gwa: gwa ? gwa.toFixed(3) : '',
+              grades: gradeDetails,
+              yearLevel: yearVal
+            });
+          }
+        }
+      }
+
+      exportDeanListToExcel(allCandidates, 'deans_list_all_years.xlsx');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const toggleSort = field => {
@@ -252,13 +313,13 @@ const ReportsModule = ({ onBackToDashboard }) => {
         <div className="flex items-center gap-6">
           <button
             onClick={onBackToDashboard}
-            className="group flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+                      className="group flex cursor-pointer items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
             aria-label="Back to dashboard"
             title="Back to dashboard"
           >
-            <span className="hidden sm:inline text-sm font-medium">Back</span>
+                      <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
           </button>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col">
             <h2 className="text-2xl font-bold text-blue-700">Dean's List Reports</h2>
             <p className="text-gray-600">
               View detailed reports of students who have achieved academic excellence this semester, including GPA breakdowns and honors.
@@ -273,8 +334,8 @@ const ReportsModule = ({ onBackToDashboard }) => {
               <button
                 key={tab.value}
                 onClick={() => setTabYear(idx)}
-                className={`px-3 py-1.5 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer ${
-                  tabYear === idx
+                className={`px-3 py-1 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+                  ${ tabYear === idx
                     ? 'bg-blue-600 text-white border-blue-700 scale-105'
                     : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
                 }`}
@@ -315,6 +376,7 @@ const ReportsModule = ({ onBackToDashboard }) => {
               <Settings2 className="h-4 w-4" /> Configure
             </button>
             <button
+              type="button"
               onClick={handleDownload}
               className="rounded-lg text-sm px-3 py-1.5 cursor-pointer bg-green-600 hover:bg-green-700 text-white font-semibold shadow flex items-center gap-1"
             >

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAllCourses, getCurriculums } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { LayoutPanelLeft, List, Printer, Search, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { LayoutPanelLeft, List, Printer, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
 import CurriculumPreview from './CurriculumPReview';
 
 const CurriculumCheckerMain = ({ onBack }) => {
@@ -389,9 +389,9 @@ const CurriculumCheckerMain = ({ onBack }) => {
         <div className="flex items-center gap-6">
           <button
             onClick={onBack}
-            className="bg-blue-600 text-white px-4 py-1.5 rounded-full hover:bg-blue-700 cursor-pointer"
+            className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
           >
-            Back
+            <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
           </button>
           <div>
             <h5 className="text-2xl font-bold text-blue-600">Curriculum Checker</h5>
@@ -400,22 +400,27 @@ const CurriculumCheckerMain = ({ onBack }) => {
         </div>
       </div>
 
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-4">
         <div className="flex gap-2 text-sm">
           {[1, 2, 3, 4].map(year => (
             <button
               key={year}
-              className={`px-3 py-1 rounded-full ${tabValue === year - 1
-                          ? 'bg-blue-500 text-white'
-                          : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white cursor-pointer'
-                        }`}
+                className={`px-3 py-1 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+                  ${tabValue === year - 1
+                    ? 'bg-blue-600 text-white border-blue-700 scale-105'
+                    : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                  }`}
               onClick={() => setTabValue(year - 1)}
             >
               {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
             </button>
           ))}
           <button
-            className={`px-3 py-1 rounded-full ${tabValue === 4 ? 'bg-blue-500 text-white' : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white cursor-pointer'}`}
+            className={`px-3 py-1 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+              ${tabValue === 4 
+                ? 'bg-blue-600 text-white border-blue-700 scale-105'
+                : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+              }`}
             onClick={() => setTabValue(4)}
           >
             Irregular Students
@@ -591,10 +596,10 @@ const CurriculumCheckerMain = ({ onBack }) => {
                 setSelectedStudent(null);
                 setTabValue(selectedStudent.isIrregular ? 4 : selectedStudent.yearLevel - 1);
               }}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
               aria-label="Back"
             >
-              <span className="hidden sm:inline text-sm font-medium">Back</span>
+              <ArrowBigLeft className="w-4 h-4" />
             </button>
             <div>
               <div className="text-2xl font-bold text-blue-600">Curriculum Status</div>
@@ -612,7 +617,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
                 studentCurriculum,
                 processedCourses.filter(c => c.yearLevel === 3 && c.semester === 3)
               )}
-              className="inline-flex items-center text-sm gap-2 bg-green-600 text-white px-2 py-1.5 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300"
+              className="inline-flex items-center text-sm gap-2 bg-green-600 cursor-pointer text-white px-2 py-1.5 rounded-full hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300"
             >
               <Printer className="w-4 h-4" />
               <span>Print Curriculum</span>
@@ -639,7 +644,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
                   </span>
                 </button>
                 {expandedYears[year] && (
-                  <div className="p-3">
+                  <div className="py-6 px-10">
                     <div className="mb-4">
                       <h4 className="font-semibold text-sm">Academic Eligibility Summary</h4>
                       <div className="flex flex-wrap gap-6">

@@ -182,7 +182,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
               </div>
               <div className="flex mt-0.5 gap-6 text-xs">
                 <div>
-                  <p>GWA: {gwa1 !== null ? gwa1.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : 'N/A')}</p>
+                  <p>GWA: {gwa1 !== null ? gwa1.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '-')}</p>
                 </div>
 
                 <div className="">
@@ -271,7 +271,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                     </div>
                     <div className="flex mt-0.5 gap-6 text-xs">
                       <div>
-                        <p>GWA: {gwaSummer !== null ? gwaSummer.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : 'N/A')}</p>
+                        <p>GWA: {gwaSummer !== null ? gwaSummer.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '-')}</p>
                       </div>
 
                       <div className="">
@@ -354,7 +354,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
 
                 <div className="flex mt-0.5 gap-6 text-xs">
                   <div>
-                    <p>GWA: {gwa2 !== null ? gwa2.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : 'N/A')}</p>
+                    <p>GWA: {gwa2 !== null ? gwa2.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '-')}</p>
                   </div>
 
                   <div className="">
@@ -459,24 +459,24 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                 <div className="flex items-end gap-6">
                   <div className="flex items-end gap-2 text-sm">
                     <span className="min-w-[90px] text-sm">Student no:</span>
-                    <div className="w-36 border-b border-gray-400 pb-1">{student?.studentNumber || ''}</div>
+                    <div className="w-36 border-b border-gray-400 ">{student?.studentNumber || ''}</div>
                   </div>
 
                   <div className="flex items-end flex-1 gap-3 text-sm">
                     <span className="pl-2 text-sm">Name:</span>
-                    <div className="w-full max-w-[300px] border-b border-gray-400 pb-1">{student?.name || ''}</div>
+                    <div className="w-full max-w-[300px] border-b border-gray-400">{student?.name || ''}</div>
                   </div>
                 </div>
 
                 <div className="flex items-end gap-6 mt-1">
                   <div className="flex items-end gap-2 text-sm">
                     <span className="min-w-[90px] text-sm">Contact no:</span>
-                    <div className="w-36 border-b border-gray-400 pb-1">{student?.contact || ''}</div>
+                    <div className="w-36 border-b border-gray-400">{student?.contact || ''}</div>
                   </div>
 
                   <div className="flex items-end flex-1 gap-3 text-sm">
                     <span className="pl-2 text-sm">Email:</span>
-                    <div className="w-full max-w-[300px] border-b border-gray-400 pb-1">{student?.email || ''}</div>
+                    <div className="w-full max-w-[300px] border-b border-gray-400">{student?.email || ''}</div>
                   </div>
                 </div>
               </div>

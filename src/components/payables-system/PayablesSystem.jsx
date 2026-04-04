@@ -1334,7 +1334,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             </div>
             <div className='sticky bottom-0 z-20  flex justify-between gap-4 px-6 py-3 border-t border-gray-300'>
                <h3 className={`text-lg font-bold ${selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id) > 0 ? 'text-red-600' : 'text-green-600' : ''}`}>
-                  Total: ₱{selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id).toLocaleString() : '0'}
+                  Total Balance: ₱{selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id).toLocaleString() : '0'}
                 </h3>
             <div className="flex items-center justify-end gap-2  ">
             

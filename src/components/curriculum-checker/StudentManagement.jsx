@@ -10,7 +10,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { BadgePlus, Pencil, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown} from 'lucide-react';
+import { BadgePlus, Pencil, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
 
 const StudentManagement = ({ onBack }) => {
   const { currentUser } = useAuth();
@@ -420,7 +420,7 @@ const StudentManagement = ({ onBack }) => {
 
   const getCurriculumName = (curriculumId) => {
     const curriculum = curriculums.find(c => c.id === curriculumId);
-    return curriculum ? curriculum.name : 'Not Set';
+    return curriculum ? curriculum.name : '';
   };
 
   const isCourseCompleted = (courseCode) => {
@@ -575,10 +575,10 @@ const StudentManagement = ({ onBack }) => {
     <button
       key={year}
       onClick={() => setStudentListTab(idx + 1)}
-      className={`
-          px-3 py-1 rounded-full ${studentListTab === idx + 1
-          ? 'bg-blue-500 text-white' 
-          : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white cursor-pointer'
+      className={`px-3 py-1  rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
+        ${studentListTab === idx + 1
+          ? 'bg-blue-600 text-white border-blue-700 scale-105'
+          : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
         }
       `}
     >
@@ -588,11 +588,10 @@ const StudentManagement = ({ onBack }) => {
 
   <button
     onClick={() => setStudentListTab(5)}
-    className={`
-        px-3 py-1 rounded-full cursor-pointer
+    className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
         ${studentListTab === 5
-        ? 'bg-blue-500 text-white'
-        : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white'
+        ? 'bg-blue-600 text-white border-blue-700 scale-105'
+        : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
       }
     `}
   >
@@ -1102,15 +1101,15 @@ const StudentManagement = ({ onBack }) => {
             }
           : onBack
       }
-      className="flex cursor-pointer items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
       aria-label="Back"
     >
-      <span className="hidden sm:inline text-sm font-medium">Back</span>
+            <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
     </button>
 
     <div>
       {selectedStudent ? (
-        <div className="flex  gap-20">
+        <div className="flex  gap-40">
           <div>
           
             <div className="text-blue-600 font-medilum text-xl">{selectedStudent.name}</div>
