@@ -10,7 +10,11 @@ import {
   getAllStudentPayments
 } from '../../models/payablesModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { BadgePlus,  Search, ChevronUp, ChevronDown, ChevronsUpDown, Funnel, X, Printer, Pencil, Delete, History, Settings2, Download, Receipt, Trash } from 'lucide-react';
+import { BadgePlus,  Search, ChevronUp, ChevronDown, ChevronsUpDown, Funnel, X, Printer, Pencil, Delete, History, ArrowBigLeft, Settings2, Download, Receipt, Trash } from 'lucide-react';
+import Logo from '../../assets/logo.png';
+import ReceiptModal from './ReceiptModal';
+import { db } from '../../firebase';
+import { generateReceiptNumber, createReceiptRecord } from '../../utils/receiptService';
 
 const PayablesSystem = ({ onBackToDashboard }) => {
   const { currentUser } = useAuth();
@@ -87,6 +91,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   const [studentTransactionsModalOpen, setStudentTransactionsModalOpen] = useState(false);
   const [selectedStudentForTransactions, setSelectedStudentForTransactions] = useState(null);
   const [studentTransactions, setStudentTransactions] = useState([]);
+
+  // Receipt modal state
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  const [receiptData, setReceiptData] = useState(null);
 
   // Payables view controls (inside Student modal)
   const [payablesFilter, setPayablesFilter] = useState('all'); // all | unpaid | partially_paid | fully_paid | individual
@@ -411,10 +419,13 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   // Final confirmation: persist all stagedPayments for the selected student
   const handleFinalConfirm = async () => {
     if (!selectedStudentModal) return;
+
+    const studentSnapshot = selectedStudentModal;
     const studentId = selectedStudentModal.id;
     setConfirmLoading(true);
     setError('');
     try {
+      let lastReceiptPreview = null;
       // For each change, compute status and send update
       for (const change of summaryData.changes) {
         const { payableId, newPayment, mode, reference } = change;
@@ -437,6 +448,50 @@ const PayablesSystem = ({ onBackToDashboard }) => {
         }
         // Record the transaction
         if (newPayment > 0) {
+          const paymentDate = new Date();
+          let receiptNumber = null;
+          let receiptId = null;
+          const balanceAfter = Math.max(0, payableAmount - newTotalPaid);
+          const previousPaid = Number(change.currentPaid || 0);
+          const totalPaidAfter = Number(newTotalPaid || 0);
+
+          try {
+            receiptNumber = await generateReceiptNumber(db, paymentDate);
+            const receiptRecord = {
+              receiptNumber,
+              studentId,
+              studentName: studentSnapshot.name,
+              date: paymentDate.toISOString(),
+              formattedDate: formatDateFull(paymentDate),
+              course: studentSnapshot.course || studentSnapshot.program || 'BSCS',
+              yearLevel: studentSnapshot.yearLevel || '',
+              items: [{ description: payable.type || change.type, amount: newPayment }],
+              amount: Number(newPayment || 0),
+              mode: mode || 'cash',
+              cashierId: currentUser?.uid || null
+            };
+            receiptId = await createReceiptRecord(db, receiptRecord);
+
+            lastReceiptPreview = {
+              receiptNumber,
+              studentName: studentSnapshot.name,
+              date: formatDateFull(paymentDate),
+              course: receiptRecord.course || 'BSCS',
+              yearLevel: receiptRecord.yearLevel,
+              description: payable.type || change.type,
+              amount: Number(newPayment || 0),
+              price: Number(payableAmount || 0),
+              previousPaid,
+              totalPaid: totalPaidAfter,
+              balance: balanceAfter,
+              mode: receiptRecord.mode,
+              reference: reference || '',
+              receivedBy:  ''
+            };
+          } catch (err) {
+            console.warn('Failed to generate receipt for payment:', err);
+          }
+
           await createStudentPayment({
             studentId,
             payableId,
@@ -444,7 +499,13 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             mode: mode || 'cash',
             reference: reference || '',
             description: `Payment for ${change.type}`,
-            date: new Date().toISOString()
+            date: paymentDate.toISOString(),
+            receiptNumber,
+            receiptId,
+            balanceAfter,
+            totalPrice: Number(payableAmount || 0),
+            previousPaid,
+            totalPaidAfter,
           });
         }
       }
@@ -459,6 +520,11 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       setStagedPaymentReferences({});
       // reload payables to reflect persisted state
       await loadPayables();
+
+      if (lastReceiptPreview) {
+        setReceiptData(lastReceiptPreview);
+        setReceiptModalOpen(true);
+      }
     } catch (error) {
       setError('Failed to confirm payments: ' + error.message);
     } finally {
@@ -536,6 +602,36 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     const months = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.'];
     return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
   };
+
+  const openReceiptForPayment = useCallback((student, payable, payment) => {
+    if (!payment) return;
+    const paymentDateRaw = payment.date || payment.createdAt || new Date().toISOString();
+    const paymentDate = new Date(paymentDateRaw);
+    const safeDate = Number.isNaN(paymentDate.getTime()) ? new Date() : paymentDate;
+    const amount = Number(payment.amount || 0);
+    const balance = Number(payment.balanceAfter ?? payment.balance ?? 0);
+    const price = Number(payment.price ?? payment.totalPrice ?? payable?.amount ?? 0);
+    const previousPaid = Number(payment.previousPaid ?? 0);
+    const totalPaid = Number(payment.totalPaid ?? payment.totalPaidAfter ?? 0);
+
+    setReceiptData({
+      receiptNumber: payment.receiptNumber || '—',
+      studentName: student?.name || '—',
+      date: formatDateFull(safeDate),
+      course: student?.course || student?.program || 'BSCS',
+      yearLevel: student?.yearLevel || '',
+      description: payable?.type || payment.description || 'Payment',
+      amount,
+      price,
+      previousPaid,
+      totalPaid,
+      balance,
+      mode: payment.mode || payment.method || payment.paymentMode || '',
+      reference: payment.reference || '',
+      receivedBy:  ''
+    });
+    setReceiptModalOpen(true);
+  }, [currentUser]);
 
   // Stage paid amount changes locally. Changes will not be saved until user clicks Confirm.
   const handleStagedPaidAmountChange = useCallback((payableId, newValue) => {
@@ -629,10 +725,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             />
 </div>
           <button
-            className="px-3 py-1.5 bg-green-600  text-sm text-white rounded-full hover:bg-green-700 flex items-center gap-1"
+            className="px-3 py-1.5 bg-green-600 cursor-pointer  text-sm text-white rounded-full hover:bg-green-700 "
             onClick={handleAddPayable}
           >
-            <BadgePlus className='w-4 h-4' />
+            <BadgePlus className='w-4 h-4 inline-flex mr-1 mb-0.5' />
             Add Payables
           </button>
         </div>
@@ -881,9 +977,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             <div className="flex items-center gap-6">
               <button
                 onClick={onBackToDashboard}
-                className="text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-full cursor-pointer"
+            className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
               >
-                Back
+            <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
               </button>
               <div className="flex flex-col ">
               <h5 className="text-2xl font-bold text-blue-600">
@@ -912,7 +1008,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {/* Add Payable Dialog */}
       {addPayableDialogOpen && (
         <div className="fixed inset-0 z-1000 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => {
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => {
             setAddPayableDialogOpen(false);
             setEditingMode(false);
             setNewPayableForm({
@@ -923,8 +1019,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               yearLevel: 'all'
             });
           }}></div>
-          <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-96 overflow-y-auto relative z-10">
-            <h2 className="text-xl font-bold mb-4">
+          <div className="bg-white rounded-2xl  shadow-lg p-8 max-w-md w-full overflow-y-auto relative z-10">
+            <h2 className="text-lg font-medium mb-4">
               {editingMode ? 'Edit Payable' : 'Add New Payable'}
              
             </h2>
@@ -932,7 +1028,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               <div>
                 <label className="block text-sm font-medium mb-1">Target Year Level</label>
                 <select
-                  className="w-full p-2 border border-gray-300 rounded"
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
                   value={newPayableForm.yearLevel}
                   onChange={(e) => handleNewPayableInputChange('yearLevel', e.target.value)}
                   disabled={editingMode} // Disable changing target when editing
@@ -950,7 +1046,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               <label className="block text-sm font-medium mb-1">Payable Type</label>
               <input
                 type="text"
-                className="w-full p-2 border border-gray-300 rounded"
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
                 placeholder="Type (e.g., Tuition Fee, Miscellaneous)"
                 value={newPayableForm.type}
                 onChange={(e) => handleNewPayableInputChange('type', e.target.value)}
@@ -962,7 +1058,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                className="w-full p-2 border border-gray-300 rounded show-spinner"
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
                 placeholder="e.g., 1500.00"
                 value={newPayableForm.amount}
                 onChange={(e) => handleNewPayableInputChange('amount', e.target.value)}
@@ -970,23 +1066,26 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                 onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
               />
             </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => {
-                setAddPayableDialogOpen(false);
-                setEditingMode(false);
-                setNewPayableForm({
-                  type: '',
-                  amount: '',
-                  status: 'unpaid',
-                  paidAmount: '0',
-                  yearLevel: 'all'
-                });
-              }} className="px-4 py-1.5 text-white bg-gray-400 rounded hover:bg-gray-500">
+            <div className="flex justify-end gap-2 mt-6">
+              <button 
+                onClick={() => {
+                  setAddPayableDialogOpen(false);
+                  setEditingMode(false);
+                  setNewPayableForm({
+                    type: '',
+                    amount: '',
+                    status: 'unpaid',
+                    paidAmount: '0',
+                    yearLevel: 'all'
+                  });
+                }} 
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
                 Cancel
               </button>
               <button 
                 onClick={handleSaveNewPayable} 
-                className="px-4 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-200"
+                className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={!newPayableForm.type || !newPayableForm.amount || loading}
               >
                 {loading ? (editingMode ? 'Updating...' : 'Adding...') : (editingMode ? 'Update Payable' : 'Add Payable')}
@@ -1075,12 +1174,12 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {/* Student Details Modal */}
       {studentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => {
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => {
             setStudentModalOpen(false);
             setSelectedStudentModal(null);
             setStagedPayments({});
           }}></div>
-          <div className="bg-white rounded-xl max-w-2xl w-full max-h-160 relative z-10 flex flex-col overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-lg max-w-2xl w-full max-h-160 relative z-10 flex flex-col overflow-hidden">
             <div className="flex items-center px-6 py-4 justify-between shadow-b shadow-2xs  sticky top-0 z-20 bg-blue-100">
               <div>
                 <h2 className="text-xl font-bold">
@@ -1103,7 +1202,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   className="px-2 py-1.5 text-sm bg-green-600 cursor-pointer text-white rounded-full hover:bg-green-700 disabled:opacity-50"
                   onClick={handleAddIndividualPayable}
                 >
-                  <BadgePlus className='w-4 h-4 inline-flex mr-1' />
+                  <BadgePlus className='w-4 h-4 inline-flex mr-1 mb-0.5' />
                   Add Previous Balance
                 </button>
                
@@ -1214,6 +1313,37 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           }}
                         >
                           <History className="w-4 h-4" />
+                        </button>
+                        <button
+                          className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            setOpenActionMenuId(null);
+                            const result = await getStudentPayments(selectedStudentModal.id, payable.id);
+                            if (!result.success) {
+                              setError(result.error);
+                              return;
+                            }
+                            const latest = (result.data || [])[0];
+                            if (!latest) {
+                              setError('No transactions to print yet.');
+                              return;
+                            }
+                            const totalPrice = Number(payable.amount) || 0;
+                            const totalPaidAll = (result.data || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                            const balanceAfter = Math.max(0, totalPrice - totalPaidAll);
+                            const previousPaid = Math.max(0, totalPaidAll - (Number(latest.amount) || 0));
+                            openReceiptForPayment(selectedStudentModal, payable, {
+                              ...latest,
+                              price: totalPrice,
+                              previousPaid,
+                              totalPaid: totalPaidAll,
+                              balanceAfter
+                            });
+                          }}
+                          title="Print latest receipt"
+                        >
+                          <Printer className="w-4 h-4" />
                         </button>
                         <button
                           className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
@@ -1333,7 +1463,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               })()}
             </div>
             <div className='sticky bottom-0 z-20  flex justify-between gap-4 px-6 py-3 border-t border-gray-300'>
-               <h3 className={`text-lg font-bold ${selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id) > 0 ? 'text-red-600' : 'text-green-600' : ''}`}>
+               <h3 className={` font-semibold text-gray-800`}>
                   Total Balance: ₱{selectedStudentModal ? calculateTotalBalance(selectedStudentModal.id).toLocaleString() : '0'}
                 </h3>
             <div className="flex items-center justify-end gap-2  ">
@@ -1344,13 +1474,13 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   setSelectedStudentModal(null);
                   setStagedPayments({});
                 }}
-                className="px-6 py-1.5 text-sm rounded-lg bg-gray-400 text-white hover:bg-gray-500 cursor-pointer"
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Close
               </button>
               <button 
                 onClick={handleShowSummary} 
-                className="px-4 py-1.5 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700  disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-full text-sm cursor-pointer bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={Object.keys(stagedPayments).length === 0 || confirmLoading}
               >
                 {confirmLoading ? 'Confirming...' : 'Confirm Changes'}
@@ -1364,7 +1494,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {/* Summary Modal */}
       {summaryModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => setSummaryModalOpen(false)}></div>
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px]bg-opacity-50" onClick={() => setSummaryModalOpen(false)}></div>
           <div className="bg-white rounded-lg p-6 max-w-xl w-full max-h-140 overflow-y-auto relative z-10">
             <div className="flex items-center justify-between ">
               <h2 className="text-xl font-bold">Confirm Payment Changes</h2>
@@ -1398,68 +1528,62 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
     return (
       <div key={change.payableId} className="border border-gray-200 rounded-xl p-4 mb-4 shadow-sm bg-white">
-        
-        {/* Header */}
-        <div className="flex justify-between items-center mb-1">
-          <h4 className="text-lg font-semibold">{change.type}</h4>
-          <span className={`text-xs font-semibold px-2 py-1 rounded-full 
-            ${newPayment > 0 ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-gray-100 text-gray-500 border border-gra'}`}>
-              
-            {newPayment > 0 ? 'Paid' : 'No Payment'}
-          </span>
-        </div>
-
-        {/* Basic Info */}
-        <div className="flex justify-between text-sm text-gray-600 mb-2">
-          <p>Total: <span className="font-semibold">₱{totalAmount.toLocaleString()}</span></p>
-          <p>
-            Payment Mode: 
-            <span className="font-semibold capitalize ml-1">{change.mode || 'cash'}</span>
-          </p>
+        {/* Header: description/type and status */}
+        <div className="flex justify-between items-start mb-2">
+          <div>
+            <h4 className="text-lg font-semibold">{change.type}</h4>
+            <p className="text-sm text-gray-600">{change.description || `Payment for ${change.type}`}</p>
+          </div>
+          <div className="text-right">
+            <div className={`text-xs font-semibold px-2 py-1 rounded-full ${newPayment > 0 ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-gray-100 text-gray-500 border border-gray-200'}`}>
+              {newPayment > 0 ? 'Paid' : 'No Payment'}
+            </div>
+            <div className="text-sm mt-2">Total: <span className="font-semibold">₱{totalAmount.toLocaleString()}</span></div>
+          </div>
         </div>
 
         {change.reference && (
-          <p className="text-xs text-gray-500 mb-2">
-            Ref #: <span className="font-mono">{change.reference}</span>
-          </p>
+          <p className="text-xs text-gray-500 mb-2">Ref #: <span className="font-mono">{change.reference}</span></p>
         )}
 
-        {/* Divider */}
+        {/* Payment Mode Checkboxes */}
+        <div className="mb-3 flex items-center gap-4 text-sm">
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" disabled checked={(change.mode || 'cash') === 'cash'} />
+            <span className="ml-1">CASH</span>
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" disabled checked={(change.mode || '') === 'gcash'} />
+            <span className="ml-1">GCASH</span>
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" disabled checked={(change.mode || '') === 'bank' || (change.mode || '').toLowerCase().includes('bank')} />
+            <span className="ml-1">BANK TRANSFER</span>
+          </label>
+        </div>
+
         <div className="border-t border-gray-200 my-2"></div>
 
-        {/* Before & After */}
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          
-          {/* Before */}
+        {/* Three-column financial snapshot: previous balance, amount paid now, current balance */}
+        <div className="grid grid-cols-3 gap-4 text-sm">
           <div>
-            <p className="text-gray-500 mb-1">Before</p>
+            <p className="text-gray-500 mb-1">Previous</p>
             <p>Paid: <span className="font-semibold">₱{prevPaid.toLocaleString()}</span></p>
-            <p className={prevBalance > 0 ? 'text-red-600' : 'text-green-600'}>
-              Balance: ₱{prevBalance.toLocaleString()}
-            </p>
+            <p className={prevBalance > 0 ? 'text-red-600' : 'text-green-600'}>Balance: ₱{prevBalance.toLocaleString()}</p>
           </div>
 
-          {/* After */}
-          <div>
+          <div className="text-center">
+            <p className="text-gray-500 mb-1">Now</p>
+            <p className="text-base font-bold text-blue-600">₱{newPayment.toLocaleString()}</p>
+            <p className="text-xs text-gray-500 mt-1">Amount Paid</p>
+          </div>
+
+          <div className="text-right">
             <p className="text-gray-500 mb-1">After</p>
             <p>Paid: <span className="font-semibold">₱{newPaid.toLocaleString()}</span></p>
-            <p className={newBalance > 0 ? 'text-red-600' : 'text-green-600'}>
-              Balance: ₱{newBalance.toLocaleString()}
-            </p>
+            <p className={newBalance > 0 ? 'text-red-600' : 'text-green-600'}>Balance: ₱{newBalance.toLocaleString()}</p>
           </div>
-
         </div>
-
-        {/* New Payment Highlight */}
-        <div className="mt-3 flex justify-between items-center">
-          <p className="text-sm text-gray-600">
-            New Payment
-          </p>
-          <p className={`text-base font-bold ${newPayment > 0 ? 'text-green-600' : 'text-gray-500'}`}>
-            {newPayment > 0 ? `+₱${newPayment.toLocaleString()}` : '—'}
-          </p>
-        </div>
-
       </div>
     );
   })}
@@ -1509,7 +1633,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {/* Individual Student Payable Dialog */}
       {individualPayableDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => {
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px]bg-opacity-50" onClick={() => {
             setIndividualPayableDialogOpen(false);
             setIndividualPayableForm({
               type: '',
@@ -1518,15 +1642,16 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             });
           }}></div>
           <div className="bg-white rounded-lg px-8 py-6 max-w-md w-full  overflow-y-auto relative z-10">
-            <h2 className="text-lg font-bold ">
+            <h2 className="font-bold ">
               Add Previous Balance / Custom Charge
             </h2>
             {selectedStudentModal && (
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-sm text-gray-600 mb-6">
                 For: {selectedStudentModal.name}
               </p>
             )}
             <div className="space-y-4">
+              <label className="block text-sm font-medium mb-1">Charge Type</label>
               <input
                 type="text"
                 className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
@@ -1534,7 +1659,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                 value={individualPayableForm.type}
                 onChange={(e) => handleIndividualPayableInputChange('type', e.target.value)}
               />
-
+              
+              <label className="block text-sm font-medium mb-1">Amount</label>
               <input
                 type="number"
                 inputMode="decimal"
@@ -1547,6 +1673,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                 onWheel={(e) => e.currentTarget.blur()}
                 onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
               />
+
+
 
               <div>
                 <label className="block text-sm font-medium mb-1">Year Level (when the charge was incurred)</label>
@@ -1571,19 +1699,22 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               </div>
             </div>
             <div className="flex gap-2 justify-end mt-4">
-              <button onClick={() => {
-                setIndividualPayableDialogOpen(false);
-                setIndividualPayableForm({
-                  type: '',
-                  amount: '',
-                  yearLevel: ''
-                });
-              }} className="px-4 py-2 bg-gray-300 rounded-lg hover:bg-gray-400 cursor-pointer text-sm">
+              <button 
+                onClick={() => {
+                  setIndividualPayableDialogOpen(false);
+                  setIndividualPayableForm({
+                    type: '',
+                    amount: '',
+                    yearLevel: ''
+                  });
+                }} 
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
                 Cancel
               </button>
               <button
                 onClick={handleSaveIndividualPayable}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 cursor-pointer text-sm"
+                className="px-4 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={!individualPayableForm.type || !individualPayableForm.amount || !individualPayableForm.yearLevel || loading}
               >
                 {loading ? 'Adding...' : 'Add Previous Balance'}
@@ -1597,19 +1728,17 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {deleteDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
-            className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50"
+            className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50"
             onClick={() => { setDeleteDialogOpen(false); setDeleteTarget(null); }}
           ></div>
-          <div className="bg-white rounded-lg p-6 max-w-md w-full relative z-10">
+          <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full relative z-10">
             <div className="flex items-start gap-3">
-              <div className="mt-1 text-red-600">
-                <i className="bi bi-exclamation-triangle-fill text-2xl"></i>
-              </div>
+             
               <div className="flex-1">
                 <h2 className="text-xl font-bold mb-1">Delete Payable</h2>
                 <p className="text-sm text-gray-700 mb-2">
                   Are you sure you want to delete
-                  {` "${deleteTarget?.type || ''}"`} payable?
+                  {` "${deleteTarget?.type || ''}"`} payable? This cannot be undone.
                 </p>
                 {typeof deleteTarget?.amount !== 'undefined' && (
                   <p className="text-sm text-gray-600 mb-2">
@@ -1653,8 +1782,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {/* Transaction History Modal */}
       {transactionModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => setTransactionModalOpen(false)}></div>
-          <div className="bg-white rounded-lg p-6 max-w-xl w-full max-h-140 overflow-y-auto relative z-10">
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => setTransactionModalOpen(false)}></div>
+          <div className="bg-white rounded-2xl shadow-lg p-8 max-w-xl w-full max-h-140 overflow-y-auto relative z-10">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold">Transaction History</h2>
               <button 
@@ -1673,7 +1802,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
             <div className="space-y-2">
               {transactionPayments.length === 0 ? (
-                <p className="text-gray-600">No transactions yet.</p>
+                <p className="text-gray-600 text-sm">No transactions yet.</p>
               ) : (
                 transactionPayments.map((payment, idx) => {
                   const paidSoFar = transactionPayments.slice(0, idx + 1).reduce((s, p) => s + (Number(p.amount) || 0), 0);
@@ -1688,8 +1817,30 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           {payment.description && <p className="text-sm text-gray-600">{payment.description}</p>}
                         </div>
                         <div className="text-right">
-                          <p className="text-sm text-gray-500">{getFormattedDate(payment.date)}</p>
-                          <p className="text-sm text-gray-600">Mode: <span className="font-semibold">{payment.mode || payment.method || payment.paymentMode || 'N/A'}</span></p>
+                          <div className="flex items-center justify-end gap-2">
+                            <p className="text-sm text-gray-500">{getFormattedDate(payment.date)}</p>
+                            <button
+                              type="button"
+                              className="p-1 rounded-full text-gray-700 hover:bg-gray-100"
+                              onClick={() => {
+                                const totalPrice = Number(transactionPayable?.amount) || 0;
+                                const currentPaymentAmount = Number(payment.amount) || 0;
+                                const totalPaidSoFar = paidSoFar;
+                                const previousPaid = Math.max(0, totalPaidSoFar - currentPaymentAmount);
+                                openReceiptForPayment(selectedStudentModal, transactionPayable, {
+                                  ...payment,
+                                  price: totalPrice,
+                                  previousPaid,
+                                  totalPaid: totalPaidSoFar,
+                                  balanceAfter: remainingAfter
+                                });
+                              }}
+                              title="Print receipt"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </button>
+                          </div>
+                          <p className="text-sm text-gray-600">Mode: <span className="font-semibold capitalize">{payment.mode || payment.method || payment.paymentMode || 'N/A'}</span></p>
                           {payment.reference && <p className="text-sm text-gray-500">Ref: <span className="font-mono">{payment.reference}</span></p>}
                           <p className="text-sm mt-2">Remaining: <span className={`font-semibold ${remainingAfter > 0 ? 'text-red-600' : 'text-green-600'}`}>₱{remainingAfter.toLocaleString()}</span></p>
                         </div>
@@ -1699,9 +1850,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                     </div>
 
                     {idx === transactionPayments.length - 1 && (
-                      <div className='mt-2 text-end'>
+                      <div className='mt-2 text-end text-sm'>
                         Total Balance: 
-                        <span className={`font-bold ${remainingAfter > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        <span className={`font-bold ml-1 ${remainingAfter > 0 ? 'text-red-600' : 'text-green-600'}`}>
                           ₱{remainingAfter.toLocaleString()}
                         </span>
                       </div>
@@ -1718,7 +1869,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {/* Student Transactions Modal */}
       {studentTransactionsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/20 backdrop-blur-xs bg-opacity-50" onClick={() => setStudentTransactionsModalOpen(false)}></div>
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => setStudentTransactionsModalOpen(false)}></div>
           <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-140 overflow-y-auto relative z-10">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold">Transaction History</h2>
@@ -1748,6 +1899,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             </div>
           </div>
         </div>
+      )}
+      {receiptModalOpen && (
+        <ReceiptModal open={receiptModalOpen} onClose={() => setReceiptModalOpen(false)} receiptData={receiptData} />
       )}
     </div>
   );

@@ -1891,7 +1891,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
               </button>
               <button
                 onClick={saveEquivsFromModal}
-                className="px-6 py-1.5 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 Save
               </button>

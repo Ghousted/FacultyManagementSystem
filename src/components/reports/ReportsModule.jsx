@@ -133,6 +133,60 @@ const StudentDetailsModal = ({ isOpen, onClose, student }) => {
   );
 };
 
+const FilenameModal = ({ isOpen, onClose, onConfirm, defaultName = 'deans_list_all_years' }) => {
+  const [name, setName] = useState(defaultName);
+  const [useExactLayout, setUseExactLayout] = useState(false);
+
+  useEffect(() => setName(defaultName), [defaultName]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
+      <div className="bg-white p-6 rounded-3xl shadow-2xl w-96 max-w-full">
+        <h3 className="text-lg font-bold text-blue-700">Export File</h3>
+        <p className="text-sm text-gray-600 mb-4">Enter a filename for the exported Excel file.</p>
+        <div className="flex items-center">
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            className="flex-1 border border-gray-300 rounded-l-lg px-3 py-1.5 text-sm focus:outline-none"
+            placeholder="filename"
+          />
+          <span className="px-3 py-1.5 text-sm bg-gray-100 border border-gray-300 border-l-0 rounded-r-lg">.xlsx</span>
+        </div>
+        <div className="flex items-center justify-between gap-4 mt-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={useExactLayout} onChange={e => setUseExactLayout(e.target.checked)} className="w-4 h-4" />
+            <span>Exact layout (may be slower)</span>
+          </label>
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer">Cancel</button>
+            <button
+              onClick={() => onConfirm((name || defaultName).trim(), useExactLayout ? 'full' : 'compact')}
+              className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              Export
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const LoadingModal = ({ isOpen }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+      <div className="bg-white p-6 rounded-xl shadow-lg flex flex-col items-center gap-4">
+        <div className="animate-spin rounded-full h-10 w-10 border-t-4 border-b-4 border-blue-600"></div>
+        <div className="text-sm text-gray-700">Processing export, please wait…</div>
+      </div>
+    </div>
+  );
+};
+
 const ReportsModule = ({ onBackToDashboard }) => {
   const [criteria, setCriteria] = useState({
     major: 1.7,
@@ -147,9 +201,11 @@ const ReportsModule = ({ onBackToDashboard }) => {
   const [sortBy, setSortBy] = useState(null); // 'name' | 'gwa'
   const [sortDir, setSortDir] = useState('asc'); // 'asc' | 'desc'
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [isFilenameModalOpen, setIsFilenameModalOpen] = useState(false);
   const [visibleRows, setVisibleRows] = useState(4);
   const observer = useRef();
   const loadMoreRef = useRef();
@@ -233,9 +289,7 @@ const ReportsModule = ({ onBackToDashboard }) => {
     setVisibleRows(prev => Math.min(prev + 4, deansList.length));
   };
 
-  const handleDownload = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    setLoading(true);
+  const prepareAndExport = async (filename, styleLevel = 'compact') => {
     try {
       const studentsRes = await getStudents();
       if (!studentsRes.success) {
@@ -292,10 +346,32 @@ const ReportsModule = ({ onBackToDashboard }) => {
         }
       }
 
-      exportDeanListToExcel(allCandidates, 'deans_list_all_years.xlsx');
-    } finally {
-      setLoading(false);
+      // Choose export options based on requested styleLevel
+      try {
+        setExporting(true);
+        // allow modal to render before heavy work
+        await new Promise(resolve => setTimeout(resolve, 50));
+        if (styleLevel === 'compact') {
+          // compact styled output (faster)
+          exportDeanListToExcel(allCandidates, `${filename}.xlsx`, { useStyles: true, styleLevel: 'compact' });
+        } else if (styleLevel === 'full') {
+          // full styled output (slower but more exact)
+          exportDeanListToExcel(allCandidates, `${filename}.xlsx`, { useStyles: true, styleLevel: 'full' });
+        } else {
+          // none or unknown: pure fast no-style export
+          exportDeanListToExcel(allCandidates, `${filename}.xlsx`, { useStyles: false });
+        }
+      } finally {
+        setExporting(false);
+      }
+    } catch (err) {
+      console.error('Export failed', err);
     }
+  };
+
+  const handleExportClick = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    setIsFilenameModalOpen(true);
   };
 
   const toggleSort = field => {
@@ -358,7 +434,7 @@ const ReportsModule = ({ onBackToDashboard }) => {
               id="semester-dropdown"
               value={tabSem}
               onChange={e => setTabSem(Number(e.target.value))}
-              className="border border-blue-300 rounded-full px-3 py-1.5 text-sm shadow-md focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+              className="border border-blue-300 rounded-full px-3 py-1 text-sm shadow-md focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
             >
               {semTabs.map((tab, idx) => (
                 <option key={tab.value} value={idx}>
@@ -371,14 +447,14 @@ const ReportsModule = ({ onBackToDashboard }) => {
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => setIsModalOpen(true)}
-              className="rounded-lg text-sm px-3 py-1.5 cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow flex items-center gap-1"
+              className="rounded-full text-sm px-3 py-1.5 cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow flex items-center gap-1"
             >
               <Settings2 className="h-4 w-4" /> Configure
             </button>
             <button
               type="button"
-              onClick={handleDownload}
-              className="rounded-lg text-sm px-3 py-1.5 cursor-pointer bg-green-600 hover:bg-green-700 text-white font-semibold shadow flex items-center gap-1"
+              onClick={handleExportClick}
+              className="rounded-full text-sm px-3 py-1.5 cursor-pointer bg-green-600 hover:bg-green-700 text-white font-semibold shadow flex items-center gap-1"
             >
               <Download className="h-4 w-4" /> Export Excel
             </button>
@@ -490,11 +566,18 @@ const ReportsModule = ({ onBackToDashboard }) => {
         criteria={criteria}
         setCriteria={setCriteria}
       />
+      <FilenameModal
+        isOpen={isFilenameModalOpen}
+        onClose={() => setIsFilenameModalOpen(false)}
+        onConfirm={(name, styleLevel) => { setIsFilenameModalOpen(false); prepareAndExport(name || 'deans_list_all_years', styleLevel || 'compact'); }}
+        defaultName={'deans_list_all_years'}
+      />
       <StudentDetailsModal
         isOpen={isDetailsModalOpen}
         onClose={() => setIsDetailsModalOpen(false)}
         student={selectedStudent}
       />
+      <LoadingModal isOpen={exporting} />
     </div>
   );
 };

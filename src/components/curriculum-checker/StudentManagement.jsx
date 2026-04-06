@@ -26,6 +26,7 @@ const StudentManagement = ({ onBack }) => {
   const handleSelectStudent = (student) => {
     setSelectedStudent(student);
     setCourseTab(student.yearLevel - 1);
+    setLastSelectedStudentId(student.id);
   };
   
   // Student form state
@@ -64,6 +65,7 @@ const StudentManagement = ({ onBack }) => {
 
   // Selection state for bulk actions
   const [selectedIds, setSelectedIds] = useState([]);
+  const [lastSelectedStudentId, setLastSelectedStudentId] = useState(null);
   const [multiEditOpen, setMultiEditOpen] = useState(false);
   const [multiDeleteOpen, setMultiDeleteOpen] = useState(false);
   const [multiEditYear, setMultiEditYear] = useState(1);
@@ -197,6 +199,19 @@ const StudentManagement = ({ onBack }) => {
       loadStudentGrades(selectedStudent.id);
     }
   }, [selectedStudent]);
+
+  // When returning to the student list, scroll the previously selected student into view
+  useEffect(() => {
+    if (!selectedStudent && lastSelectedStudentId) {
+      // allow DOM to update
+      setTimeout(() => {
+        const el = document.getElementById(`student-row-${lastSelectedStudentId}`);
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 50);
+    }
+  }, [selectedStudent, lastSelectedStudentId, studentListTab, viewMode]);
 
   useEffect(() => {
     if (success) {
@@ -613,14 +628,10 @@ const StudentManagement = ({ onBack }) => {
   />
 </div>
 
-  
-
-
 </div>
      </div>
 
 
-      {/* Bulk action bar when items selected */}
       {selectedIds.length > 0 && (
         <div className="mb-3 flex items-center  gap-4">
           <div className="text-sm text-gray-700">{selectedIds.length} selected</div>
@@ -707,6 +718,36 @@ const StudentManagement = ({ onBack }) => {
             );
           }
 
+          // Create a sorted copy of filtered students for table display
+          const sortedStudents = filteredStudents.slice().sort((a, b) => {
+            let aValue = '';
+            let bValue = '';
+            switch (sortBy) {
+              case 'studentNumber':
+                aValue = a.studentNumber || '';
+                bValue = b.studentNumber || '';
+                return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+              case 'name':
+                aValue = a.name || '';
+                bValue = b.name || '';
+                return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+              case 'email':
+                aValue = a.email || '';
+                bValue = b.email || '';
+                return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+              case 'contactNumber':
+                aValue = a.contactNumber || '';
+                bValue = b.contactNumber || '';
+                return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+              case 'curriculum':
+                aValue = getCurriculumName(a.curriculumId) || '';
+                bValue = getCurriculumName(b.curriculumId) || '';
+                return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+              default:
+                return 0;
+            }
+          });
+
           if (filteredStudents.length === 0) {
             return (
               <div className="text-center py-8">
@@ -742,6 +783,7 @@ const StudentManagement = ({ onBack }) => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredStudents.map((student) => (
                       <div
+                          id={`student-row-${student.id}`}
                           key={student.id}
                           className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md cursor-pointer transition-shadow relative"
                           onClick={() => handleSelectStudent(student)}
@@ -832,18 +874,44 @@ const StudentManagement = ({ onBack }) => {
                         }}
                       />
                     </th>
-                    <th className="p-2 w-[20%] text-left">Student No.</th>
-                    <th className="p-2 w-[20%] text-left">Name</th>
-                    <th className="p-2 w-[20%] text-left">Email</th>
-                    <th className="p-2 w-[20%] text-left">Contact No.</th>
-                    <th className="p-2 w-[15%] text-left">Curriculum</th>
+                    <th
+                      className="p-2 w-[20%] text-left cursor-pointer"
+                      onClick={() => handleSort('studentNumber')}
+                    >
+                      Student No. {sortBy === 'studentNumber' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
+                    </th>
+                    <th
+                      className="p-2 w-[20%] text-left cursor-pointer"
+                      onClick={() => handleSort('name')}
+                    >
+                      Name {sortBy === 'name' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
+                    </th>
+                    <th
+                      className="p-2 w-[20%] text-left cursor-pointer"
+                      onClick={() => handleSort('email')}
+                    >
+                      Email {sortBy === 'email' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
+                    </th>
+                    <th
+                      className="p-2 w-[20%] text-left cursor-pointer"
+                      onClick={() => handleSort('contactNumber')}
+                    >
+                      Contact No.
+                    </th>
+                    <th
+                      className="p-2 w-[15%] text-left cursor-pointer"
+                      onClick={() => handleSort('curriculum')}
+                    >
+                      Curriculum 
+                    </th>
                     <th className="p-2 w-[10%] text-left">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredStudents.map((student) => {
+                  {sortedStudents.map((student) => {
                     return (
                       <tr
+                        id={`student-row-${student.id}`}
                         key={student.id}
                         className="border-t border-gray-300 hover:bg-gray-50 cursor-pointer"
                         onClick={() => handleSelectStudent(student)}
@@ -880,7 +948,7 @@ const StudentManagement = ({ onBack }) => {
                                 e.stopPropagation();
                                 handleStartEdit(student);
                               }}
-                              className="p-1 cursor-pointer rounded text-xs font-medium bg-green-600 text-white border border-green-600 hover:bg-green-700"
+              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                             >
                               <Pencil className="w-4 h-4" />
                             </button>
@@ -889,7 +957,7 @@ const StudentManagement = ({ onBack }) => {
                                 e.stopPropagation();
                                 handleDeleteStudent(student.id);
                               }}
-                              className="p-1 cursor-pointer rounded text-xs font-medium bg-red-600 text-white border border-red-600 hover:bg-red-700"
+              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                             >
                               <Trash className="w-4 h-4" />
                             </button>
@@ -1221,7 +1289,7 @@ const StudentManagement = ({ onBack }) => {
         });
         setStudentDialogOpen(true);
       }}
-      className="inline-flex items-center text-sm gap-2 cursor-pointer bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700"
+      className="inline-flex items-center text-sm gap-2 cursor-pointer bg-green-600 text-white px-3 py-2 rounded-full hover:bg-green-700"
     >
       <BadgePlus className="w-4 h-4" />
       <span>Add Student</span>

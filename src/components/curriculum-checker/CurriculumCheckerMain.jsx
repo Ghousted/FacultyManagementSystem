@@ -25,6 +25,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
   const [studentView, setStudentView] = useState('list');
   const [showAvailableCourses, setShowAvailableCourses] = useState(true);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+  const [lastSelectedStudentId, setLastSelectedStudentId] = useState(null);
 
   useEffect(() => {
     if (currentUser) {
@@ -47,6 +48,18 @@ const CurriculumCheckerMain = ({ onBack }) => {
     }
     setFilteredStudents(filtered);
   }, [students, searchTerm, tabValue]);
+
+  // When returning to the student list, scroll the previously selected student into view
+  useEffect(() => {
+    if (!selectedStudent && lastSelectedStudentId) {
+      setTimeout(() => {
+        const el = document.getElementById(`student-row-${lastSelectedStudentId}`);
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 50);
+    }
+  }, [selectedStudent, lastSelectedStudentId, tabValue, studentView]);
 
   const requestSort = (key) => {
     let direction = 'asc';
@@ -183,6 +196,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
 
   const handleStudentSelect = async (student) => {
     setSelectedStudent(student);
+    setLastSelectedStudentId(student.id);
     setTabValue(student.isIrregular ? 4 : student.yearLevel - 1);
     setLoading(true);
 
@@ -448,6 +462,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
           {sortedStudents.map((student) => (
             <div
+              id={`student-row-${student.id}`}
               key={student.id}
               className="cursor-pointer transition-all duration-300 border border-gray-300 rounded-xl bg-white hover:shadow-lg hover:border-blue-500 p-6"
               onClick={() => handleStudentSelect(student)}
@@ -542,6 +557,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
             <tbody>
               {sortedStudents.map((student) => (
                 <tr
+                  id={`student-row-${student.id}`}
                   key={student.id}
                   onClick={() => handleStudentSelect(student)}
                   className="hover:bg-gray-50 cursor-pointer"

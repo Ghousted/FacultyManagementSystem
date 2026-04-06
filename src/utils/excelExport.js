@@ -1,10 +1,73 @@
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 
-export function exportDeanListToExcel(data, defaultFilename = 'deans_list.xlsx') {
-  // Create a new workbook
+export function exportDeanListToExcel(data, defaultFilename = 'deans_list.xlsx', options = { useStyles: true, styleLevel: 'compact' }) {
   const wb = XLSX.utils.book_new();
 
+  // Fast export path (no per-cell styles or merges) for improved speed
+  if (!options.useStyles) {
+    const studentsByYear = {
+      '1st Year': [],
+      '2nd Year': [],
+      '3rd Year': [],
+      '4th Year': [],
+      'Irregulars': []
+    };
+
+    data.forEach(student => {
+      if (student.yearLevel === 1) studentsByYear['1st Year'].push(student);
+      else if (student.yearLevel === 2) studentsByYear['2nd Year'].push(student);
+      else if (student.yearLevel === 3) studentsByYear['3rd Year'].push(student);
+      else if (student.yearLevel === 4) studentsByYear['4th Year'].push(student);
+      else studentsByYear['Irregulars'].push(student);
+    });
+
+    const yearOrder = ['1st Year', '2nd Year', '3rd Year', '4th Year', 'Irregulars'];
+    yearOrder.forEach(year => {
+      const rows = [];
+      const students = studentsByYear[year] || [];
+      if (students.length === 0) {
+        const ws = XLSX.utils.aoa_to_sheet([['No students found']]);
+        ws['!cols'] = [{ wch: 30 }];
+        XLSX.utils.book_append_sheet(wb, ws, year);
+        return;
+      }
+
+      // Header
+      rows.push(['Name', 'GWA', 'Subject', 'Grade', 'Code', 'Units']);
+
+      students.forEach(student => {
+        const grades = student.grades || [];
+        if (grades.length === 0) {
+          rows.push([student.name, student.gwa || '', '', '', '', '']);
+        } else {
+          grades.forEach((g, idx) => {
+            rows.push([
+              idx === 0 ? student.name : '',
+              idx === 0 ? (student.gwa || '') : '',
+              g.subject || '',
+              (g.grade !== undefined && g.grade !== null) ? parseFloat(g.grade).toFixed(2) : '',
+              g.code || '',
+              g.units || ''
+            ]);
+          });
+        }
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      // quick col width estimate
+      ws['!cols'] = [{ wch: 30 }, { wch: 8 }, { wch: 40 }, { wch: 8 }, { wch: 12 }, { wch: 6 }];
+      XLSX.utils.book_append_sheet(wb, ws, year);
+    });
+
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveAs(new Blob([wbout], { type: 'application/octet-stream' }), defaultFilename);
+    return;
+  }
+
+  // Fallback: styled export. We support two style levels:
+  //  - 'compact' (faster): preserves merges, headers, fonts, column widths, but minimizes per-cell borders/styles
+  //  - 'full' (slower): original per-cell styles and borders to closely match Excel visuals
   // Group students by year
   const studentsByYear = {
     '1st Year': [],
@@ -48,7 +111,7 @@ export function exportDeanListToExcel(data, defaultFilename = 'deans_list.xlsx')
 
     const wsData = [];
     const merges = [];
-    const wsBorders = {};
+    // For compact mode we will only set styles for name/header/GWA rows and rely on default cell borders
     const wsStyles = {};
 
     const tablesPerRow = 3;
@@ -91,7 +154,7 @@ export function exportDeanListToExcel(data, defaultFilename = 'deans_list.xlsx')
           e: { r: rowOffset + studentRows.length - 1, c: startCol + 3 }
         });
 
-        // Place studentRows into wsData and attach styles
+        // Place studentRows into wsData and attach minimal styles for compact mode
         studentRows.forEach((r, rIndex) => {
           const targetRow = rowOffset + rIndex;
           if (!wsData[targetRow]) wsData[targetRow] = [];
@@ -100,42 +163,26 @@ export function exportDeanListToExcel(data, defaultFilename = 'deans_list.xlsx')
             wsData[targetRow][col] = cell;
 
             const addr = XLSX.utils.encode_cell({ r: targetRow, c: col });
-            // Add thin border for every cell inside the student block
-            wsBorders[addr] = {
-              top: { style: 'thin', color: { auto: 1 } },
-              bottom: { style: 'thin', color: { auto: 1 } },
-              left: { style: 'thin', color: { auto: 1 } },
-              right: { style: 'thin', color: { auto: 1 } }
-            };
-
-            // Style: name row (rIndex === 0)
-            if (rIndex === 0) {
-              wsStyles[addr] = {
-                font: { bold: true },
-                alignment: { horizontal: 'center', vertical: 'center' }
-              };
-            }
-
-            // Style: header row (rIndex === 1)
-            else if (rIndex === 1) {
-              wsStyles[addr] = {
-                font: { bold: true },
-                fill: { patternType: 'solid', fgColor: { rgb: 'DDEBF7' } },
-                alignment: { horizontal: cIndex === 0 ? 'center' : 'center', vertical: 'center' }
-              };
-            }
-
-            // Style: GWA row (last row)
-            else if (rIndex === studentRows.length - 1) {
-              wsStyles[addr] = {
-                font: { italic: true },
-                alignment: { horizontal: 'left', vertical: 'center' }
-              };
+            // Only assign a small set of styles (name, header, GWA) to speed up generation
+            if (options.styleLevel !== 'full') {
+              if (rIndex === 0) {
+                wsStyles[addr] = { font: { bold: true }, alignment: { horizontal: 'center', vertical: 'center' } };
+              } else if (rIndex === 1) {
+                wsStyles[addr] = { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'DDEBF7' } }, alignment: { horizontal: 'center', vertical: 'center' } };
+              } else if (rIndex === studentRows.length - 1) {
+                wsStyles[addr] = { font: { italic: true }, alignment: { horizontal: 'left', vertical: 'center' } };
+              }
             } else {
-              // Grades rows: center grade, code center, course left, units center
-              wsStyles[addr] = {
-                alignment: { horizontal: cIndex === 2 ? 'left' : 'center', vertical: 'center', wrapText: cIndex === 2 }
-              };
+              // full mode: preserve original behavior (per-cell alignment)
+              if (rIndex === 0) {
+                wsStyles[addr] = { font: { bold: true }, alignment: { horizontal: 'center', vertical: 'center' } };
+              } else if (rIndex === 1) {
+                wsStyles[addr] = { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: 'DDEBF7' } }, alignment: { horizontal: cIndex === 0 ? 'center' : 'center', vertical: 'center' } };
+              } else if (rIndex === studentRows.length - 1) {
+                wsStyles[addr] = { font: { italic: true }, alignment: { horizontal: 'left', vertical: 'center' } };
+              } else {
+                wsStyles[addr] = { alignment: { horizontal: cIndex === 2 ? 'left' : 'center', vertical: 'center', wrapText: cIndex === 2 } };
+              }
             }
           });
         });
@@ -183,41 +230,41 @@ export function exportDeanListToExcel(data, defaultFilename = 'deans_list.xlsx')
       if (gapCol > 0 && ws['!cols'][start + 4]) ws['!cols'][start + 4] = { wch: 2 };
     }
 
-    // Apply borders and styles to cells we've tracked
-    Object.keys(wsBorders).forEach(cell => {
+    // Apply tracked styles to cells
+    Object.keys(wsStyles).forEach(cell => {
       if (!ws[cell]) ws[cell] = { t: 's', v: '' };
-      const borderStyle = wsBorders[cell];
-      const styleObj = Object.assign({}, wsStyles[cell] || {});
-      styleObj.border = borderStyle;
-      ws[cell].s = styleObj;
+      ws[cell].s = Object.assign({}, ws[cell].s || {}, wsStyles[cell]);
     });
 
-    // Ensure merged ranges also have cell objects and thin borders so the table blocks are boxed
-    merges.forEach(mrg => {
-      const topLeft = XLSX.utils.encode_cell({ r: mrg.s.r, c: mrg.s.c });
-      const topLeftStyle = wsStyles[topLeft] || {};
-      for (let rr = mrg.s.r; rr <= mrg.e.r; rr++) {
-        for (let cc = mrg.s.c; cc <= mrg.e.c; cc++) {
-          const cellAddr = XLSX.utils.encode_cell({ r: rr, c: cc });
-          if (!ws[cellAddr]) ws[cellAddr] = { t: 's', v: '' };
-          ws[cellAddr].s = Object.assign({}, topLeftStyle, ws[cellAddr].s || {});
-          ws[cellAddr].s.border = ws[cellAddr].s.border || {
-            top: { style: 'thin', color: { auto: 1 } },
-            bottom: { style: 'thin', color: { auto: 1 } },
-            left: { style: 'thin', color: { auto: 1 } },
-            right: { style: 'thin', color: { auto: 1 } }
-          };
+    // If full styling is requested, add thin borders to all populated cells and ensure merged ranges are filled
+    if (options.styleLevel === 'full') {
+      const thinBorder = { top: { style: 'thin', color: { auto: 1 } }, bottom: { style: 'thin', color: { auto: 1 } }, left: { style: 'thin', color: { auto: 1 } }, right: { style: 'thin', color: { auto: 1 } } };
+      Object.keys(ws).forEach(cellAddr => {
+        if (cellAddr[0] === '!') return;
+        if (!ws[cellAddr].s) ws[cellAddr].s = {};
+        if (!ws[cellAddr].s.border) ws[cellAddr].s.border = thinBorder;
+      });
+
+      // Ensure merged ranges also have cell objects and at least the top-left style
+      merges.forEach(mrg => {
+        const topLeft = XLSX.utils.encode_cell({ r: mrg.s.r, c: mrg.s.c });
+        const topLeftStyle = wsStyles[topLeft] || {};
+        for (let rr = mrg.s.r; rr <= mrg.e.r; rr++) {
+          for (let cc = mrg.s.c; cc <= mrg.e.c; cc++) {
+            const cellAddr = XLSX.utils.encode_cell({ r: rr, c: cc });
+            if (!ws[cellAddr]) ws[cellAddr] = { t: 's', v: '' };
+            ws[cellAddr].s = Object.assign({}, topLeftStyle, ws[cellAddr].s || {});
+            if (!ws[cellAddr].s.border) ws[cellAddr].s.border = thinBorder;
+          }
         }
-      }
-    });
+      });
+    }
 
     // Append worksheet to workbook
     XLSX.utils.book_append_sheet(wb, ws, year);
   });
 
-  // Generate Excel file
+  // Generate Excel file (styled)
   const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
-
-  // Trigger file save
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), defaultFilename);
 }

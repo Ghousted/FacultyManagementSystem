@@ -1,4 +1,0 @@
-Payables –  include a print feature / ui
-Navigation Fix – When going back, it should return to the previously selected student instead of going back to the top.
-Student Management - Add sorting in header of table use icons chevron from lucide react
-Export Excel - Fix Irregular students 
