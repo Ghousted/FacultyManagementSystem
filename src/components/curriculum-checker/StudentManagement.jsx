@@ -69,6 +69,7 @@ const StudentManagement = ({ onBack }) => {
   const [multiEditOpen, setMultiEditOpen] = useState(false);
   const [multiDeleteOpen, setMultiDeleteOpen] = useState(false);
   const [multiEditYear, setMultiEditYear] = useState(1);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   const handleSort = (column) => {
     if (sortBy === column) {
@@ -221,6 +222,34 @@ const StudentManagement = ({ onBack }) => {
       return () => clearTimeout(timer);
     }
   }, [success]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 250);
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const handleScrollToTop = () => {
+    // Scroll every likely scroll container to ensure we reach the true page top.
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (document.documentElement) {
+      document.documentElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    if (document.body) {
+      document.body.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const rootElement = document.getElementById('root');
+    if (rootElement && typeof rootElement.scrollTo === 'function') {
+      rootElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   const loadStudentCourses = async (curriculumId) => {
     if (!curriculumId) return;
@@ -586,36 +615,36 @@ const StudentManagement = ({ onBack }) => {
      
      <div className='flex-1 flex justify-between items-center  gap-4 mb-4'>
       <div className=" flex flex-wrap gap-2  border-gray-300 text-sm">
-  {[1, 2, 3, 4].map((year, idx) => (
-    <button
-      key={year}
-      onClick={() => setStudentListTab(idx + 1)}
-      className={`px-3 py-1  rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
-        ${studentListTab === idx + 1
-          ? 'bg-blue-600 text-white border-blue-700 scale-105'
-          : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
-        }
-      `}
-    >
-      {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year ({getStudentCountByYear(year)})
-    </button>
-  ))}
+        {[1, 2, 3, 4].map((year, idx) => (
+          <button
+            key={year}
+            onClick={() => setStudentListTab(idx + 1)}
+            className={`px-3 py-1  rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
+              ${studentListTab === idx + 1
+                ? 'bg-blue-600 text-white border-blue-700 '
+                : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+              }
+            `}
+          >
+            {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year ({getStudentCountByYear(year)})
+          </button>
+        ))}
 
-  <button
-    onClick={() => setStudentListTab(5)}
-    className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
-        ${studentListTab === 5
-        ? 'bg-blue-600 text-white border-blue-700 scale-105'
-        : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
-      }
-    `}
-  >
-    Irregular ({getIrregularStudentCount()})
-  </button>
-</div>
+        <button
+          onClick={() => setStudentListTab(5)}
+          className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
+              ${studentListTab === 5
+              ? 'bg-blue-600 text-white border-blue-700'
+              : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+            }
+          `}
+        >
+          Irregular ({getIrregularStudentCount()})
+        </button>
+      </div>
 
 
-     <div className="flex items-center gap-2">
+     <div className="flex items-center gap-4">
  
 <div className="relative w-full sm:w-70">
   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -628,43 +657,48 @@ const StudentManagement = ({ onBack }) => {
   />
 </div>
 
-</div>
-     </div>
-
-
-      {selectedIds.length > 0 && (
-        <div className="mb-3 flex items-center  gap-4">
-          <div className="text-sm text-gray-700">{selectedIds.length} selected</div>
-          <div className="flex items-center ga">
+  {selectedIds.length > 0 && (
+        <div className="flex items-center  gap-2">
+          <div className="text-xs text-gray-700">{selectedIds.length} selected</div>
+          <div className="flex items-center gap">
             <button
               onClick={() => {
                 const first = students.find(s => s.id === selectedIds[0]);
                 setMultiEditYear(first ? first.yearLevel : 1);
                 setMultiEditOpen(true);
               }}
-              className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
             >
               <Pencil className="w-4 h-4" />
             </button>
             <button
               onClick={() => setMultiDeleteOpen(true)}
-              className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
             >
               <Trash className="w-4 h-4" />
             </button>
           </div>
         </div>
       )}
+
+</div>
+     </div>
+
+
+    
       {/* Multi-edit Year Modal */}
       {multiEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setMultiEditOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setMultiEditOpen(false)}></div>
           <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-6">
-            <div className="text-xl font-semibold mb-4">Edit Year Level for Selected Students</div>
+            <div className="text-lg mb-2 font-medium">Edit Year Level for Selected Students</div>
+            
+             
+
             <div>
               <label className="block text-sm text-gray-600 mb-1">Year Level</label>
               <select
-                className="w-full border border-gray-300 rounded px-3 py-2"
+                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm cursor-pointer"
                 value={multiEditYear}
                 onChange={(e) => setMultiEditYear(parseInt(e.target.value, 10))}
               >
@@ -673,9 +707,26 @@ const StudentManagement = ({ onBack }) => {
                 ))}
               </select>
             </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setMultiEditOpen(false)} className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100">Cancel</button>
-              <button onClick={handleMultiEditSave} disabled={loading} className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Save</button>
+
+            {/* Info / Warning */}
+              <div className="px-4 py-2 mb-8 text-sm mt-4  text-blue-800 bg-blue-50 border border-blue-200 rounded-lg">
+                Updating the year level will affect all selected students.
+              </div>
+
+            <div className="mt-8 flex justify-end gap-2">
+              <button 
+                onClick={() => setMultiEditOpen(false)} 
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleMultiEditSave} 
+                disabled={loading} 
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+              >
+                Save
+              </button>
             </div>
           </div>
         </div>
@@ -684,15 +735,26 @@ const StudentManagement = ({ onBack }) => {
       {/* Multi-delete Confirmation Modal */}
       {multiDeleteOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setMultiDeleteOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setMultiDeleteOpen(false)}></div>
           <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Confirm Delete</div>
-            <div className="text-gray-700 mb-6">
+            <div className="text-gray-700 mb-8">
               Are you sure you want to delete the selected students? This action cannot be undone.
             </div>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setMultiDeleteOpen(false)} className="px-4 cursor-pointer py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100">Cancel</button>
-              <button onClick={handleConfirmMultiDelete} disabled={loading} className="px-4 py-1.5 cursor-pointer rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">{loading ? 'Deleting...' : 'Delete'}</button>
+              <button 
+                onClick={() => setMultiDeleteOpen(false)} 
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleConfirmMultiDelete}
+                 disabled={loading} 
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                >
+                  {loading ? 'Deleting...' : 'Delete'}
+                </button>
             </div>
           </div>
         </div>
@@ -856,11 +918,11 @@ const StudentManagement = ({ onBack }) => {
           }
 
           return (
-            <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
               <table className="min-w-full text-sm">
                 <thead className="bg-blue-700 text-white sticky top-0">
                   <tr>
-                    <th className="p-2 w-[5%] text-left">
+                    <th className="px-2 py-1 w-[5%] text-left">
                       <input
                         type="checkbox"
                         className="h-4 w-4"
@@ -875,36 +937,36 @@ const StudentManagement = ({ onBack }) => {
                       />
                     </th>
                     <th
-                      className="p-2 w-[20%] text-left cursor-pointer"
+                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
                       onClick={() => handleSort('studentNumber')}
                     >
                       Student No. {sortBy === 'studentNumber' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
                     </th>
                     <th
-                      className="p-2 w-[20%] text-left cursor-pointer"
+                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
                       onClick={() => handleSort('name')}
                     >
                       Name {sortBy === 'name' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
                     </th>
                     <th
-                      className="p-2 w-[20%] text-left cursor-pointer"
+                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
                       onClick={() => handleSort('email')}
                     >
                       Email {sortBy === 'email' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
                     </th>
                     <th
-                      className="p-2 w-[20%] text-left cursor-pointer"
+                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
                       onClick={() => handleSort('contactNumber')}
                     >
                       Contact No.
                     </th>
                     <th
-                      className="p-2 w-[15%] text-left cursor-pointer"
+                      className="px-2 py-1 w-[15%] text-left cursor-pointer"
                       onClick={() => handleSort('curriculum')}
                     >
                       Curriculum 
                     </th>
-                    <th className="p-2 w-[10%] text-left">Actions</th>
+                    <th className="px-2 py-1 w-[10%] text-left">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -916,7 +978,7 @@ const StudentManagement = ({ onBack }) => {
                         className="border-t border-gray-300 hover:bg-gray-50 cursor-pointer"
                         onClick={() => handleSelectStudent(student)}
                       >
-                        <td className="p-2">
+                        <td className="px-2 py-1">
                           <input
                             type="checkbox"
                             className="h-4 w-4"
@@ -925,30 +987,30 @@ const StudentManagement = ({ onBack }) => {
                             onChange={() => {}}
                           />
                         </td>
-                        <td className="p-2">
+                        <td className="px-2 py-1">
                           <span className="font-semibold">{student.studentNumber || ''}</span>
                         </td>
-                        <td className="p-2">
+                        <td className="px-2 py-1">
                           <span className="font-semibold">{student.name}</span>
                         </td>
-                        <td className="p-2">
+                        <td className="px-2 py-1">
                           <span>{student.email}</span>
                         </td>
                     
-                        <td className="p-2">
+                        <td className="px-2 py-1">
                           <span>{student.contactNumber || ''}</span>
                         </td>
-                        <td className="p-2">
+                        <td className="px-2 py-1">
                           <span>{getCurriculumName(student.curriculumId)}</span>
                         </td>
-                        <td className="p-2">
+                        <td className="px-2 py-1">
                           <div className="flex items-center gap-2">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleStartEdit(student);
                               }}
-              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+                              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                             >
                               <Pencil className="w-4 h-4" />
                             </button>
@@ -957,7 +1019,7 @@ const StudentManagement = ({ onBack }) => {
                                 e.stopPropagation();
                                 handleDeleteStudent(student.id);
                               }}
-              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+                              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                             >
                               <Trash className="w-4 h-4" />
                             </button>
@@ -990,11 +1052,11 @@ const StudentManagement = ({ onBack }) => {
             <button
               key={year}
               onClick={() => setCourseTab(idx)}
-              className={`
-                px-3 py-1 rounded-full text-sm 
+              className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+
                 ${courseTab === idx
-                  ? 'bg-blue-500 text-white' 
-                        : 'bg-gray-300 text-gray-700 hover:bg-blue-500 hover:text-white cursor-pointer'
+                  ? 'bg-blue-600 text-white border-blue-700 scale-105'
+                    : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
                 }
               `}
             >
@@ -1010,21 +1072,21 @@ const StudentManagement = ({ onBack }) => {
               <div className="text-lg font-semibold text-blue-700 mb-2">
                 {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
               </div>
-             <div className="border border-gray-300 rounded-xl overflow-hidden">
+             <div className="border border-gray-300 rounded-lg overflow-hidden">
   <table className="min-w-full text-sm">
     <thead className="bg-blue-700 text-white">
       <tr>
-        <th className="p-2 w-[12%] text-left cursor-pointer" onClick={() => handleSort('courseCode')}>
+        <th className="px-2 py-1.5 w-[12%] text-left cursor-pointer" onClick={() => handleSort('courseCode')}>
           Course Code {sortBy === 'courseCode' && (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />)}
         </th>
-        <th className="p-2 w-[35%] text-left cursor-pointer" onClick={() => handleSort('courseTitle')}>
+        <th className="px-2 py-1.5 w-[35%] text-left cursor-pointer" onClick={() => handleSort('courseTitle')}>
           Course Title {sortBy === 'courseTitle' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
-        <th className="p-2 w-[8%] text-center cursor-pointer" onClick={() => handleSort('units')}>
-          Units {sortBy === 'units' && (sortOrder === 'asc' ? '↑' : '↓')}
+          <th className="px-2 py-1.5 w-[8%] text-center cursor-pointer" onClick={() => handleSort('units')}>
+            Units {sortBy === 'units' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
-        <th className="p-2 w-[20%] text-left">Prerequisites</th>
-        <th className="p-2 w-[10%] text-left">Grade</th>
+        <th className="px-2 py-1.5 w-[20%] text-left">Prerequisites</th>
+        <th className="px-2 py-1.5 w-[10%] text-left">Grade</th>
       </tr>
     </thead>
 
@@ -1052,14 +1114,14 @@ const StudentManagement = ({ onBack }) => {
         })
         .map((course) => (
           <tr key={course.id} className="border-t border-gray-300 hover:bg-gray-50">
-            <td className="p-2">
+            <td className="px-2 py-1.5">
               <span className="font-semibold text-blue-700">{course.courseCode}</span>
             </td>
-            <td className="p-2">
+            <td className="px-2 py-1.5">
               <span>{course.courseTitle}</span>
             </td>
-            <td className="p-2 text-center">{course.units}</td>
-            <td className="p-2">
+            <td className="px-2 py-1.5 text-center">{course.units}</td>
+            <td className="px-2 py-1.5">
               {course.prerequisites.length > 0 ? (
                 <div className="flex flex-wrap gap-1">
                   {course.prerequisites.slice(0, 2).map((prereq) => (
@@ -1086,7 +1148,7 @@ const StudentManagement = ({ onBack }) => {
               )}
             </td>
 
-            <td className="p-2">
+            <td className="px-2 py-1.5">
               <select
                 className="border border-gray-300 rounded px-2 py-1 text-sm"
                 value={editingGrades[course.courseCode] || ''}
@@ -1153,11 +1215,11 @@ const StudentManagement = ({ onBack }) => {
   const headerScholarshipEligibility = calculateScholarshipEligibility(headerYear);
 
   return (
-    <div className="">
+    <div id="student-management-root" className="">
       <div className="bg-white text-black p-6 rounded-2xl mb-6 flex items-center justify-between border border-gray-300 shadow-lg">
   
   {/* LEFT SIDE */}
-  <div className="flex items-center gap-6">
+  <div id="back-button-container" className="flex items-center gap-6">
     <button
       onClick={
         selectedStudent
@@ -1331,7 +1393,7 @@ const StudentManagement = ({ onBack }) => {
       {/* Edit Student Modal */}
       {editingDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setEditingDialogOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setEditingDialogOpen(false)}></div>
           <div className="relative z-10 w-full max-w-lg border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Edit Student</div>
            
@@ -1436,14 +1498,14 @@ const StudentManagement = ({ onBack }) => {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={handleCancelEdit}
-                className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100"
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleSaveEdit(editingData.id)}
                 disabled={loading || !editingData.name}
-                className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 Save Changes
               </button>
@@ -1454,7 +1516,7 @@ const StudentManagement = ({ onBack }) => {
       {/* Add Student Modal */}
       {studentDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setStudentDialogOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setStudentDialogOpen(false)}></div>
           <div className="relative z-10 w-full max-w-lg border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className="text-xl font-semibold mb-4">{studentForm.isIrregular ? 'Add New Irregular Student' : 'Add New Student'}</div>
            
@@ -1581,14 +1643,14 @@ const StudentManagement = ({ onBack }) => {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={() => setStudentDialogOpen(false)}
-                className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100"
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddStudent}
                 disabled={loading || !studentForm.name}
-                className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 Add Student
               </button>
@@ -1599,10 +1661,10 @@ const StudentManagement = ({ onBack }) => {
       {/* Delete Confirmation Modal */}
       {deleteDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setDeleteDialogOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setDeleteDialogOpen(false)}></div>
           <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Confirm Delete</div>
-            <div className="text-gray-700 mb-6">
+            <div className="text-gray-700 mb-8">
               Are you sure you want to delete this student? This action cannot be undone.
             </div>
             <div className="flex justify-end gap-2">
@@ -1611,20 +1673,32 @@ const StudentManagement = ({ onBack }) => {
                   setDeleteDialogOpen(false);
                   setStudentToDelete(null);
                 }}
-                className="px-4 cursor-pointer py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100"
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDelete}
                 disabled={loading}
-                className="px-4 py-1.5 cursor-pointer rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 {loading ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={handleScrollToTop}
+          className="fixed bottom-6 right-6 z-40 rounded-full bg-blue-600 text-white p-3 shadow-lg cursor-pointer hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+          aria-label="Scroll to top"
+          title="Scroll to top"
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
       )}
     </div>
   );

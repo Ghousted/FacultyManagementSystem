@@ -160,7 +160,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                     <col style={{width: '65%'}} />
                     <col style={{width: '10%'}} />
                   </colgroup>
-                  <thead className='bg-blue-500 text-white'>
+                  <thead className='bg-blue-100 text-gray-700'>
                     <tr className='border border-gray-400'>
                       <th className="small border border-gray-400 px-0.5">Grade</th>
                       <th className="small border border-gray-400 px-0.5">Code</th>
@@ -182,7 +182,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
               </div>
               <div className="flex mt-0.5 gap-6 text-xs">
                 <div>
-                  <p>GWA: {gwa1 !== null ? gwa1.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '-')}</p>
+                  <p>GWA: {gwa1 !== null ? gwa1.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '')}</p>
                 </div>
 
                 <div className="">
@@ -249,7 +249,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                           <col style={{width: '65%'}} />
                           <col style={{width: '10%'}} />
                         </colgroup>
-                        <thead className='bg-blue-500 text-white'>
+                  <thead className='bg-blue-100 text-gray-700'>
                           <tr className='border border-gray-400'>
                             <th className="small border border-gray-400 px-0.5">Grade</th>
                             <th className="small border border-gray-400 px-0.5">Code</th>
@@ -269,9 +269,9 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                         </tbody>
                       </table>
                     </div>
-                    <div className="flex mt-0.5 gap-6 text-xs">
+                    <div className="flex mt-0.5 gap-8 text-xs">
                       <div>
-                        <p>GWA: {gwaSummer !== null ? gwaSummer.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '-')}</p>
+                        <p>GWA: {gwaSummer !== null ? gwaSummer.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '')}</p>
                       </div>
 
                       <div className="">
@@ -332,7 +332,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                     <col style={{width: '65%'}} />
                     <col style={{width: '10%'}} />
                   </colgroup>
-                  <thead className='bg-blue-500 text-white'>
+                  <thead className='bg-blue-100 text-gray-700'>
                     <tr className='border border-gray-400'>
                       <th className="small border border-gray-400 px-0.5">Grade</th>
                       <th className="small border border-gray-400 px-0.5">Code</th>
@@ -352,9 +352,9 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                   </tbody>
                 </table>
 
-                <div className="flex mt-0.5 gap-6 text-xs">
+                <div className="flex mt-0.5 gap-8 text-xs">
                   <div>
-                    <p>GWA: {gwa2 !== null ? gwa2.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '-')}</p>
+                    <p>GWA: {gwa2 !== null ? gwa2.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '')}</p>
                   </div>
 
                   <div className="">
@@ -519,9 +519,9 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                 .print-area .photo { width: 1in; height: 1in; }
                 .print-area .photo img { width: 1in; height: 1in; object-fit: cover; }
                 .print-area .photo-initials { display: none !important; }
-                .semester-box th:nth-child(1), .semester-box td:nth-child(1) { width: 10%; text-align: center; font-size: 9px; }
+                .semester-box th:nth-child(1), .semester-box td:nth-child(1) { width: 11%; text-align: center; font-size: 9px; }
                 .semester-box th:nth-child(2), .semester-box td:nth-child(2) { width: 12%; text-align: left; font-size: 9px; }
-                .semester-box th:nth-child(3), .semester-box td:nth-child(3) { width: 73%; text-align: left; font-size: 9px; }
+                .semester-box th:nth-child(3), .semester-box td:nth-child(3) { width: 72%; text-align: left; font-size: 9px; }
                 .semester-box th:nth-child(4), .semester-box td:nth-child(4) { width: 5%; text-align: center; font-size: 9px; }
               }
               @media screen {

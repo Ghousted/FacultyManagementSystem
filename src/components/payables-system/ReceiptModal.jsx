@@ -28,7 +28,7 @@ const Modal = ({ open, onClose, children }) => {
       />
       <div
         ref={modalRef}
-        className="bg-white rounded-md shadow-lg w-full max-w-3xl mx-auto z-10 overflow-hidden modal-dialog"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl mx-auto z-10 overflow-hidden modal-dialog"
         role="dialog"
         aria-modal="true"
         tabIndex="-1"
@@ -55,6 +55,8 @@ const ReceiptLayout = ({ label, receiptData }) => {
     balance,
     mode,
     reference,
+    otherPayables,
+    totalOtherBalance,
     receivedBy,
   } = receiptData;
 
@@ -85,135 +87,189 @@ const ReceiptLayout = ({ label, receiptData }) => {
     : Math.max(0, priceNum - totalPaidNum);
 
   const modeNormalized = String(mode || '').trim().toLowerCase();
+  const isCash = modeNormalized === 'cash';
   const isGCash = modeNormalized === 'gcash';
   const isBankTransfer = modeNormalized === 'bank transfer' || modeNormalized === 'bank' || modeNormalized === 'bank_transfer';
   const showReference = isGCash || isBankTransfer;
+  const otherPayablesList = Array.isArray(otherPayables) ? otherPayables : [];
+  const otherBalanceTotalNum = toNumber(totalOtherBalance);
 
   return (
-    <div className="p-3 border border-gray-200 bg-white text-xs relative receipt-copy">
-      {/* Centered Watermark Logo (use <img> so it prints reliably) */}
+    <div className="p-3 border border-slate-300 bg-white text-[11px] relative receipt-copy rounded-xl shadow-sm">
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden="true">
         <img
           src={Logo}
           alt=""
-          className="opacity-10"
-          style={{ width: '40%', height: 'auto' }}
+          className="opacity-[0.08]"
+          style={{ width: '35%', height: 'auto' }}
         />
       </div>
 
-      {/* Receipt Header */}
-      <div className="flex justify-between items-start mb-2 relative z-10">
-        <div className="text-xs font-semibold text-gray-500">{label}</div>
-        <div className="text-center">
-          <h2 className="text-sm font-bold text-blue-800">COLLEGE OF COMPUTER STUDIES</h2>
-          <p className="text-[10px] text-gray-500">OFFICIAL RECEIPT</p>
-        </div>
-        <div className="text-xs text-gray-700">
-          Receipt No. <span className="font-bold">{receiptNumber}</span>
-        </div>
-      </div>
-
-      {/* Student Info */}
-      <div className="grid grid-cols-1 sm:grid-cols-5  mb-2 relative z-10">
-        <div className="sm:col-span-2 p-1 border flex gap-1 border-gray-200 rounded-l">
-          <p className="text-[10px] font-semibold text-gray-500">NAME</p>
-          <p className="text-[10px]">{studentName}</p>
-        </div>
-        <div className="sm:col-span-2 p-1 border flex gap-1 border-gray-200 rounded-l">
-          <p className="text-[10px] font-semibold text-gray-500">COURSE-YR & SECTION</p>
-          <p className="text-[10px]">{course || 'BSCS'} {yearLevel || ''}</p>
-        </div>
-        <div className="p-1 flex gap-1 border border-gray-200 rounded-r">
-          <p className="text-[10px] font-semibold text-gray-500">DATE</p>
-          <p className="text-[10px]">{date}</p>
-        </div>
-      </div>
-
-      {/* Payment Details */}
-      <div className="mb-2 relative z-10">
-        <p className="text-[10px] font-semibold text-gray-500 mb-1">PAYMENT DETAILS</p>
-        <div className="border border-gray-200 rounded overflow-hidden">
-          <div className="grid grid-cols-2">
-            <div className="p-1 border-b border-gray-200 bg-gray-50">
-              <p className="text-[10px] font-semibold text-gray-500">DESCRIPTION</p>
-              <p className="text-[10px]">{description}</p>
+      <div className="relative z-10 space-y-2">
+        {/* Header Section */}
+        <div className="space-y-1.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex flex-col gap-1">
+              <span className="inline-block px-2 py-0.5 rounded-2xl text-[9px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                {label}
+              </span>
+              <p className="text-[9px] text-slate-500 tracking-wide font-semibold">OFFICIAL RECEIPT</p>
             </div>
-            <div className="p-1 border-b border-gray-200 bg-gray-50">
-              <p className="text-[10px] font-semibold text-gray-500">PRICE</p>
-              <p className="text-[10px] font-semibold">{formatPhp(priceNum)}</p>
+            <div className="text-center flex-1 ">
+              <h2 className="text-sm font-bold text-blue-900 tracking-wide leading-tight">COLLEGE OF COMPUTER STUDIES</h2>
+              
             </div>
-
-            <div className="p-1 border-b border-gray-200">
-              <p className="text-[10px] font-semibold text-gray-500">AMOUNT PAID</p>
-              <p className="text-[10px] font-semibold">{formatPhp(totalPaidNum)}</p>
-            </div>
-            <div className="p-1 border-b border-gray-200">
-              <p className="text-[10px] font-semibold text-gray-500">PAYMENT DATE</p>
-              <p className="text-[10px]">{date}</p>
-            </div>
-
-            <div className="p-1 border-b border-gray-200">
-              <p className="text-[10px] font-semibold text-gray-500">PREVIOUS AMOUNT PAID</p>
-              <p className="text-[10px]">{formatPhp(previousPaidNum)}</p>
-            </div>
-            <div className="p-1 border-b border-gray-200">
-              <p className="text-[10px] font-semibold text-gray-500">PREVIOUS BALANCE</p>
-              <p className="text-[10px]">{formatPhp(previousBalanceNum)}</p>
-            </div>
-
-            <div className="p-1">
-              <p className="text-[10px] font-semibold text-gray-500">CURRENT PAYMENT</p>
-              <p className="text-[10px] font-semibold">{formatPhp(paymentAmountNum)}</p>
-            </div>
-            <div className="p-1">
-              <p className="text-[10px] font-semibold text-gray-500">UPDATED CURRENT BALANCE</p>
-              <p className="text-[10px] font-bold">{formatPhp(updatedBalanceNum)}</p>
+            <div className="text-right whitespace-nowrap">
+              
+              <p className="text-[12px] font-bold text-slate-800"> 
+                <span className="text-[11px] text-slate-500 font-semibold mr-1">RECEIPT NO.</span> {receiptNumber}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">{date}</p>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Mode of Payment */}
-      <div className="mb-2 relative z-10">
-        <p className="text-[10px] font-semibold text-gray-500 mb-1">MODE OF PAYMENT</p>
-        <div className="flex flex-wrap gap-3 items-center">
-          <label className="flex items-center gap-1 text-xs">
-            <input
-              type="checkbox"
-              checked={isGCash}
-              readOnly
-              className="h-3 w-3 text-blue-600"
-            />
-            <span>GCash</span>
-          </label>
-          <label className="flex items-center gap-1 text-xs">
-            <input
-              type="checkbox"
-              checked={isBankTransfer}
-              readOnly
-              className="h-3 w-3 text-blue-600"
-            />
-            <span>Bank Transfer</span>
-          </label>
-        </div>
-
-        {showReference && (
-          <div className="mt-2">
-            <p className="text-[10px] font-semibold text-gray-500 mb-1">REFERENCE NO. <span> {reference ? reference : '—'}</span></p>
-             
+        {/* Student Info Section */}
+        <div className="grid grid-cols-3 pt-2  border-b border-slate-300 ">
+          <div className="col-span-2 flex gap-2">
+            <span className="text-xs uppercase tracking-wider text-slate-700 font-semibold min-w-fit">Name:</span>
+            <span className="text-xs uppercase font-semibold text-slate-900 flex-1 break-words">
+              {studentName}
+            </span>
           </div>
-        )}
-      </div>
-
-      {/* Signature */}
-      <div className="relative z-10">
-        <div className="flex justify-end">
-          <div className="w-1/3 text-center text-xs">
-            <div className="h-6 border-b border-gray-200 mb-1" />
-            <p className="font-semibold text-gray-500">RECEIVED BY</p>
-            <p className="font-bold">{receivedBy}</p>
+          <div className="col-span-1 flex gap-2">
+            <span className="text-xs uppercase tracking-wider text-slate-700 font-semibold min-w-fit">Course / Year:</span>
+            <span className="text-xs uppercase font-semibold text-slate-900">
+              {course || 'BSCS'} {yearLevel || ''}
+            </span>
           </div>
         </div>
+
+        <div className="border border-slate-200 rounded-sm overflow-hidden">
+          <table className="w-full text-[9px]">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="px-2 py-1 text-left font-semibold uppercase tracking-wide text-slate-600 text-xs">Description</th>
+                <th className="px-2 py-1 text-right font-semibold uppercase tracking-wide text-slate-600 text-xs">Price</th>
+                <th className="px-2 py-1 text-right font-semibold uppercase tracking-wide text-slate-600 text-xs">Prev. Bal.</th>
+                <th className="px-2 py-1 text-right font-semibold uppercase tracking-wide text-slate-600 text-xs">Payment</th>
+                <th className="px-2 py-1 text-right font-semibold uppercase tracking-wide text-slate-600 text-xs">Current Bal.</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-t border-slate-200">
+                <td className="px-2 py-1.5 text-slate-800 text-xs">{description}</td>
+                <td className="px-2 py-1.5 text-right text-slate-900 font-semibold text-xs">{formatPhp(priceNum)}</td>
+                <td className="px-2 py-1.5 text-right text-slate-700 font-semibold text-xs">{formatPhp(previousBalanceNum)}</td>
+                <td className="px-2 py-1.5 text-right text-emerald-700 font-semibold text-xs">{formatPhp(paymentAmountNum)}</td>
+                <td className="px-2 py-1.5 text-right text-slate-900 font-bold text-xs">{formatPhp(updatedBalanceNum)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+ 
+
+        <div className="border border-slate-200 rounded-sm overflow-hidden">
+          <div className="px-2 py-0.5 bg-slate-100 border-b border-slate-200">
+            <p className="text-xs uppercase tracking-wide font-semibold text-slate-600">
+              Other Outstanding Payables
+            </p>
+          </div>
+
+          {otherPayablesList.length === 0 ? (
+            <p className="text-xs text-slate-600 px-2 py-1">
+              No other outstanding balance.
+            </p>
+          ) : (
+            <>
+              {/* GRID HERE */}
+              <div className="grid grid-cols-2">
+                {otherPayablesList.slice(0, 4).map((item) => (
+                  <div
+                    key={item.payableId}
+                    className="flex items-center justify-between px-2 py-0.5 border-b border-r border-r-slate-300 border-slate-100"
+                  >
+                    <p className="text-xs text-slate-700 truncate pr-2">
+                      {item.type}
+                    </p>
+                    <p className="text-xs font-semibold text-slate-700">
+                      {formatPhp(item.remainingBalance)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {otherPayablesList.length > 4 && (
+                <div className="px-2 py-0.5 bg-slate-50 border-t border-slate-200">
+                  <p className="text-xs text-slate-500">
+                    +{otherPayablesList.length - 4} more payable(s)
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between px-2 py-1 bg-slate-50 border-t border-slate-200">
+                <p className="text-xs font-semibold text-slate-700">
+                  Total Other Balance
+                </p>
+                <p className="text-xs font-bold text-rose-700">
+                  {formatPhp(otherBalanceTotalNum)}
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className='flex items-start justify-between'>
+          {/* Mode of Payment Section */}
+        <div className="space-y-1">
+          <div className='flex items-center gap-2'>
+            <p className="text-xs tracking-wider text-slate-600 font-semibold">Mode of Payment:</p>
+          <div className="flex flex-wrap gap-3 items-center">
+            <label className="flex items-center gap-1 text-xs font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={isCash}
+                readOnly
+                className="h-3 w-3 accent-emerald-600"
+              />
+              <span>Cash</span>
+            </label>
+            <label className="flex items-center gap-1 text-xs font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={isGCash}
+                readOnly
+                className="h-3 w-3 accent-emerald-600"
+              />
+              <span>GCash</span>
+            </label>
+            <label className="flex items-center gap-1 text-xs font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={isBankTransfer}
+                readOnly
+                className="h-3 w-3 accent-emerald-600"
+              />
+              <span>Bank Transfer</span>
+            </label>
+          </div>
+          </div>
+          {showReference && (
+            <p className="text-xs text-slate-600 mt-1">
+              <span className="font-semibold">Reference No.:</span> <span className='uppercase font-mono'>{reference || '—'}</span>
+            </p>
+          )}
+        </div>
+
+        {/* Signature Section */}
+        <div className="">
+          <div className="w-46 text-center">
+            <div className="h-8 border-b border-slate-400 mb-1" />
+            <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Received By</p>
+          </div>
+        </div>
+        </div>
+
       </div>
     </div>
   );
@@ -249,44 +305,103 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="p-3">
+      <div className="p-4 max-h-[90vh] overflow-y-auto bg-gradient-to-b from-slate-50 to-white receipt-modal-content">
         <style>{`
           @media print {
-            @page { size: A4; margin: 12mm; }
-            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            /* Hide the main app page (PayablesSystem) and print only the modal */
+            @page { 
+              size: letter landscape;
+              margin: 0.9in 1.45in;
+            }
+            body {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+              background: #fff !important;
+            }
+            html, body { margin: 0; padding: 0; }
             #root { display: none !important; }
             body * { visibility: hidden; }
             .modal-container, .modal-container * { visibility: visible; }
-            .modal-dialog { position: absolute !important; left: 0 !important; top: 0 !important; }
             .modal-backdrop { display: none !important; }
-            .modal-container { position: static !important; padding: 0 !important; }
-            .modal-dialog { max-width: none !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; }
+            .modal-container {
+              position: static !important;
+              display: block !important;
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            .modal-dialog {
+              position: static !important;
+              max-width: none !important;
+              width: 100% !important;
+              box-shadow: none !important;
+              border-radius: 0 !important;
+              overflow: visible !important;
+              background: #fff !important;
+            }
             .modal-actions { display: none !important; }
-            #receipt-preview { padding: 0 !important; }
-            .receipt-copy { break-inside: avoid; page-break-inside: avoid; transform: scale(0.95); transform-origin: top left; }
-            .receipt-copy + .receipt-copy { margin-top: 12mm; }
+            .receipt-preview-title { display: none !important; }
+            .receipt-modal-content {
+              max-height: none !important;
+              overflow: visible !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              background: #fff !important;
+            }
+            #receipt-preview {
+              display: grid !important;
+              grid-template-columns: 1fr !important;
+              grid-template-rows: 1fr 1fr !important;
+              padding: 0 !important;
+              gap: 0.34in !important;
+              margin: 0 auto !important;
+              width: calc(100% - 0.45in) !important;
+            }
+            .receipt-copy {
+              break-inside: avoid;
+              page-break-inside: avoid;
+              box-shadow: none !important;
+              border: 1px solid #cbd5e1 !important;
+              border-radius: 0 !important;
+              padding: 0.12in !important;
+              min-height: 3.75in;
+              width: 100% !important;
+              font-size: 11px !important;
+              line-height: 1.25 !important;
+              margin: 0 !important;
+            }
+            .receipt-copy .text-\[8px\] { font-size: 8px !important; }
+            .receipt-copy .text-\[9px\] { font-size: 9px !important; }
+            .receipt-copy .text-\[10px\] { font-size: 10px !important; }
+            .receipt-copy .text-\[11px\] { font-size: 11px !important; }
+            .receipt-copy .text-\[12px\] { font-size: 11px !important; }
+            .receipt-copy table { width: 100%; margin: 0; }
+            .receipt-copy td, .receipt-copy th { padding: 0.06in 0.05in; }
+            .receipt-copy + .receipt-copy { margin-top: 0 !important; }
           }
         `}</style>
-        <div className="flex justify-between items-center mb-3">
-          <h2 className="text-lg font-bold text-gray-800">Receipt Preview</h2>
+        <div className="flex justify-between items-start mb-4 ">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800 receipt-preview-title">Receipt Preview</h2>
+          </div>
           <div className="flex gap-2 modal-actions">
             <button
               onClick={handlePrint}
-              className="px-3 py-1 bg-green-600 text-white rounded-lg cursor-pointer hover:bg-green-700 transition text-sm"
+              className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg cursor-pointer hover:bg-emerald-700 transition text-xs font-semibold flex items-center gap-1.5"
+              title="Print receipts"
             >
-                <Printer className="inline-block mr-1 w-4 h-4"/>
+              <Printer className="w-4 h-4" />
               Print
             </button>
             <button
               onClick={onClose}
-              className="p-1 bg-gray-100 text-gray-700 rounded-full cursor-pointer hover:text-red-600 transition"
+              className="p-1.5 bg-slate-100 text-slate-700 rounded-lg cursor-pointer hover:bg-slate-200 transition"
+              title="Close receipt preview"
             >
-              <X className="w-4 h-4"/>
+              <X className="w-5 h-5" />
             </button>
           </div>
         </div>
-        <div id="receipt-preview" className="space-y-6">
+        <div id="receipt-preview" className="space-y-3">
           <ReceiptLayout label="CCS COPY" receiptData={receiptData} />
           <ReceiptLayout label="STUDENT'S COPY" receiptData={receiptData} />
         </div>

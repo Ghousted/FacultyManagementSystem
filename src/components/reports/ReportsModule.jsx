@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { exportDeanListToExcel } from '../../utils/excelExport';
-import { getStudents, getCoursesByCurriculum } from '../../models/curriculumModels';
+import { getStudents, getCoursesByCurriculum, getDeanListCriteria, saveDeanListCriteria } from '../../models/curriculumModels';
 import { Settings2, Download, CalendarCheck, X, ChevronDown, ChevronUp, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
 
 const yearTabs = [
@@ -15,16 +15,18 @@ const semTabs = [
   { label: '2nd Sem', value: 2 }
 ];
 
-const CriteriaModal = ({ isOpen, onClose, criteria, setCriteria }) => {
+const CriteriaModal = ({ isOpen, onClose, criteria, onSave, isSaving }) => {
   const [localCriteria, setLocalCriteria] = useState({ ...criteria });
 
   useEffect(() => {
     setLocalCriteria({ ...criteria });
   }, [criteria]);
 
-  const handleSave = () => {
-    setCriteria(localCriteria);
-    onClose();
+  const handleSave = async () => {
+    const result = await onSave(localCriteria);
+    if (result?.success) {
+      onClose();
+    }
   };
 
   if (!isOpen) return null;
@@ -72,15 +74,17 @@ const CriteriaModal = ({ isOpen, onClose, criteria, setCriteria }) => {
         <div className="flex justify-end gap-2 mt-6">
           <button
             onClick={onClose}
+            disabled={isSaving}
             className="px-4 py-1.5 text-sm cursor-pointer rounded-xl bg-gray-300 hover:bg-gray-400 text-gray-700 font-semibold shadow-sm transition"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
+            disabled={isSaving}
             className="px-4 py-1.5 text-sm cursor-pointer rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md transition"
           >
-            Save
+            {isSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>
@@ -113,15 +117,15 @@ const StudentDetailsModal = ({ isOpen, onClose, student }) => {
           <table className="min-w-full text-sm border rounded-lg overflow-hidden">
             <thead>
               <tr className="bg-blue-100">
-                <th className="p-2 border border-gray-300">Subject</th>
-                <th className="p-2 border border-gray-300">Grade</th>
+                <th className="px-2 py-1.5 border border-gray-300">Subject</th>
+                <th className="px-2 py-1.5 border border-gray-300">Grade</th>
               </tr>
             </thead>
             <tbody>
               {student.grades.map((grade, idx) => (
                 <tr key={idx} className="hover:bg-blue-50">
-                  <td className="p-2 border border-gray-300">{grade.subject}</td>
-                  <td className="p-2 border border-gray-300 font-semibold text-center text-gray-800">{parseFloat(grade.grade).toFixed(2)}</td>
+                  <td className="px-2 py-1.5 border border-gray-300">{grade.subject}</td>
+                  <td className="px-2 py-1.5 border border-gray-300 font-semibold text-center text-gray-800">{parseFloat(grade.grade).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
@@ -155,11 +159,8 @@ const FilenameModal = ({ isOpen, onClose, onConfirm, defaultName = 'deans_list_a
           />
           <span className="px-3 py-1.5 text-sm bg-gray-100 border border-gray-300 border-l-0 rounded-r-lg">.xlsx</span>
         </div>
-        <div className="flex items-center justify-between gap-4 mt-4">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={useExactLayout} onChange={e => setUseExactLayout(e.target.checked)} className="w-4 h-4" />
-            <span>Exact layout (may be slower)</span>
-          </label>
+        <div className="flex items-center justify-end gap-4 mt-8">
+        
           <div className="flex justify-end gap-2">
             <button onClick={onClose} className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer">Cancel</button>
             <button
@@ -191,8 +192,9 @@ const ReportsModule = ({ onBackToDashboard }) => {
   const [criteria, setCriteria] = useState({
     major: 1.7,
     minor: 2.0,
-    gwa: 2.0
+    gwa: 1.7
   });
+  const [criteriaSaving, setCriteriaSaving] = useState(false);
   const [tabYear, setTabYear] = useState(0);
   const [tabSem, setTabSem] = useState(0);
   const [selectedYear, setSelectedYear] = useState(1);
@@ -207,12 +209,85 @@ const ReportsModule = ({ onBackToDashboard }) => {
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isFilenameModalOpen, setIsFilenameModalOpen] = useState(false);
   const [visibleRows, setVisibleRows] = useState(4);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [toast, setToast] = useState(null);
   const observer = useRef();
   const loadMoreRef = useRef();
+  const toastTimeoutRef = useRef(null);
+
+  const normalizeCriteria = useCallback((nextCriteria = {}) => ({
+    major: Number.isFinite(parseFloat(nextCriteria.major)) ? parseFloat(nextCriteria.major) : 1.7,
+    minor: Number.isFinite(parseFloat(nextCriteria.minor)) ? parseFloat(nextCriteria.minor) : 2.0,
+    gwa: Number.isFinite(parseFloat(nextCriteria.gwa)) ? parseFloat(nextCriteria.gwa) : 1.7
+  }), []);
+
+  const getCurrentScrollTop = useCallback(() => {
+    const rootElement = document.getElementById('root');
+    const mainElement = document.querySelector('main');
+
+    return Math.max(
+      window.scrollY || 0,
+      window.pageYOffset || 0,
+      document.documentElement?.scrollTop || 0,
+      document.body?.scrollTop || 0,
+      rootElement?.scrollTop || 0,
+      mainElement?.scrollTop || 0
+    );
+  }, []);
 
   useEffect(() => {
     setSelectedYear(yearTabs[tabYear].value);
   }, [tabYear]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCriteria = async () => {
+      const result = await getDeanListCriteria();
+      if (isMounted && result.success) {
+        setCriteria(normalizeCriteria(result.data));
+      }
+    };
+
+    loadCriteria();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [normalizeCriteria]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(getCurrentScrollTop() > 180);
+    };
+
+    const rootElement = document.getElementById('root');
+    const mainElement = document.querySelector('main');
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    document.addEventListener('scroll', handleScroll, { passive: true });
+
+    if (rootElement) {
+      rootElement.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    if (mainElement) {
+      mainElement.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('scroll', handleScroll);
+      if (rootElement) {
+        rootElement.removeEventListener('scroll', handleScroll);
+      }
+      if (mainElement) {
+        mainElement.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, [getCurrentScrollTop]);
+
   useEffect(() => {
     setSelectedSem(semTabs[tabSem].value);
   }, [tabSem]);
@@ -374,12 +449,68 @@ const ReportsModule = ({ onBackToDashboard }) => {
     setIsFilenameModalOpen(true);
   };
 
+  const showToastMessage = useCallback((type, message) => {
+    setToast({ type, message });
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, type === 'success' ? 2200 : 2800);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleSaveCriteria = async (nextCriteria) => {
+    const normalized = normalizeCriteria(nextCriteria);
+    setCriteriaSaving(true);
+    try {
+      const saveResult = await saveDeanListCriteria(normalized);
+      if (saveResult.success) {
+        setCriteria(normalized);
+        showToastMessage('success', 'Dean\'s List criteria updated successfully.');
+        return { success: true };
+      }
+      showToastMessage('error', saveResult.error || 'Failed to update criteria.');
+      return { success: false };
+    } catch (error) {
+      showToastMessage('error', error?.message || 'Failed to update criteria.');
+      return { success: false };
+    } finally {
+      setCriteriaSaving(false);
+    }
+  };
+
   const toggleSort = field => {
     if (sortBy === field) {
       setSortDir(prev => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortBy(field);
       setSortDir('asc');
+    }
+  };
+
+  const handleScrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (document.documentElement) {
+      document.documentElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    if (document.body) {
+      document.body.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const rootElement = document.getElementById('root');
+    if (rootElement && typeof rootElement.scrollTo === 'function') {
+      rootElement.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -466,7 +597,7 @@ const ReportsModule = ({ onBackToDashboard }) => {
     <thead>
       <tr className="bg-blue-100 text-left">
         <th
-          className="p-3 border-b font-semibold text-blue-700 cursor-pointer"
+          className="px-2 py-1.5 border-b font-semibold text-blue-700 cursor-pointer"
           onClick={() => toggleSort('name')}
           role="button"
           title="Sort by name"
@@ -479,7 +610,7 @@ const ReportsModule = ({ onBackToDashboard }) => {
           </div>
         </th>
         <th
-          className="p-3 border-b font-semibold text-blue-700 text-center cursor-pointer"
+          className="px-2 py-1.5 border-b font-semibold text-blue-700 text-center cursor-pointer"
           onClick={() => toggleSort('gwa')}
           role="button"
           title="Sort by GWA"
@@ -497,10 +628,10 @@ const ReportsModule = ({ onBackToDashboard }) => {
       {loading ? (
         Array.from({ length: 5 }).map((_, idx) => (
           <tr key={idx} className="animate-pulse bg-white">
-            <td className="p-3 border-b border-gray-300 w-3/4">
+            <td className="px-2 py-1.5 border-b border-gray-300 w-3/4">
               <div className="bg-gray-200 rounded-md h-5 w-3/4"></div>
             </td>
-            <td className="p-3 border-b border-gray-200 text-center w-1/4">
+            <td className="px-2 py-1.5 border-b border-gray-200 text-center w-1/4">
               <div className="bg-gray-200 rounded-md h-5 w-1/4 mx-auto"></div>
             </td>
           </tr>
@@ -564,7 +695,8 @@ const ReportsModule = ({ onBackToDashboard }) => {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         criteria={criteria}
-        setCriteria={setCriteria}
+        onSave={handleSaveCriteria}
+        isSaving={criteriaSaving}
       />
       <FilenameModal
         isOpen={isFilenameModalOpen}
@@ -578,6 +710,32 @@ const ReportsModule = ({ onBackToDashboard }) => {
         student={selectedStudent}
       />
       <LoadingModal isOpen={exporting} />
+
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={handleScrollToTop}
+          className="fixed bottom-6 right-6 z-40 cursor-pointer rounded-full bg-blue-600 text-white p-3 shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+          aria-label="Scroll to top"
+          title="Scroll to top"
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <div
+            className={`rounded-md px-4 py-2 shadow-lg ring-1 text-sm ${
+              toast.type === 'success'
+                ? 'bg-emerald-50 text-emerald-800 ring-emerald-200'
+                : 'bg-red-50 text-red-800 ring-red-200'
+            }`}
+          >
+            {toast.message}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

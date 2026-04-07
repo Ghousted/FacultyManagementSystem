@@ -102,6 +102,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   const [payablesSearch, setPayablesSearch] = useState('');
   // Action menu state for per-payable dropdown in student modal
   const [openActionMenuId, setOpenActionMenuId] = useState(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   const loadStudents = useCallback(async () => {
     if (!currentUser) {
@@ -177,6 +178,52 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       return () => clearTimeout(timer);
     }
   }, [success]);
+
+  useEffect(() => {
+    const getCurrentScrollTop = () => {
+      const rootElement = document.getElementById('root');
+      const mainElement = document.querySelector('main');
+
+      return Math.max(
+        window.scrollY || 0,
+        window.pageYOffset || 0,
+        document.documentElement?.scrollTop || 0,
+        document.body?.scrollTop || 0,
+        rootElement?.scrollTop || 0,
+        mainElement?.scrollTop || 0
+      );
+    };
+
+    const handleScroll = () => {
+      setShowScrollTop(getCurrentScrollTop() > 180);
+    };
+
+    const rootElement = document.getElementById('root');
+    const mainElement = document.querySelector('main');
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    document.addEventListener('scroll', handleScroll, { passive: true });
+
+    if (rootElement) {
+      rootElement.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    if (mainElement) {
+      mainElement.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('scroll', handleScroll);
+      if (rootElement) {
+        rootElement.removeEventListener('scroll', handleScroll);
+      }
+      if (mainElement) {
+        mainElement.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, []);
 
   const handlePaymentInputChange = (field, value) => {
     setPaymentForm(prev => ({
@@ -426,6 +473,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     setError('');
     try {
       let lastReceiptPreview = null;
+      const updatedPaidByPayable = {};
       // For each change, compute status and send update
       for (const change of summaryData.changes) {
         const { payableId, newPayment, mode, reference } = change;
@@ -434,6 +482,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
         if (!payable) continue;
         const payableAmount = Number(payable.amount) || 0;
         const newTotalPaid = change.currentPaid + newPayment;
+        updatedPaidByPayable[payableId] = Number(newTotalPaid || 0);
         const newStatus = newTotalPaid >= payableAmount ? 'fully_paid' : (newTotalPaid > 0 ? 'partially_paid' : 'unpaid');
 
         const updateObj = {
@@ -472,6 +521,12 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             };
             receiptId = await createReceiptRecord(db, receiptRecord);
 
+            const { otherPayables, totalOtherBalance } = getOtherOutstandingPayables(
+              studentSnapshot,
+              payableId,
+              updatedPaidByPayable
+            );
+
             lastReceiptPreview = {
               receiptNumber,
               studentName: studentSnapshot.name,
@@ -486,6 +541,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               balance: balanceAfter,
               mode: receiptRecord.mode,
               reference: reference || '',
+              otherPayables,
+              totalOtherBalance,
               receivedBy:  ''
             };
           } catch (err) {
@@ -563,6 +620,32 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     return Object.values(merged);
   }, [payables]);
 
+  const getOtherOutstandingPayables = useCallback((student, currentPayableId, updatedPaidByPayable = {}) => {
+    if (!student) return { otherPayables: [], totalOtherBalance: 0 };
+
+    const studentPayables = getStudentPayables(student);
+    const otherPayables = studentPayables
+      .filter((payable) => payable.id !== currentPayableId)
+      .map((payable) => {
+        const defaultPaidAmount = Number(payable.studentPayments?.[student.id]?.paidAmount || 0);
+        const overriddenPaidAmount = updatedPaidByPayable?.[payable.id];
+        const paidAmount = typeof overriddenPaidAmount === 'number' ? overriddenPaidAmount : defaultPaidAmount;
+        const totalAmount = Number(payable.amount || 0);
+        const remainingBalance = Math.max(0, totalAmount - paidAmount);
+
+        return {
+          payableId: payable.id,
+          type: payable.type || 'Payable',
+          remainingBalance
+        };
+      })
+      .filter((item) => item.remainingBalance > 0)
+      .sort((a, b) => b.remainingBalance - a.remainingBalance);
+
+    const totalOtherBalance = otherPayables.reduce((sum, item) => sum + item.remainingBalance, 0);
+    return { otherPayables, totalOtherBalance };
+  }, [getStudentPayables]);
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'fully_paid':
@@ -613,6 +696,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     const price = Number(payment.price ?? payment.totalPrice ?? payable?.amount ?? 0);
     const previousPaid = Number(payment.previousPaid ?? 0);
     const totalPaid = Number(payment.totalPaid ?? payment.totalPaidAfter ?? 0);
+    const { otherPayables, totalOtherBalance } = getOtherOutstandingPayables(student, payable?.id);
 
     setReceiptData({
       receiptNumber: payment.receiptNumber || '—',
@@ -628,10 +712,12 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       balance,
       mode: payment.mode || payment.method || payment.paymentMode || '',
       reference: payment.reference || '',
+      otherPayables,
+      totalOtherBalance,
       receivedBy:  ''
     });
     setReceiptModalOpen(true);
-  }, [currentUser]);
+  }, [currentUser, getOtherOutstandingPayables]);
 
   // Stage paid amount changes locally. Changes will not be saved until user clicks Confirm.
   const handleStagedPaidAmountChange = useCallback((payableId, newValue) => {
@@ -667,6 +753,28 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       return total;
     }, 0);
   }, [payables, stagedPayments, students, getStudentPayables]);
+
+  const handleScrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (document.documentElement) {
+      document.documentElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    if (document.body) {
+      document.body.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const rootElement = document.getElementById('root');
+    if (rootElement && typeof rootElement.scrollTo === 'function') {
+      rootElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const mainElement = document.querySelector('main');
+    if (mainElement && typeof mainElement.scrollTo === 'function') {
+      mainElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   // 1. Remove all payment dialog/modal state and handlers (studentPaymentDialogOpen, selectedPayableForPayment, selectedStudentForPayment, studentPaymentForm, handleStudentPaymentClick, handleStudentPaymentFormChange, handleSaveStudentPayment, handleMarkAsFullyPaid, and their usages)
   // 2. In the payables table, always render the paid amount as a TextField (not just in edit mode)
@@ -1286,7 +1394,64 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           {getStatusLabel(studentPayment.status)}
                         </span>
 
-                        <div className="flex items-center gap-0.5">
+                       
+
+                      </div>
+                      <div>
+                       
+                       <div className='flex items-center justify-between mb-1'>
+                        <div className="flex items-center text-xs">
+                        <span className='mr-2'>Mode of Payment:</span>
+
+                        <div className="flex items-center ">
+                          <input
+                            id={`paymentMode-cash-${payable.id}`}
+                            name={`paymentMode-${payable.id}`}
+                            type="radio"
+                            value="cash"
+                            checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'cash'}
+                            onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'cash' }))}
+                          />
+                          <label
+                            htmlFor={`paymentMode-cash-${payable.id}`}
+                            className="text-xs cursor-pointer ml-1 mr-2"
+                          >
+                            Cash
+                          </label>
+
+                          <input
+                            id={`paymentMode-gcash-${payable.id}`}
+                            name={`paymentMode-${payable.id}`}
+                            type="radio"
+                            value="gcash"
+                            checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'gcash'}
+                            onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'gcash' }))}
+                          />
+                          <label
+                            htmlFor={`paymentMode-gcash-${payable.id}`}
+                            className="text-xs cursor-pointer ml-1 mr-2"
+                          >
+                            GCash
+                          </label>
+
+                          <input
+                            id={`paymentMode-bank-${payable.id}`}
+                            name={`paymentMode-${payable.id}`}
+                            type="radio"
+                            value="bank"
+                            checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'bank'}
+                            onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'bank' }))}
+                          />
+                          <label
+                            htmlFor={`paymentMode-bank-${payable.id}`}
+                            className="text-xs cursor-pointer ml-1"
+                          >
+                            Bank Transfer
+                          </label>
+                        </div>
+                      </div>
+
+                       <div className="flex items-center gap-0.5">
                         <button
                           className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
                           onClick={(e) => {
@@ -1357,66 +1522,15 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           <Trash className="w-4 h-4" />
                         </button>
                       </div>
-
-                      </div>
-                      <div>
-                       <div className="flex items-center text-xs gap-2 mb-1">
-                        <span>Mode of Payment:</span>
-
-                        <div className="flex items-center gap-1">
-                          <input
-                            id={`paymentMode-cash-${payable.id}`}
-                            name={`paymentMode-${payable.id}`}
-                            type="radio"
-                            value="cash"
-                            checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'cash'}
-                            onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'cash' }))}
-                          />
-                          <label
-                            htmlFor={`paymentMode-cash-${payable.id}`}
-                            className="text-xs cursor-pointer ml-1 mr-3"
-                          >
-                            Cash
-                          </label>
-
-                          <input
-                            id={`paymentMode-gcash-${payable.id}`}
-                            name={`paymentMode-${payable.id}`}
-                            type="radio"
-                            value="gcash"
-                            checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'gcash'}
-                            onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'gcash' }))}
-                          />
-                          <label
-                            htmlFor={`paymentMode-gcash-${payable.id}`}
-                            className="text-xs cursor-pointer ml-1 mr-3"
-                          >
-                            GCash
-                          </label>
-
-                          <input
-                            id={`paymentMode-bank-${payable.id}`}
-                            name={`paymentMode-${payable.id}`}
-                            type="radio"
-                            value="bank"
-                            checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'bank'}
-                            onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'bank' }))}
-                          />
-                          <label
-                            htmlFor={`paymentMode-bank-${payable.id}`}
-                            className="text-xs cursor-pointer ml-1"
-                          >
-                            Bank Transfer
-                          </label>
-                        </div>
-                      </div>
+                       </div>
+                      
                       <div className="flex items-center gap-2">
                         <input
                           type="number"
                           inputMode="decimal"
                           min="0"
                           step="0.01"
-                          className="w-2/3 flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-lg show-spinner"
+                          className="w-1/3 flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-lg show-spinner"
                           placeholder="New Payment Amount"
                           value={stagedPayments?.[payable.id] || ''}
                           onChange={(e) => selectedStudentModal && handleStagedPaidAmountChange(payable.id, e.target.value)}
@@ -1425,7 +1539,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                         />
                         <input
                           type="text"
-                          className={`w-1/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${((stagedPaymentModes?.[payable.id] || 'cash') === 'cash') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          className={`w-2/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${((stagedPaymentModes?.[payable.id] || 'cash') === 'cash') ? 'opacity-50 cursor-not-allowed' : ''}`}
                           placeholder="Reference (e.g., receipt number)"
                           value={stagedPaymentReferences?.[payable.id] || ''}
                           onChange={(e) => setStagedPaymentReferences(prev => ({ ...prev, [payable.id]: e.target.value }))}
@@ -1494,8 +1608,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       {/* Summary Modal */}
       {summaryModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px]bg-opacity-50" onClick={() => setSummaryModalOpen(false)}></div>
-          <div className="bg-white rounded-lg p-6 max-w-xl w-full max-h-140 overflow-y-auto relative z-10">
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => setSummaryModalOpen(false)}></div>
+          <div className="bg-white rounded-2xl shadow-md p-8 max-w-2xl w-full max-h-140 overflow-y-auto relative z-10">
             <div className="flex items-center justify-between ">
               <h2 className="text-xl font-bold">Confirm Payment Changes</h2>
               <button
@@ -1527,27 +1641,32 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     const newBalance = totalAmount - newPaid;
 
     return (
-      <div key={change.payableId} className="border border-gray-200 rounded-xl p-4 mb-4 shadow-sm bg-white">
+      <div key={change.payableId} className="border border-gray-200 rounded-2xl p-4 mb-4 shadow-lg bg-white">
         {/* Header: description/type and status */}
-        <div className="flex justify-between items-start mb-2">
+        <div className="flex justify-between items-start mb-10">
           <div>
             <h4 className="text-lg font-semibold">{change.type}</h4>
-            <p className="text-sm text-gray-600">{change.description || `Payment for ${change.type}`}</p>
+
           </div>
           <div className="text-right">
-            <div className={`text-xs font-semibold px-2 py-1 rounded-full ${newPayment > 0 ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-gray-100 text-gray-500 border border-gray-200'}`}>
+            <div
+              className={`inline-flex items-center justify-center text-xs font-medium px-2 py-0.5 rounded-full border
+              ${
+                newPayment > 0
+                  ? 'bg-green-100 text-green-700 border-green-300'
+                  : 'bg-gray-100 text-gray-500 border-gray-200'
+              }`}
+            >
               {newPayment > 0 ? 'Paid' : 'No Payment'}
             </div>
-            <div className="text-sm mt-2">Total: <span className="font-semibold">₱{totalAmount.toLocaleString()}</span></div>
           </div>
         </div>
 
-        {change.reference && (
-          <p className="text-xs text-gray-500 mb-2">Ref #: <span className="font-mono">{change.reference}</span></p>
-        )}
+        
 
-        {/* Payment Mode Checkboxes */}
-        <div className="mb-3 flex items-center gap-4 text-sm">
+        <div className='flex items-center justify-between'>
+          {/* Payment Mode Checkboxes */}
+        <div className=" flex items-center gap-4 text-sm">
           <label className="inline-flex items-center gap-2">
             <input type="checkbox" disabled checked={(change.mode || 'cash') === 'cash'} />
             <span className="ml-1">CASH</span>
@@ -1562,68 +1681,54 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           </label>
         </div>
 
-        <div className="border-t border-gray-200 my-2"></div>
+        <div className="text-sm ">Price: <span className="font-semibold">₱{totalAmount.toLocaleString()}</span></div>
+
+        </div>
+        
+        {change.reference && (
+          <p className="text-xs text-gray-500 mt-1.5 pb-2">Ref #: <span className="font-mono">{change.reference}</span></p>
+        )}
+
+        <div className="border-t border-gray-200 my-2 pt-2"></div>
 
         {/* Three-column financial snapshot: previous balance, amount paid now, current balance */}
         <div className="grid grid-cols-3 gap-4 text-sm">
           <div>
-            <p className="text-gray-500 mb-1">Previous</p>
-            <p>Paid: <span className="font-semibold">₱{prevPaid.toLocaleString()}</span></p>
-            <p className={prevBalance > 0 ? 'text-red-600' : 'text-green-600'}>Balance: ₱{prevBalance.toLocaleString()}</p>
+            <p className="text-gray-500 mb-1">Previous Balance</p>
+            <p className={prevBalance > 0 ? 'text-red-700 font-semibold' : 'text-green-700 font-semibold'}>₱ {prevBalance.toLocaleString()}</p>
           </div>
 
           <div className="text-center">
-            <p className="text-gray-500 mb-1">Now</p>
-            <p className="text-base font-bold text-blue-600">₱{newPayment.toLocaleString()}</p>
-            <p className="text-xs text-gray-500 mt-1">Amount Paid</p>
+            <p className="text-gray-500 mb-1">Current Payment</p>
+            <p className="text-sm  text-blue-700 font-semibold">₱ {newPayment.toLocaleString()}</p>
           </div>
 
           <div className="text-right">
-            <p className="text-gray-500 mb-1">After</p>
-            <p>Paid: <span className="font-semibold">₱{newPaid.toLocaleString()}</span></p>
-            <p className={newBalance > 0 ? 'text-red-600' : 'text-green-600'}>Balance: ₱{newBalance.toLocaleString()}</p>
+            <p className="text-gray-500 mb-1">Balance</p>
+            <p className={newBalance > 0 ? 'text-red-700 font-semibold' : 'text-green-700 font-semibold'}>₱ {newBalance.toLocaleString()}</p>
           </div>
         </div>
       </div>
     );
   })}
 
-  {/* Summary */}
-  <div className="mt-6 px-4 py-2 border border-gray-200 bg-gray-100 rounded-xl">
-    <h3 className="text-lg font-semibold mb-2">
-      Payment Summary
-    </h3>
 
-    <div className="flex justify-between text-sm ">
-      <span className="text-gray-600">Current Balance</span>
-      <span className="font-semibold">
-        ₱{summaryData.totalCurrentBalance.toLocaleString()}
-      </span>
-    </div>
-
-    <div className="flex justify-between text-sm">
-      <span className="text-blue-600 font-medium">Updated Balance</span>
-      <span className="font-bold text-blue-600">
-        ₱{summaryData.totalNewBalance.toLocaleString()}
-      </span>
-    </div>
-  </div>
 </div>
               )}
             </div>
-            <div className="flex gap-2 justify-end">
+            <div className="flex gap-2 justify-end mt-8">
               <button
                 onClick={() => setSummaryModalOpen(false)}
-               className="px-4 py-1.5  bg-gray-300 rounded-lg text-sm hover:bg-gray-400 cursor-pointer"
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleFinalConfirm}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm cursor-pointer hover:bg-blue-700 disabled:bg-gray-400"
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 disabled={confirmLoading}
               >
-                {confirmLoading ? 'Confirming...' : 'Confirm All Changes'}
+                {confirmLoading ? 'Confirming...' : 'Confirm  Changes'}
               </button>
             </div>
           </div>
@@ -1902,6 +2007,18 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       )}
       {receiptModalOpen && (
         <ReceiptModal open={receiptModalOpen} onClose={() => setReceiptModalOpen(false)} receiptData={receiptData} />
+      )}
+
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={handleScrollToTop}
+          className="fixed bottom-6 right-6 z-40 cursor-pointer rounded-full bg-blue-600 text-white p-3 shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+          aria-label="Scroll to top"
+          title="Scroll to top"
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
       )}
     </div>
   );

@@ -64,7 +64,10 @@ const Header = () => {
   };
 
   const handleGoDashboard = () => {
+    // Clear any hash route (e.g. curriculum preview/maker) and also
+    // notify the Dashboard to reset its internal selected module state.
     window.location.hash = '';
+    window.dispatchEvent(new CustomEvent('go-dashboard'));
   };
 
   useEffect(() => {

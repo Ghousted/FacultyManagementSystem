@@ -96,6 +96,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   // Equivalent subject selection state
   const [selectedEquivalent, setSelectedEquivalent] = useState([]);
   const [allCourses, setAllCourses] = useState([]);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   const loadCurriculums = useCallback(async () => {
     if (!currentUser) {
@@ -175,6 +176,52 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     }
   }, [success]);
 
+  useEffect(() => {
+    const getCurrentScrollTop = () => {
+      const rootElement = document.getElementById('root');
+      const mainElement = document.querySelector('main');
+
+      return Math.max(
+        window.scrollY || 0,
+        window.pageYOffset || 0,
+        document.documentElement?.scrollTop || 0,
+        document.body?.scrollTop || 0,
+        rootElement?.scrollTop || 0,
+        mainElement?.scrollTop || 0
+      );
+    };
+
+    const handleScroll = () => {
+      setShowScrollTop(getCurrentScrollTop() > 180);
+    };
+
+    const rootElement = document.getElementById('root');
+    const mainElement = document.querySelector('main');
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    document.addEventListener('scroll', handleScroll, { passive: true });
+
+    if (rootElement) {
+      rootElement.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    if (mainElement) {
+      mainElement.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('scroll', handleScroll);
+      if (rootElement) {
+        rootElement.removeEventListener('scroll', handleScroll);
+      }
+      if (mainElement) {
+        mainElement.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, []);
+
   // Auto-hide snackbar to mimic previous MUI behavior
   useEffect(() => {
     if (snackbarOpen) {
@@ -203,6 +250,28 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setSnackbarMessage(message);
     setSnackbarSeverity(severity);
     setSnackbarOpen(true);
+  };
+
+  const handleScrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (document.documentElement) {
+      document.documentElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    if (document.body) {
+      document.body.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const rootElement = document.getElementById('root');
+    if (rootElement && typeof rootElement.scrollTo === 'function') {
+      rootElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const mainElement = document.querySelector('main');
+    if (mainElement && typeof mainElement.scrollTo === 'function') {
+      mainElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   // Menu handlers
@@ -726,13 +795,13 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
              </div>
              <div className='flex items-start gap-1'>
                 <button
-                  className="rounded-full p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-500 cursor-pointer"
+              className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                   onClick={(e) => { e.stopPropagation(); setSelectedCurriculumForMenu(curriculum); handleEditCurriculum(); }}
                 >
                   <Pencil className="w-4 h-4" />
                 </button>
                 <button
-                  className="rounded-full p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-500 cursor-pointer"
+              className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                   onClick={(e) => { e.stopPropagation(); setSelectedCurriculumForMenu(curriculum); handleDeleteCurriculumClick(); }}
                 >
                   <Trash className="w-4 h-4" />
@@ -946,7 +1015,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                               <div>
                                 <button
                                   onClick={() => openPrereqModalForEditing(course)}
-                          className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
+                                  className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                                 >
                                   {(editingData.prerequisites || []).length > 0 ? (editingData.prerequisites || []).join(', ') : 'Select Prerequisites'}
                                 </button>
@@ -968,7 +1037,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                               <div>
                                 <button
                                   onClick={() => openEquivModalForEditing(course)}
-                          className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
+                                  className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                                 >
                                   {(editingEquivalents || []).length > 0 ? (editingEquivalents || []).join(', ') : 'Select Equivalent Subjects'}
                                 </button>
@@ -1024,7 +1093,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                               ) : (
                                 <button
                                   onClick={() => handleEditCourse(course)}
-                                  className="p-1 rounded cursor-pointer  font-medium bg-green-600 text-white border border-green-600 hover:bg-green-700"
+                                  className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                                   title="Edit course"
                                 >
                                   <Pencil className="w-4 h-4" />
@@ -1032,8 +1101,8 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                               )}
                               <button
                                 onClick={() => handleDeleteCourse(course.id)}
-                c                disabled={loading}
-                                className="p-1 rounded cursor-pointer  font-medium bg-red-600 text-white border border-red-600 hover:bg-red-700"
+                                disabled={loading}
+                                className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                                 title="Delete course"
                               >
                                 <Trash className="w-4 h-4" />
@@ -1906,6 +1975,18 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
           </div>
           <style>{`@media screen { .print-only-preview { display: none; } } @media print { body * { visibility: hidden !important; } .print-only-preview, .print-only-preview * { visibility: visible !important; } .print-only-preview { position: static !important; left: 0 !important; width: 100% !important; } }`}</style>
         </div>
+      )}
+
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={handleScrollToTop}
+          className="fixed bottom-6 right-6 z-40 cursor-pointer rounded-full bg-blue-600 text-white p-3 shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+          aria-label="Scroll to top"
+          title="Scroll to top"
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
       )}
     </div>
   );

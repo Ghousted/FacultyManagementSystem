@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAllCourses, getCurriculums } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { LayoutPanelLeft, List, Printer, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
+import { Printer, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
 import CurriculumPreview from './CurriculumPReview';
 
 const CurriculumCheckerMain = ({ onBack }) => {
@@ -22,10 +22,10 @@ const CurriculumCheckerMain = ({ onBack }) => {
   const [printOnlyOpen, setPrintOnlyOpen] = useState(false);
   const [expandedYears, setExpandedYears] = useState({ 1: true, 2: true, 3: true, 4: true });
   const [showEquivalentCourses, setShowEquivalentCourses] = useState(false);
-  const [studentView, setStudentView] = useState('list');
   const [showAvailableCourses, setShowAvailableCourses] = useState(true);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [lastSelectedStudentId, setLastSelectedStudentId] = useState(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   useEffect(() => {
     if (currentUser) {
@@ -59,7 +59,53 @@ const CurriculumCheckerMain = ({ onBack }) => {
         }
       }, 50);
     }
-  }, [selectedStudent, lastSelectedStudentId, tabValue, studentView]);
+  }, [selectedStudent, lastSelectedStudentId, tabValue]);
+
+  useEffect(() => {
+    const getCurrentScrollTop = () => {
+      const rootElement = document.getElementById('root');
+      const mainElement = document.querySelector('main');
+
+      return Math.max(
+        window.scrollY || 0,
+        window.pageYOffset || 0,
+        document.documentElement?.scrollTop || 0,
+        document.body?.scrollTop || 0,
+        rootElement?.scrollTop || 0,
+        mainElement?.scrollTop || 0
+      );
+    };
+
+    const handleScroll = () => {
+      setShowScrollTop(getCurrentScrollTop() > 180);
+    };
+
+    const rootElement = document.getElementById('root');
+    const mainElement = document.querySelector('main');
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    document.addEventListener('scroll', handleScroll, { passive: true });
+
+    if (rootElement) {
+      rootElement.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    if (mainElement) {
+      mainElement.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('scroll', handleScroll);
+      if (rootElement) {
+        rootElement.removeEventListener('scroll', handleScroll);
+      }
+      if (mainElement) {
+        mainElement.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, []);
 
   const requestSort = (key) => {
     let direction = 'asc';
@@ -231,6 +277,28 @@ const CurriculumCheckerMain = ({ onBack }) => {
       setError(result.error);
     }
     setLoading(false);
+  };
+
+  const handleScrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (document.documentElement) {
+      document.documentElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    if (document.body) {
+      document.body.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const rootElement = document.getElementById('root');
+    if (rootElement && typeof rootElement.scrollTo === 'function') {
+      rootElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const mainElement = document.querySelector('main');
+    if (mainElement && typeof mainElement.scrollTo === 'function') {
+      mainElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const getStatusColor = (status) => {
@@ -458,124 +526,103 @@ const CurriculumCheckerMain = ({ onBack }) => {
         </div>
       </div>
 
-      {studentView === 'grid' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-          {sortedStudents.map((student) => (
-            <div
+      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white mb-4">
+        <table className="min-w-full text-sm">
+          <thead className="bg-blue-600 text-white">
+            <tr>
+              <th
+                className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[12%] cursor-pointer"
+                onClick={() => requestSort('studentNumber')}
+              >
+                <div className="flex items-center">
+                  Student No.
+                  {sortConfig.key === 'studentNumber' ? (
+                    sortConfig.direction === 'asc' ? (
+                      <ChevronUp className="w-4 h-4 ml-1" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 ml-1" />
+                    )
+                  ) : (
+                    <ChevronsUpDown className="w-4 h-4 ml-1" />
+                  )}
+                </div>
+              </th>
+              <th
+                className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[20%] cursor-pointer"
+                onClick={() => requestSort('name')}
+              >
+                <div className="flex items-center">
+                  Name
+                  {sortConfig.key === 'name' ? (
+                    sortConfig.direction === 'asc' ? (
+                      <ChevronUp className="w-4 h-4 ml-1" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 ml-1" />
+                    )
+                  ) : (
+                    <ChevronsUpDown className="w-4 h-4 ml-1" />
+                  )}
+                </div>
+              </th>
+              <th className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[18%]">Email</th>
+              <th className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[10%]">Contact No.</th>
+              <th
+                className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[20%] cursor-pointer"
+                onClick={() => requestSort('curriculumName')}
+              >
+                <div className="flex items-center">
+                  Curriculum
+                  {sortConfig.key === 'curriculumName' ? (
+                    sortConfig.direction === 'asc' ? (
+                      <ChevronUp className="w-4 h-4 ml-1" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 ml-1" />
+                    )
+                  ) : (
+                    <ChevronsUpDown className="w-4 h-4 ml-1" />
+                  )}
+                </div>
+              </th>
+              <th
+                className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[15%] cursor-pointer"
+                onClick={() => requestSort('completedCourses')}
+              >
+                <div className="flex items-center">
+                  Completed Courses
+                  {sortConfig.key === 'completedCourses' ? (
+                    sortConfig.direction === 'asc' ? (
+                      <ChevronUp className="w-4 h-4 ml-1" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 ml-1" />
+                    )
+                  ) : (
+                    <ChevronsUpDown className="w-4 h-4 ml-1" />
+                  )}
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedStudents.map((student) => (
+             <tr
               id={`student-row-${student.id}`}
               key={student.id}
-              className="cursor-pointer transition-all duration-300 border border-gray-300 rounded-xl bg-white hover:shadow-lg hover:border-blue-500 p-6"
               onClick={() => handleStudentSelect(student)}
+              className="odd:bg-white even:bg-gray-100 hover:bg-gray-200 cursor-pointer"
             >
-              <div className="flex items-center gap-2 mb-2">
-                <h6 className="text-lg font-bold text-blue-600">{student.name}</h6>
-              </div>
-              <p className="text-gray-600 text-sm mb-4">
-                {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year
-                <br /><span className='text-xs'>{student.completedCourses?.length || 0} courses completed</span>
-              </p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white mb-4">
-          <table className="min-w-full text-sm">
-            <thead className="bg-blue-600 text-white">
-              <tr>
-                <th
-                  className="px-4 py-2 text-left font-semibold border-b border-gray-300 w-[12%] cursor-pointer"
-                  onClick={() => requestSort('studentNumber')}
-                >
-                  <div className="flex items-center">
-                    Student No.
-                    {sortConfig.key === 'studentNumber' ? (
-                      sortConfig.direction === 'asc' ? (
-                        <ChevronUp className="w-4 h-4 ml-1" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 ml-1" />
-                      )
-                    ) : (
-                      <ChevronsUpDown className="w-4 h-4 ml-1" />
-                    )}
-                  </div>
-                </th>
-                <th
-                  className="px-4 py-2 text-left font-semibold border-b border-gray-300 w-[20%] cursor-pointer"
-                  onClick={() => requestSort('name')}
-                >
-                  <div className="flex items-center">
-                    Name
-                    {sortConfig.key === 'name' ? (
-                      sortConfig.direction === 'asc' ? (
-                        <ChevronUp className="w-4 h-4 ml-1" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 ml-1" />
-                      )
-                    ) : (
-                      <ChevronsUpDown className="w-4 h-4 ml-1" />
-                    )}
-                  </div>
-                </th>
-                <th className="px-4 py-2 text-left font-semibold border-b border-gray-300 w-[18%]">Email</th>
-                <th className="px-4 py-2 text-left font-semibold border-b border-gray-300 w-[10%]">Contact No.</th>
-                <th
-                  className="px-4 py-2 text-left font-semibold border-b border-gray-300 w-[20%] cursor-pointer"
-                  onClick={() => requestSort('curriculumName')}
-                >
-                  <div className="flex items-center">
-                    Curriculum
-                    {sortConfig.key === 'curriculumName' ? (
-                      sortConfig.direction === 'asc' ? (
-                        <ChevronUp className="w-4 h-4 ml-1" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 ml-1" />
-                      )
-                    ) : (
-                      <ChevronsUpDown className="w-4 h-4 ml-1" />
-                    )}
-                  </div>
-                </th>
-                <th
-                  className="px-4 py-2 text-left font-semibold border-b border-gray-300 w-[15%] cursor-pointer"
-                  onClick={() => requestSort('completedCourses')}
-                >
-                  <div className="flex items-center">
-                    Completed Courses
-                    {sortConfig.key === 'completedCourses' ? (
-                      sortConfig.direction === 'asc' ? (
-                        <ChevronUp className="w-4 h-4 ml-1" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 ml-1" />
-                      )
-                    ) : (
-                      <ChevronsUpDown className="w-4 h-4 ml-1" />
-                    )}
-                  </div>
-                </th>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[12%]">{student.studentNumber}</td>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[20%]">{student.name}</td>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[18%]">{student.email}</td>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[10%]">{student.contactNumber}</td>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[20%]">
+                  <span>{student.curriculumName || student.curriculumId || 'Not Set'}</span>
+                </td>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[15%]">{student.completedCourses?.length || 0}</td>
               </tr>
-            </thead>
-            <tbody>
-              {sortedStudents.map((student) => (
-                <tr
-                  id={`student-row-${student.id}`}
-                  key={student.id}
-                  onClick={() => handleStudentSelect(student)}
-                  className="hover:bg-gray-50 cursor-pointer"
-                >
-                  <td className="px-4 py-2 border-b border-gray-300 w-[12%]">{student.studentNumber}</td>
-                  <td className="px-4 py-2 border-b border-gray-300 text-blue-700 font-medium w-[20%]">{student.name}</td>
-                  <td className="px-4 py-2 border-b border-gray-300 w-[18%]">{student.email}</td>
-                  <td className="px-4 py-2 border-b border-gray-300 w-[10%]">{student.contactNumber}</td>
-                  <td className="px-4 py-2 border-b border-gray-300 w-[20%]">
-                    <span>{student.curriculumName || student.curriculumId || 'Not Set'}</span>
-                  </td>
-                  <td className="px-4 py-2 border-b border-gray-300 w-[15%]">{student.completedCourses?.length || 0}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {filteredStudents.length === 0 && searchTerm && (
         <div className="text-center py-16">
@@ -692,12 +739,12 @@ const CurriculumCheckerMain = ({ onBack }) => {
                             <table className="min-w-full text-xs">
                               <thead className="bg-blue-100 text-blue-800">
                                 <tr>
-                                  <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[10%]">Code</th>
-                                  <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[30%]">Description</th>
-                                  <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[10%]">Units</th>
-                                  <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[20%]">Prerequisites</th>
-                                  <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[15%]">Status</th>
-                                  <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[15%]">Grade</th>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[10%]">Code</th>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[30%]">Description</th>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[10%]">Units</th>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[20%]">Prerequisites</th>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[15%]">Status</th>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[15%]">Grade</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -708,12 +755,12 @@ const CurriculumCheckerMain = ({ onBack }) => {
                                     const incomplete = isCourseIncomplete(student, course.courseCode);
                                     return (
                                       <tr key={course.id} className="transition-colors">
-                                        <td className="px-4 py-2 border-b border-gray-300 w-[10%]">
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[10%]">
                                           <span className="text-blue-700 font-semibold">{course.courseCode}</span>
                                         </td>
-                                        <td className="px-4 py-2 border-b border-gray-300 w-[30%]">{course.courseTitle}</td>
-                                        <td className="px-4 py-2 border-b border-gray-300 w-[10%]">{course.units}</td>
-                                        <td className="px-4 py-2 border-b border-gray-300 w-[20%]">
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[30%]">{course.courseTitle}</td>
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[10%]">{course.units}</td>
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[20%]">
                                           {course.prerequisites.length > 0 ? (
                                             <div className="flex flex-wrap gap-1">
                                               {course.prerequisites.map(prereq => {
@@ -739,12 +786,12 @@ const CurriculumCheckerMain = ({ onBack }) => {
                                             <span className="text-gray-500">None</span>
                                           )}
                                         </td>
-                                        <td className="px-4 py-2 border-b border-gray-300 w-[15%]">
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[15%]">
                                           <span className={`inline-block px-2 py-0.5 text-xs rounded-full border ${getStatusColor(course.status)}`}>
                                             {getStatusLabel(course.status, course, student)}
                                           </span>
                                         </td>
-                                        <td className="px-4 py-2 border-b border-gray-300 w-[15%]">
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[15%]">
                                           {student.grades && student.grades[course.courseCode] ? (
                                             (() => {
                                               const val = student.grades[course.courseCode];
@@ -786,7 +833,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
             <button
               type="button"
               onClick={() => setShowAvailableCourses(s => !s)}
-              className="w-full flex items-center cursor-pointer justify-between px-4 py-2 rounded-xl transition"
+              className="w-full flex items-center cursor-pointer justify-between px-2 py-1.5 rounded-xl transition"
             >
               <span className="text-base font-semibold text-blue-800">
                 Available Courses This Term
@@ -830,7 +877,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
               <button
                 type="button"
                 onClick={() => setShowEquivalentCourses(s => !s)}
-                className="w-full flex cursor-pointer items-center justify-between px-4 py-2 rounded-xl transition"
+                className="w-full flex cursor-pointer items-center justify-between px-2 py-1.5 rounded-xl transition"
               >
                 <span className="text-base font-semibold text-blue-800">
                   Equivalent Courses from Other Curriculums
@@ -891,16 +938,16 @@ const CurriculumCheckerMain = ({ onBack }) => {
   return (
     <div className="h-screen flex flex-col">
       {!currentUser && (
-        <div className="mx-3 mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-4 py-2 text-sm">
+        <div className="mx-3 mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-2 py-1.5 text-sm">
           Please sign in to access the Curriculum Checker
         </div>
       )}
 
       {error && (
-        <div className="mx-3 mb-2 rounded border border-red-200 bg-red-50 text-red-800 px-4 py-2 text-sm">{error}</div>
+        <div className="mx-3 mb-2 rounded border border-red-200 bg-red-50 text-red-800 px-2 py-1.5 text-sm">{error}</div>
       )}
       {success && (
-        <div className="mx-3 mb-2 rounded border border-green-200 bg-green-50 text-green-800 px-4 py-2 text-sm">{success}</div>
+        <div className="mx-3 mb-2 rounded border border-green-200 bg-green-50 text-green-800 px-2 py-1.5 text-sm">{success}</div>
       )}
 
       {currentUser ? (
@@ -915,7 +962,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
         </div>
       )}
       {previewOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center absolute inset-0 bg-black/40">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white max-w-4xl w-full max-h-[90vh] overflow-auto rounded-lg p-4">
             <div className="flex justify-between items-center mb-2">
               <h3 className="text-lg font-bold">Print Preview - {previewTarget?.student?.name}</h3>
@@ -949,6 +996,18 @@ const CurriculumCheckerMain = ({ onBack }) => {
           </div>
           <style>{`@media screen { .print-only-preview { display: none; } } @media print { body * { visibility: hidden !important; } .print-only-preview, .print-only-preview * { visibility: visible !important; } .print-only-preview { position: static !important; left: 0 !important; width: 100% !important; } }`}</style>
         </div>
+      )}
+
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={handleScrollToTop}
+          className="fixed bottom-6 right-6 cursor-pointer z-40 rounded-full bg-blue-600 text-white p-3 shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+          aria-label="Scroll to top"
+          title="Scroll to top"
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
       )}
     </div>
   );
