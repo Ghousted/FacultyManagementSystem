@@ -100,12 +100,15 @@ export const getAllCourses = async () => {
 // Student Model
 export const addStudent = async (studentData) => {
   try {
+    const isIrregular = !!studentData.isIrregular;
     const docRef = await addDoc(collection(db, 'students'), {
       name: studentData.name,
       yearLevel: studentData.yearLevel,
-      curriculumId: studentData.curriculumId,
+      curriculumId: isIrregular ? null : studentData.curriculumId,
       completedCourses: [], // Array of course codes
-      isIrregular: studentData.isIrregular || false,
+      isIrregular,
+      semesterLoads: studentData.semesterLoads || { sem1: [], sem2: [] },
+      irregularSubjects: studentData.irregularSubjects || { sem1: [], sem2: [] },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
