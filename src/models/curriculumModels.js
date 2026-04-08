@@ -99,12 +99,15 @@ export const getAllCourses = async () => {
 // Student Model
 export const addStudent = async (studentData) => {
   try {
+    const isIrregular = !!studentData.isIrregular;
     const docRef = await addDoc(collection(db, 'students'), {
       name: studentData.name,
       yearLevel: studentData.yearLevel,
-      curriculumId: studentData.curriculumId,
+      curriculumId: isIrregular ? null : studentData.curriculumId,
       completedCourses: [], // Array of course codes
-      isIrregular: studentData.isIrregular || false,
+      isIrregular,
+      semesterLoads: studentData.semesterLoads || { sem1: [], sem2: [] },
+      irregularSubjects: studentData.irregularSubjects || { sem1: [], sem2: [] },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
@@ -241,10 +244,38 @@ export const getStudentCurriculumStatus = async (studentId) => {
       );
     };
     
-    // Get curriculum courses
-    const coursesResult = await getCoursesByCurriculum(studentData.curriculumId);
-    if (!coursesResult.success) return { success: false, error: coursesResult.error };
-    const courses = coursesResult.data;
+    let courses = [];
+    if (studentData.curriculumId) {
+      const coursesResult = await getCoursesByCurriculum(studentData.curriculumId);
+      if (!coursesResult.success) return { success: false, error: coursesResult.error };
+      courses = coursesResult.data;
+    } else if (studentData.isIrregular) {
+      const sem1 = (studentData.irregularSubjects?.sem1 || []).map((s) => ({
+        id: s.id || `sem1-${s.courseCode}`,
+        courseCode: s.courseCode,
+        courseTitle: s.courseTitle,
+        units: s.units,
+        semester: 1,
+        yearLevel: s.yearLevel || studentData.yearLevel || 1,
+        prerequisites: s.prerequisites || [],
+        isMajor: !!s.isMajor,
+        isAvailable: true
+      }));
+      const sem2 = (studentData.irregularSubjects?.sem2 || []).map((s) => ({
+        id: s.id || `sem2-${s.courseCode}`,
+        courseCode: s.courseCode,
+        courseTitle: s.courseTitle,
+        units: s.units,
+        semester: 2,
+        yearLevel: s.yearLevel || studentData.yearLevel || 1,
+        prerequisites: s.prerequisites || [],
+        isMajor: !!s.isMajor,
+        isAvailable: true
+      }));
+      courses = [...sem1, ...sem2];
+    } else {
+      return { success: false, error: 'No curriculum assigned to student' };
+    }
     
     // Get all courses for equivalent subject logic
     const allCoursesResult = await getAllCourses();

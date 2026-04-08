@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { exportDeanListToExcel } from '../../utils/excelExport';
-import { getStudents, getCoursesByCurriculum } from '../../models/curriculumModels';
+import { getStudents, getCoursesByCurriculum, getAllCourses } from '../../models/curriculumModels';
+import { evaluateDeansListerEligibility, resolveSemesterCoursesForStudent } from '../../utils/deansListerUtils';
 
 
 const yearTabs = [
@@ -19,9 +20,9 @@ const semTabs = [
 const ReportsModule = ({ onBackToDashboard }) => {
   // Customizable parameters for dean's list
   const [criteria, setCriteria] = useState({
-    major: 1.7,
-    minor: 2.0,
-    gwa: 2.0
+    minGrade: 2.1,
+    gwa: 2.0,
+    minUnits: 15
   });
   const [tabYear, setTabYear] = useState(0);
   const [tabSem, setTabSem] = useState(0);
@@ -42,13 +43,14 @@ const ReportsModule = ({ onBackToDashboard }) => {
   useEffect(() => {
     const fetchDeanList = async () => {
       setLoading(true);
-      const studentsRes = await getStudents();
-      if (!studentsRes.success) {
+      const [studentsRes, allCoursesRes] = await Promise.all([getStudents(), getAllCourses()]);
+      if (!studentsRes.success || !allCoursesRes.success) {
         setDeansList([]);
         setLoading(false);
         return;
       }
       const students = studentsRes.data;
+      const allCourses = allCoursesRes.data || [];
       const yearVal = selectedYear;
       const semVal = selectedSem;
       const filtered = students.filter(s => {
@@ -57,35 +59,35 @@ const ReportsModule = ({ onBackToDashboard }) => {
       });
       const deanCandidates = [];
       for (const student of filtered) {
-        if (!student.curriculumId) continue;
-        const coursesRes = await getCoursesByCurriculum(student.curriculumId);
-        if (!coursesRes.success) continue;
-        const courses = coursesRes.data.filter(c => c.semester === semVal && (yearVal === 'irregular' || c.yearLevel === yearVal));
-        const grades = student.grades || {};
-        let totalUnits = 0;
-        let weightedSum = 0;
-        let eligible = true;
-        const gradeDetails = [];
-        for (const course of courses) {
-          const grade = parseFloat(grades[course.courseCode]);
-          if (isNaN(grade)) continue;
-          gradeDetails.push({
-            subject: course.courseTitle,
-            grade,
-            isMajor: course.isMajor || false
-          });
-          totalUnits += parseFloat(course.units) || 0;
-          weightedSum += grade * (parseFloat(course.units) || 1);
-          if (course.isMajor && grade > criteria.major) eligible = false;
-          if (!course.isMajor && grade > criteria.minor) eligible = false;
+        let curriculumCourses = [];
+        if (student.curriculumId) {
+          const coursesRes = await getCoursesByCurriculum(student.curriculumId);
+          if (!coursesRes.success) continue;
+          curriculumCourses = coursesRes.data || [];
         }
-        const gwa = totalUnits > 0 ? weightedSum / totalUnits : null;
-        if (gwa === null || gwa > criteria.gwa) eligible = false;
-        if (eligible && gradeDetails.length > 0) {
+
+        if (!student.curriculumId && !student.isIrregular) {
+          continue;
+        }
+
+        const semesterCourses = resolveSemesterCoursesForStudent({
+          student,
+          semester: semVal,
+          year: yearVal === 'irregular' ? null : yearVal,
+          curriculumCourses,
+          allCourses
+        });
+        const result = evaluateDeansListerEligibility({
+          student,
+          courses: semesterCourses,
+          criteria
+        });
+        if (result.eligible) {
           deanCandidates.push({
             name: student.name,
-            gwa: gwa ? gwa.toFixed(3) : '',
-            grades: gradeDetails
+            gwa: result.gwa ? result.gwa.toFixed(3) : '',
+            totalUnits: result.totalUnits,
+            grades: result.gradeDetails
           });
         }
       }
@@ -111,22 +113,22 @@ const ReportsModule = ({ onBackToDashboard }) => {
         {/* Parameters Section */}
         <div className="flex gap-6 flex-wrap items-center bg-blue-50 p-4 rounded-2xl shadow-sm mb-6">
           <div className="flex flex-col items-start">
-            <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1" title="Dean's List Major Subject Grade Cutoff">
-              <i className="bi bi-star-fill text-yellow-500"></i>Major Grade
+            <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1" title="Highest allowed numeric grade per subject">
+              <i className="bi bi-star-fill text-yellow-500"></i>Minimum Grade
             </label>
-            <input type="number" step="0.01" value={criteria.major} onChange={e => setCriteria(c => ({ ...c, major: parseFloat(e.target.value) }))} className="border rounded px-2 py-1 w-24 focus:ring-2 focus:ring-blue-300" />
-          </div>
-          <div className="flex flex-col items-start">
-            <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1" title="Dean's List Minor Subject Grade Cutoff">
-              <i className="bi bi-star"></i>Minor Grade
-            </label>
-            <input type="number" step="0.01" value={criteria.minor} onChange={e => setCriteria(c => ({ ...c, minor: parseFloat(e.target.value) }))} className="border rounded px-2 py-1 w-24 focus:ring-2 focus:ring-blue-300" />
+            <input type="number" step="0.01" value={criteria.minGrade} onChange={e => setCriteria(c => ({ ...c, minGrade: parseFloat(e.target.value) }))} className="border rounded px-2 py-1 w-24 focus:ring-2 focus:ring-blue-300" />
           </div>
           <div className="flex flex-col items-start">
             <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1" title="Dean's List GWA Cutoff">
               <i className="bi bi-graph-up"></i>GWA
             </label>
             <input type="number" step="0.01" value={criteria.gwa} onChange={e => setCriteria(c => ({ ...c, gwa: parseFloat(e.target.value) }))} className="border rounded px-2 py-1 w-24 focus:ring-2 focus:ring-blue-300" />
+          </div>
+          <div className="flex flex-col items-start">
+            <label className="block text-xs font-medium text-gray-700 mb-1 flex items-center gap-1" title="Minimum enrolled and graded units required">
+              <i className="bi bi-stack"></i>Minimum Units
+            </label>
+            <input type="number" min="1" step="1" value={criteria.minUnits} onChange={e => setCriteria(c => ({ ...c, minUnits: parseInt(e.target.value, 10) || 0 }))} className="border rounded px-2 py-1 w-24 focus:ring-2 focus:ring-blue-300" />
           </div>
           <button onClick={handleDownload} className="ml-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-semibold shadow flex items-center gap-2 mt-2 sm:mt-0" title="Download Excel">
             <i className="bi bi-file-earmark-excel"></i> Download Excel
@@ -173,14 +175,15 @@ const ReportsModule = ({ onBackToDashboard }) => {
             <tr className="bg-blue-100">
               <th className="p-2 border">Name</th>
               <th className="p-2 border">GWA</th>
+              <th className="p-2 border">Units</th>
               <th className="p-2 border">Show Details</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td className="p-2 border text-center" colSpan={5}>Loading...</td></tr>
+              <tr><td className="p-2 border text-center" colSpan={4}>Loading...</td></tr>
             ) : deansList.length === 0 ? (
-              <tr><td className="p-2 border text-center" colSpan={5}>No data found.</td></tr>
+              <tr><td className="p-2 border text-center" colSpan={4}>No data found.</td></tr>
             ) : (
               deansList.map((student, idx) => (
                 <>
@@ -189,6 +192,7 @@ const ReportsModule = ({ onBackToDashboard }) => {
                       <i className="bi bi-person-circle text-lg text-blue-400"></i> {student.name}
                     </td>
                     <td className="p-2 border font-bold text-green-700">{student.gwa}</td>
+                    <td className="p-2 border text-center font-semibold text-blue-700">{student.totalUnits}</td>
                     <td className="p-2 border text-center">
                       <button className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow" onClick={e => { e.stopPropagation(); setExpandedStudent(expandedStudent === idx ? null : idx); }}>
                         {expandedStudent === idx ? 'Hide' : 'Show'}
@@ -197,7 +201,7 @@ const ReportsModule = ({ onBackToDashboard }) => {
                   </tr>
                   {expandedStudent === idx && (
                     <tr>
-                      <td colSpan={5} className="bg-blue-50 p-0">
+                      <td colSpan={4} className="bg-blue-50 p-0">
                         <div className="p-4">
                           <h4 className="font-semibold text-blue-700 mb-2">Subject Grades</h4>
                           <div className="overflow-x-auto">
@@ -206,7 +210,8 @@ const ReportsModule = ({ onBackToDashboard }) => {
                                 <tr className="bg-blue-200">
                                   <th className="p-2 border">Subject</th>
                                   <th className="p-2 border">Grade</th>
-                                  <th className="p-2 border">Major</th>
+                                  <th className="p-2 border">Code</th>
+                                  <th className="p-2 border">Units</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -214,7 +219,8 @@ const ReportsModule = ({ onBackToDashboard }) => {
                                   <tr key={gidx}>
                                     <td className="p-2 border">{grade.subject}</td>
                                     <td className="p-2 border font-semibold text-gray-800">{grade.grade}</td>
-                                    <td className="p-2 border">{grade.isMajor ? 'Yes' : 'No'}</td>
+                                    <td className="p-2 border">{grade.code}</td>
+                                    <td className="p-2 border">{grade.units}</td>
                                   </tr>
                                 ))}
                               </tbody>

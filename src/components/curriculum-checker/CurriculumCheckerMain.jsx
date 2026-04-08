@@ -3,6 +3,7 @@ import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAll
 import { useAuth } from '../../contexts/AuthContext';
 import { LayoutPanelLeft, List, Printer } from 'lucide-react'; 
 import CurriculumPreview from './CurriculumPReview';
+import { evaluateDeansListerEligibility, resolveSemesterCoursesForStudent } from '../../utils/deansListerUtils';
 
 const CurriculumCheckerMain = ({ onBack }) => {
   const { currentUser } = useAuth();
@@ -71,7 +72,10 @@ const CurriculumCheckerMain = ({ onBack }) => {
   };
 
   const loadStudentCourses = async (curriculumId) => {
-    if (!curriculumId) return;
+    if (!curriculumId) {
+      setStudentCourses([]);
+      return;
+    }
     
     const result = await getCoursesByCurriculum(curriculumId);
     if (result.success) {
@@ -190,25 +194,26 @@ const CurriculumCheckerMain = ({ onBack }) => {
 
   // Calculate Dean's Lister eligibility for a semester
   const calculateDeansListerEligibility = (student, semester, year) => {
-    if (!student || !student.grades) return false;
-    
-    // Get courses for the specific semester and year
-    const semesterCourses = studentCourses
-      ?.filter(course => course.yearLevel === year && course.semester === semester)
-      .map(course => course.courseCode) || [];
-    
-    // Get grades for those courses
-    const semesterGrades = semesterCourses
-      .map(courseCode => student.grades[courseCode])
-      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC' && grade !== 'CRED');
-    
-    if (semesterGrades.length === 0) return false;
-    
-    // Check if no grades are higher than 2.1 (excluding 5.0 and INC)
-    return semesterGrades.every(grade => {
-      const numGrade = parseFloat(grade);
-      return numGrade <= 2.1;
+    if (!student) return false;
+    const semesterCourses = resolveSemesterCoursesForStudent({
+      student,
+      semester,
+      year,
+      curriculumCourses: studentCourses,
+      allCourses
     });
+
+    const result = evaluateDeansListerEligibility({
+      student,
+      courses: semesterCourses,
+      criteria: {
+        minGrade: 2.1,
+        gwa: 2.0,
+        minUnits: 15
+      }
+    });
+
+    return result.eligible;
   };
 
   // Calculate Scholarship eligibility for both semesters

@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
+import { evaluateDeansListerEligibility, resolveSemesterCoursesForStudent } from '../../utils/deansListerUtils';
 
 const StudentManagement = ({ onBack }) => {
   const { currentUser } = useAuth();
@@ -49,6 +50,21 @@ const StudentManagement = ({ onBack }) => {
   // Grade management state
   const [studentGrades, setStudentGrades] = useState({});
   const [editingGrades, setEditingGrades] = useState({});
+  const [semesterLoads, setSemesterLoads] = useState({ sem1: [], sem2: [] });
+
+  // Dean's list criteria (editable)
+  const [deansCriteria, setDeansCriteria] = useState({
+    minGrade: 2.1,
+    gwa: 2.0,
+    minUnits: 15
+  });
+  const [irregularSubjects, setIrregularSubjects] = useState({ sem1: [], sem2: [] });
+  const [newIrregularSubject, setNewIrregularSubject] = useState({
+    courseCode: '',
+    courseTitle: '',
+    units: '',
+    isMajor: false
+  });
 
   // Sorting state for course tables
   const [sortBy, setSortBy] = useState('courseCode');
@@ -124,6 +140,8 @@ const StudentManagement = ({ onBack }) => {
     if (selectedStudent) {
       loadStudentCourses(selectedStudent.curriculumId);
       loadStudentGrades(selectedStudent.id);
+      setSemesterLoads(selectedStudent.semesterLoads || { sem1: [], sem2: [] });
+      setIrregularSubjects(selectedStudent.irregularSubjects || { sem1: [], sem2: [] });
     }
   }, [selectedStudent]);
 
@@ -137,7 +155,10 @@ const StudentManagement = ({ onBack }) => {
   }, [success]);
 
   const loadStudentCourses = async (curriculumId) => {
-    if (!curriculumId) return;
+    if (!curriculumId) {
+      setStudentCourses([]);
+      return;
+    }
     
     const result = await getCoursesByCurriculum(curriculumId);
     if (result.success) {
@@ -165,9 +186,18 @@ const StudentManagement = ({ onBack }) => {
       return;
     }
     
+    if (!studentForm.isIrregular && !studentForm.curriculumId) {
+      setError('Please select a curriculum for regular students');
+      return;
+    }
+
     setLoading(true);
     setError('');
-    const result = await addStudent(studentForm);
+    const result = await addStudent({
+      ...studentForm,
+      curriculumId: studentForm.isIrregular ? null : studentForm.curriculumId,
+      irregularSubjects: studentForm.isIrregular ? { sem1: [], sem2: [] } : undefined
+    });
     if (result.success) {
       setSuccess('Student added successfully!');
       setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: 1, curriculumId: '', isIrregular: false });
@@ -233,7 +263,7 @@ const StudentManagement = ({ onBack }) => {
       email: student.email,
       studentNumber: student.studentNumber,
       yearLevel: student.yearLevel,
-      curriculumId: student.curriculumId,
+      curriculumId: student.curriculumId || '',
       isIrregular: student.isIrregular || false
     });
     setEditingDialogOpen(true);
@@ -265,6 +295,11 @@ const StudentManagement = ({ onBack }) => {
       return;
     }
     
+    if (!editingData.isIrregular && !editingData.curriculumId) {
+      setError('Please select a curriculum for regular students');
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
@@ -274,8 +309,9 @@ const StudentManagement = ({ onBack }) => {
         email: editingData.email,
         studentNumber: editingData.studentNumber,
         yearLevel: editingData.yearLevel,
-        curriculumId: editingData.curriculumId,
+        curriculumId: editingData.isIrregular ? null : editingData.curriculumId,
         isIrregular: editingData.isIrregular,
+        irregularSubjects: editingData.isIrregular ? (selectedStudent?.irregularSubjects || { sem1: [], sem2: [] }) : null,
         updatedAt: new Date()
       });
       setSuccess('Student updated successfully!');
@@ -357,22 +393,126 @@ const StudentManagement = ({ onBack }) => {
            (hasGrade && !isFailed && !isIncomplete);
   };
 
+  const getStudentWithContext = () => {
+    if (!selectedStudent) return null;
+    return {
+      ...selectedStudent,
+      grades: studentGrades,
+      semesterLoads
+    };
+  };
+
+  const calculateDeansListerData = (semester, year) => {
+    const studentCtx = getStudentWithContext();
+    if (!studentCtx) return { eligible: false, totalUnits: 0, gwa: null, gradeDetails: [] };
+
+    const semesterCourses = resolveSemesterCoursesForStudent({
+      student: studentCtx,
+      semester,
+      year,
+      curriculumCourses: studentCourses,
+      allCourses: studentCourses
+    });
+
+    return evaluateDeansListerEligibility({
+      student: studentCtx,
+      courses: semesterCourses,
+      criteria: deansCriteria
+    });
+  };
+
   // Calculate Dean's Lister eligibility for a semester
   const calculateDeansListerEligibility = (semester, year) => {
-    if (!selectedStudent || !studentGrades) return false;
-    
-    const semesterGrades = studentCourses
-      .filter(course => course.yearLevel === year && course.semester === semester)
-      .map(course => studentGrades[course.courseCode])
-      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC' && grade !== 'CRED');
-    
-    if (semesterGrades.length === 0) return false;
-    
-    // Check if no grades are higher than 2.1 (excluding 5.0 and INC)
-    return semesterGrades.every(grade => {
-      const numGrade = parseFloat(grade);
-      return numGrade <= 2.1;
-    });
+    return calculateDeansListerData(semester, year).eligible;
+  };
+
+  const handleSemesterLoadToggle = async (semester, courseCode, checked) => {
+    if (!selectedStudent) return;
+    const semKey = `sem${semester}`;
+    const previous = semesterLoads[semKey] || [];
+    const normalized = (courseCode || '').toString().trim().toUpperCase();
+    const next = checked
+      ? Array.from(new Set([...previous, normalized]))
+      : previous.filter(code => code !== normalized);
+
+    const updatedLoads = {
+      ...semesterLoads,
+      [semKey]: next
+    };
+
+    setSemesterLoads(updatedLoads);
+    try {
+      const studentRef = doc(db, 'students', selectedStudent.id);
+      await updateDoc(studentRef, {
+        semesterLoads: updatedLoads,
+        updatedAt: new Date()
+      });
+      setSelectedStudent(prev => prev ? { ...prev, semesterLoads: updatedLoads } : prev);
+    } catch (saveError) {
+      setSemesterLoads({
+        ...semesterLoads,
+        [semKey]: previous
+      });
+      setError('Failed to update semester load: ' + saveError.message);
+    }
+  };
+
+  const handleAddIrregularSubject = async (semester) => {
+    if (!selectedStudent) return;
+    if (!newIrregularSubject.courseCode || !newIrregularSubject.courseTitle || !newIrregularSubject.units) {
+      setError('Please fill in course code, title, and units');
+      return;
+    }
+
+    const semKey = `sem${semester}`;
+    const item = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      courseCode: newIrregularSubject.courseCode.trim().toUpperCase(),
+      courseTitle: newIrregularSubject.courseTitle.trim(),
+      units: parseFloat(newIrregularSubject.units) || 0,
+      isMajor: !!newIrregularSubject.isMajor,
+      yearLevel: courseTab + 1
+    };
+
+    const next = {
+      ...irregularSubjects,
+      [semKey]: [...(irregularSubjects[semKey] || []), item]
+    };
+
+    setIrregularSubjects(next);
+    try {
+      await updateDoc(doc(db, 'students', selectedStudent.id), {
+        irregularSubjects: next,
+        updatedAt: new Date()
+      });
+      setSelectedStudent(prev => (prev ? { ...prev, irregularSubjects: next } : prev));
+      setNewIrregularSubject({ courseCode: '', courseTitle: '', units: '', isMajor: false });
+      setSuccess('Subject added to irregular semester load');
+    } catch (err) {
+      setError('Failed to add subject: ' + err.message);
+    }
+  };
+
+  const handleRemoveIrregularSubject = async (semester, subjectId) => {
+    if (!selectedStudent) return;
+    const semKey = `sem${semester}`;
+    const previous = irregularSubjects[semKey] || [];
+    const next = {
+      ...irregularSubjects,
+      [semKey]: previous.filter(s => s.id !== subjectId)
+    };
+    setIrregularSubjects(next);
+    try {
+      await updateDoc(doc(db, 'students', selectedStudent.id), {
+        irregularSubjects: next,
+        updatedAt: new Date()
+      });
+      setSelectedStudent(prev => (prev ? { ...prev, irregularSubjects: next } : prev));
+      setSuccess('Subject removed');
+    } catch (err) {
+      setIrregularSubjects({ ...irregularSubjects, [semKey]: previous });
+      setError('Failed to remove subject: ' + err.message);
+    }
   };
 
   // Calculate Scholarship eligibility for both semesters
@@ -677,7 +817,7 @@ const StudentManagement = ({ onBack }) => {
                       {student.isIrregular ? ' - Irregular' : ''}
                     </div>
                     <div className="text-sm text-gray-700 mb-3">
-                      <i className="bi bi-book mr-1"></i>{getCurriculumName(student.curriculumId)}
+                      <i className="bi bi-book mr-1"></i>{student.isIrregular ? 'Manual Subjects (Per Semester)' : getCurriculumName(student.curriculumId)}
                     </div>
                   </div>
                 ))}
@@ -728,7 +868,7 @@ const StudentManagement = ({ onBack }) => {
                           </span>
                         </td>
                         <td className="p-2">
-                          <span>{getCurriculumName(student.curriculumId)}</span>
+                          <span>{student.isIrregular ? 'Manual Subjects' : getCurriculumName(student.curriculumId)}</span>
                         </td>
                         <td className="p-2">
                           <div className="flex items-center gap-2">
@@ -771,6 +911,120 @@ const StudentManagement = ({ onBack }) => {
     const scholarshipEligibility = calculateScholarshipEligibility(currentYear);
     const isThirdYearTab = courseTab === 2;
 
+    if (selectedStudent.isIrregular) {
+      return (
+        <div className="flex flex-col h-full">
+          <div className="mb-3 p-3 bg-white rounded-xl shadow-md border border-gray-300">
+            <div className="font-semibold mb-2">Irregular Student Subject Loads (Manual per Semester)</div>
+            <div className="text-sm text-gray-600">Add subjects per semester, then encode grades to evaluate dean's list eligibility.</div>
+          </div>
+
+          <div className="mb-3 p-3 bg-white rounded-xl shadow-md border border-gray-300">
+            <div className="font-semibold mb-2">Dean's List Criteria</div>
+            <div className="mb-3 flex flex-wrap items-end gap-3">
+              <div>
+                <div className="text-xs text-gray-600 mb-1">Minimum Grade</div>
+                <input type="number" step="0.01" className="w-24 border border-gray-300 rounded px-2 py-1 text-sm" value={deansCriteria.minGrade} onChange={(e) => setDeansCriteria(prev => ({ ...prev, minGrade: parseFloat(e.target.value) || 0 }))} />
+              </div>
+              <div>
+                <div className="text-xs text-gray-600 mb-1">GWA Cutoff</div>
+                <input type="number" step="0.01" className="w-24 border border-gray-300 rounded px-2 py-1 text-sm" value={deansCriteria.gwa} onChange={(e) => setDeansCriteria(prev => ({ ...prev, gwa: parseFloat(e.target.value) || 0 }))} />
+              </div>
+              <div>
+                <div className="text-xs text-gray-600 mb-1">Minimum Units</div>
+                <input type="number" min="1" step="1" className="w-24 border border-gray-300 rounded px-2 py-1 text-sm" value={deansCriteria.minUnits} onChange={(e) => setDeansCriteria(prev => ({ ...prev, minUnits: parseInt(e.target.value, 10) || 0 }))} />
+              </div>
+            </div>
+            <div className="flex gap-6 flex-wrap">
+              {(() => {
+                const sem1 = calculateDeansListerData(1, currentYear);
+                const sem2 = calculateDeansListerData(2, currentYear);
+                return (
+                  <>
+                    <div>
+                      <div className="text-sm text-gray-600">1st Semester Dean's Lister:</div>
+                      <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${sem1.eligible ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
+                        {sem1.eligible ? `Eligible (${sem1.totalUnits}u)` : `Not Eligible (${sem1.totalUnits}u)`}
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600">2nd Semester Dean's Lister:</div>
+                      <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${sem2.eligible ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
+                        {sem2.eligible ? `Eligible (${sem2.totalUnits}u)` : `Not Eligible (${sem2.totalUnits}u)`}
+                      </span>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+
+          <div className="mb-4 mt-4 flex flex-wrap gap-6 border-b border-gray-300">
+            {[1, 2, 3, 4].map((year, idx) => (
+              <button key={year} onClick={() => setCourseTab(idx)} className={`px-2 py-0.5 cursor-pointer ${courseTab === idx ? 'text-blue-600 border-b-2 border-blue-600 font-medium' : 'text-gray-700 border-b-2 border-transparent hover:text-blue-500'}`}>
+                {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
+              </button>
+            ))}
+          </div>
+
+          {[1, 2].map((semester) => {
+            const semKey = `sem${semester}`;
+            const semSubjects = (irregularSubjects[semKey] || []).filter(s => Number(s.yearLevel || currentYear) === currentYear);
+            return (
+              <div key={semester} className="mb-4 border border-gray-300 rounded-xl overflow-hidden bg-white">
+                <div className="px-4 py-2 bg-blue-700 text-white font-semibold">{semester === 1 ? '1st' : '2nd'} Semester</div>
+                <div className="p-3 border-b border-gray-200">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+                    <input className="border border-gray-300 rounded px-2 py-1" placeholder="Course Code" value={newIrregularSubject.courseCode} onChange={(e) => setNewIrregularSubject(prev => ({ ...prev, courseCode: e.target.value }))} />
+                    <input className="border border-gray-300 rounded px-2 py-1 md:col-span-2" placeholder="Course Title" value={newIrregularSubject.courseTitle} onChange={(e) => setNewIrregularSubject(prev => ({ ...prev, courseTitle: e.target.value }))} />
+                    <input type="number" min="0" step="0.01" className="border border-gray-300 rounded px-2 py-1" placeholder="Units" value={newIrregularSubject.units} onChange={(e) => setNewIrregularSubject(prev => ({ ...prev, units: e.target.value }))} />
+                    <button className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700" onClick={() => handleAddIrregularSubject(semester)}>Add Subject</button>
+                  </div>
+                </div>
+
+                <table className="min-w-full text-sm">
+                  <thead className="bg-blue-50">
+                    <tr>
+                      <th className="p-2 text-left">Code</th>
+                      <th className="p-2 text-left">Title</th>
+                      <th className="p-2 text-left">Units</th>
+                      <th className="p-2 text-left">Grade</th>
+                      <th className="p-2 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {semSubjects.length === 0 ? (
+                      <tr>
+                        <td className="p-3 text-gray-500" colSpan={5}>No subjects added for this semester and year.</td>
+                      </tr>
+                    ) : semSubjects.map((subject) => (
+                      <tr key={subject.id} className="border-t border-gray-200">
+                        <td className="p-2 font-semibold text-blue-700">{subject.courseCode}</td>
+                        <td className="p-2">{subject.courseTitle}</td>
+                        <td className="p-2">{subject.units}</td>
+                        <td className="p-2">
+                          <select className="border border-gray-300 rounded px-2 py-1 text-sm" value={editingGrades[subject.courseCode] || ''} onChange={(e) => handleGradeChange(subject.courseCode, e.target.value)}>
+                            <option value="" disabled>Select Grade</option>
+                            {["1.0","1.1","1.2","1.3","1.4","1.5","1.6","1.7","1.8","1.9","2.0","2.1","2.2","2.3","2.4","2.5","2.6","2.7","2.8","2.9","3.0","5.0","INC","CRED",""]
+                              .map((g, idx) => <option key={idx} value={g}>{g === '' ? 'No Grade' : g}</option>)}
+                          </select>
+                        </td>
+                        <td className="p-2">
+                          <button className="px-2 py-1 rounded text-xs bg-red-600 text-white hover:bg-red-700" onClick={() => handleRemoveIrregularSubject(semester, subject.id)}>
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-col h-full">
 
@@ -778,27 +1032,68 @@ const StudentManagement = ({ onBack }) => {
           <div className="font-semibold mb-2">
             Academic Eligibility Summary - {currentYear === 1 ? '1st' : currentYear === 2 ? '2nd' : currentYear === 3 ? '3rd' : '4th'} Year
           </div>
+          <div className="mb-3 flex flex-wrap items-end gap-3">
+            <div>
+              <div className="text-xs text-gray-600 mb-1">Minimum Grade</div>
+              <input
+                type="number"
+                step="0.01"
+                className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+                value={deansCriteria.minGrade}
+                onChange={(e) => setDeansCriteria(prev => ({ ...prev, minGrade: parseFloat(e.target.value) || 0 }))}
+              />
+            </div>
+            <div>
+              <div className="text-xs text-gray-600 mb-1">GWA Cutoff</div>
+              <input
+                type="number"
+                step="0.01"
+                className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+                value={deansCriteria.gwa}
+                onChange={(e) => setDeansCriteria(prev => ({ ...prev, gwa: parseFloat(e.target.value) || 0 }))}
+              />
+            </div>
+            <div>
+              <div className="text-xs text-gray-600 mb-1">Minimum Units</div>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+                value={deansCriteria.minUnits}
+                onChange={(e) => setDeansCriteria(prev => ({ ...prev, minUnits: parseInt(e.target.value, 10) || 0 }))}
+              />
+            </div>
+          </div>
           <div className="flex gap-6 flex-wrap">
+            {(() => {
+              const sem1 = calculateDeansListerData(1, currentYear);
+              const sem2 = calculateDeansListerData(2, currentYear);
+              return (
+                <>
             <div>
               <div className="text-sm text-gray-600">1st Semester Dean's Lister:</div>
               <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
-                calculateDeansListerEligibility(1, currentYear)
+                sem1.eligible
                   ? 'bg-green-50 border-green-200 text-green-700'
                   : 'bg-gray-50 border-gray-200 text-gray-700'
               }`}>
-                {calculateDeansListerEligibility(1, currentYear) ? 'Eligible' : 'Not Eligible'}
+                {sem1.eligible ? `Eligible (${sem1.totalUnits}u)` : `Not Eligible (${sem1.totalUnits}u)`}
               </span>
             </div>
             <div>
               <div className="text-sm text-gray-600">2nd Semester Dean's Lister:</div>
               <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
-                calculateDeansListerEligibility(2, currentYear)
+                sem2.eligible
                   ? 'bg-green-50 border-green-200 text-green-700'
                   : 'bg-gray-50 border-gray-200 text-gray-700'
               }`}>
-                {calculateDeansListerEligibility(2, currentYear) ? 'Eligible' : 'Not Eligible'}
+                {sem2.eligible ? `Eligible (${sem2.totalUnits}u)` : `Not Eligible (${sem2.totalUnits}u)`}
               </span>
             </div>
+                </>
+              );
+            })()}
             <div>
               <div className="text-sm text-gray-600">Scholarship Eligibility:</div>
               <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
@@ -851,6 +1146,7 @@ const StudentManagement = ({ onBack }) => {
           Units {sortBy === 'units' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
         <th className="p-2 w-[20%] text-left">Prerequisites</th>
+        <th className="p-2 w-[12%] text-center">Taking This Sem</th>
         <th className="p-2 w-[10%] text-left">Grade</th>
       </tr>
     </thead>
@@ -913,6 +1209,16 @@ const StudentManagement = ({ onBack }) => {
               )}
             </td>
 
+            <td className="p-2 text-center">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-blue-600"
+                checked={(semesterLoads[`sem${semester}`] || []).includes((course.courseCode || '').toString().trim().toUpperCase())}
+                onChange={(e) => handleSemesterLoadToggle(semester, course.courseCode, e.target.checked)}
+                title="Mark as part of this semester's enrolled load"
+              />
+            </td>
+
             <td className="p-2">
               <select
                 className="border border-gray-300 rounded px-2 py-1 text-sm"
@@ -959,7 +1265,7 @@ const StudentManagement = ({ onBack }) => {
 
       {studentCourses.filter((c) => c.yearLevel === currentYear && c.semester === semester).length === 0 && (
         <tr>
-          <td colSpan={5} className="text-center text-gray-500 py-4">
+          <td colSpan={6} className="text-center text-gray-500 py-4">
             No courses in Year {currentYear}, {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
           </td>
         </tr>
@@ -1119,7 +1425,9 @@ const StudentManagement = ({ onBack }) => {
                   className="w-full border border-gray-300 rounded px-3 py-2"
                   value={editingData.curriculumId}
                   onChange={(e) => setEditingData({ ...editingData, curriculumId: e.target.value })}
+                  disabled={editingData.isIrregular}
                 >
+                  <option value="">Select Curriculum</option>
                   {curriculums.map((curriculum) => (
                     <option key={curriculum.id} value={curriculum.id}>
                       {curriculum.name}
@@ -1146,7 +1454,7 @@ const StudentManagement = ({ onBack }) => {
               </button>
               <button
                 onClick={() => handleSaveEdit(editingData.id)}
-                disabled={loading || !editingData.name || !editingData.email || !editingData.curriculumId || !editingData.studentNumber}
+                disabled={loading || !editingData.name || !editingData.email || !editingData.studentNumber || (!editingData.isIrregular && !editingData.curriculumId)}
                 className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 Save Changes
@@ -1216,7 +1524,9 @@ const StudentManagement = ({ onBack }) => {
                   className="w-full border border-gray-300 rounded px-3 py-2"
                   value={studentForm.curriculumId}
                   onChange={(e) => setStudentForm({ ...studentForm, curriculumId: e.target.value })}
+                  disabled={studentForm.isIrregular}
                 >
+                  <option value="">Select Curriculum</option>
                   {curriculums.map((curriculum) => (
                     <option key={curriculum.id} value={curriculum.id}>
                       {curriculum.name}
@@ -1243,7 +1553,7 @@ const StudentManagement = ({ onBack }) => {
               </button>
               <button
                 onClick={handleAddStudent}
-                disabled={loading || !studentForm.name || !studentForm.studentNumber || !studentForm.curriculumId}
+                disabled={loading || !studentForm.name || !studentForm.studentNumber || (!studentForm.isIrregular && !studentForm.curriculumId)}
                 className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 Add Student
