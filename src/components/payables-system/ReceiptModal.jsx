@@ -28,7 +28,7 @@ const Modal = ({ open, onClose, children }) => {
       />
       <div
         ref={modalRef}
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl mx-auto z-10 overflow-hidden modal-dialog"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-auto z-10 overflow-hidden modal-dialog"
         role="dialog"
         aria-modal="true"
         tabIndex="-1"
@@ -133,7 +133,7 @@ const ReceiptLayout = ({ label, receiptData }) => {
         <div className="grid grid-cols-3 pt-2  border-b border-slate-300 ">
           <div className="col-span-2 flex gap-2">
             <span className="text-xs uppercase tracking-wider text-slate-700 font-semibold min-w-fit">Name:</span>
-            <span className="text-xs uppercase font-semibold text-slate-900 flex-1 break-words">
+            <span className="text-xs uppercase font-semibold text-slate-900 flex-1 wrap-break-word">
               {studentName}
             </span>
           </div>
@@ -145,7 +145,7 @@ const ReceiptLayout = ({ label, receiptData }) => {
           </div>
         </div>
 
-        <div className="border border-slate-200 rounded-sm overflow-hidden">
+        <div className="border border-slate-200 rounded-sm overflow-hidden my-6">
           <table className="w-full text-[9px]">
             <thead className="bg-slate-100">
               <tr>
@@ -221,7 +221,7 @@ const ReceiptLayout = ({ label, receiptData }) => {
 
         <div className='flex items-start justify-between'>
           {/* Mode of Payment Section */}
-        <div className="space-y-1">
+        <div className="space-y-1 mt-6">
           <div className='flex items-center gap-2'>
             <p className="text-xs tracking-wider text-slate-600 font-semibold">Mode of Payment:</p>
           <div className="flex flex-wrap gap-3 items-center">
@@ -305,12 +305,27 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="p-4 max-h-[90vh] overflow-y-auto bg-gradient-to-b from-slate-50 to-white receipt-modal-content">
+      <div className="p-4 max-h-[90vh] overflow-y-auto bg-linear-to-b from-slate-50 to-white receipt-modal-content">
         <style>{`
+          .receipt-preview-stack {
+            width: 100%;
+            max-width: 5.83in;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            min-height: 7.2in;
+            gap: 0;
+          }
+
+          .receipt-preview-stack .receipt-copy {
+            min-height: 3.08in;
+          }
+
           @media print {
             @page { 
-              size: letter landscape;
-              margin: 0.9in 1.45in;
+              size: A5 portrait;
+              margin: 0.22in;
             }
             body {
               -webkit-print-color-adjust: exact;
@@ -319,15 +334,14 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
               background: #fff !important;
             }
             html, body { margin: 0; padding: 0; }
-            #root { display: none !important; }
-            body * { visibility: hidden; }
-            .modal-container, .modal-container * { visibility: visible; }
+            body > *:not(.modal-container) { display: none !important; }
             .modal-backdrop { display: none !important; }
             .modal-container {
               position: static !important;
               display: block !important;
               padding: 0 !important;
               margin: 0 !important;
+              visibility: visible !important;
             }
             .modal-dialog {
               position: static !important;
@@ -340,6 +354,7 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
             }
             .modal-actions { display: none !important; }
             .receipt-preview-title { display: none !important; }
+            .receipt-header-row { display: none !important; }
             .receipt-modal-content {
               max-height: none !important;
               overflow: visible !important;
@@ -348,38 +363,52 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
               background: #fff !important;
             }
             #receipt-preview {
-              display: grid !important;
-              grid-template-columns: 1fr !important;
-              grid-template-rows: 1fr 1fr !important;
+              display: flex !important;
+              flex-direction: column !important;
+              align-items: center !important;
+              justify-content: space-between !important;
               padding: 0 !important;
-              gap: 0.34in !important;
+              gap: 0 !important;
               margin: 0 auto !important;
-              width: calc(100% - 0.45in) !important;
+              width: 100% !important;
+              max-width: 5.43in !important;
+              height: auto !important;
+              min-height: calc(8.27in - 0.44in) !important;
+              break-before: auto !important;
+              page-break-before: auto !important;
             }
             .receipt-copy {
               break-inside: avoid;
               page-break-inside: avoid;
+              page-break-after: avoid;
               box-shadow: none !important;
               border: 1px solid #cbd5e1 !important;
               border-radius: 0 !important;
-              padding: 0.12in !important;
-              min-height: 3.75in;
+              padding: 0.09in !important;
               width: 100% !important;
-              font-size: 11px !important;
-              line-height: 1.25 !important;
+              max-width: 100% !important;
+              min-height: 3.2in !important;
+              height: 3.2in !important;
+              flex: 0 0 auto !important;
+              aspect-ratio: auto !important;
+              overflow: hidden !important;
+              font-size: 9px !important;
+              line-height: 1.15 !important;
               margin: 0 !important;
             }
-            .receipt-copy .text-\[8px\] { font-size: 8px !important; }
-            .receipt-copy .text-\[9px\] { font-size: 9px !important; }
-            .receipt-copy .text-\[10px\] { font-size: 10px !important; }
-            .receipt-copy .text-\[11px\] { font-size: 11px !important; }
-            .receipt-copy .text-\[12px\] { font-size: 11px !important; }
+            .receipt-copy .text-\[8px\] { font-size: 7px !important; }
+            .receipt-copy .text-\[9px\] { font-size: 7.5px !important; }
+            .receipt-copy .text-\[10px\] { font-size: 8px !important; }
+            .receipt-copy .text-\[11px\] { font-size: 8.5px !important; }
+            .receipt-copy .text-\[12px\] { font-size: 9px !important; }
+            .receipt-copy .text-xs { font-size: 8.5px !important; }
+            .receipt-copy .text-sm { font-size: 9.5px !important; }
             .receipt-copy table { width: 100%; margin: 0; }
-            .receipt-copy td, .receipt-copy th { padding: 0.06in 0.05in; }
+            .receipt-copy td, .receipt-copy th { padding: 0.032in 0.028in; }
             .receipt-copy + .receipt-copy { margin-top: 0 !important; }
           }
         `}</style>
-        <div className="flex justify-between items-start mb-4 ">
+        <div className="flex justify-between items-start mb-4 receipt-header-row">
           <div>
             <h2 className="text-lg font-bold text-slate-800 receipt-preview-title">Receipt Preview</h2>
           </div>
@@ -401,7 +430,7 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
             </button>
           </div>
         </div>
-        <div id="receipt-preview" className="space-y-3">
+        <div id="receipt-preview" className="receipt-preview-stack">
           <ReceiptLayout label="CCS COPY" receiptData={receiptData} />
           <ReceiptLayout label="STUDENT'S COPY" receiptData={receiptData} />
         </div>

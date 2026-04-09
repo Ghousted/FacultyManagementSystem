@@ -11,7 +11,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { BadgePlus, Pencil, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
+import { BadgePlus, Pencil, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft, Plus, Funnel, X } from 'lucide-react';
 
 const StudentManagement = ({ onBack }) => {
   const { currentUser } = useAuth();
@@ -55,12 +55,16 @@ const StudentManagement = ({ onBack }) => {
   const [studentGrades, setStudentGrades] = useState({});
   const [editingGrades, setEditingGrades] = useState({});
   const [irregularSubjects, setIrregularSubjects] = useState({ sem1: [], sem2: [] });
-  const [newIrregularSubject, setNewIrregularSubject] = useState({
-    courseCode: '',
-    courseTitle: '',
-    units: '',
-    isMajor: false
-  });
+  const [subjectPickerOpen, setSubjectPickerOpen] = useState(false);
+  const [subjectPickerSemester, setSubjectPickerSemester] = useState(1);
+  const [subjectPickerCurriculumFilter, setSubjectPickerCurriculumFilter] = useState('all');
+  const [subjectPickerYearFilter, setSubjectPickerYearFilter] = useState('all');
+  const [subjectPickerSemesterFilter, setSubjectPickerSemesterFilter] = useState('all');
+  const [subjectPickerSearch, setSubjectPickerSearch] = useState('');
+  const [subjectPickerSortBy, setSubjectPickerSortBy] = useState('yearLevel');
+  const [subjectPickerSortOrder, setSubjectPickerSortOrder] = useState('asc');
+  const [irregularDeleteDialogOpen, setIrregularDeleteDialogOpen] = useState(false);
+  const [irregularSubjectToDelete, setIrregularSubjectToDelete] = useState(null);
 
   // Sorting state for course tables
   const [sortBy, setSortBy] = useState('courseCode');
@@ -495,6 +499,84 @@ const StudentManagement = ({ onBack }) => {
     return curriculum ? curriculum.name : '';
   };
 
+  const getIrregularSubjectCandidates = () => {
+    let candidates = [...allCourses];
+
+    if (subjectPickerCurriculumFilter !== 'all') {
+      candidates = candidates.filter((course) => course.curriculumId === subjectPickerCurriculumFilter);
+    }
+
+    if (subjectPickerYearFilter !== 'all') {
+      candidates = candidates.filter((course) => Number(course.yearLevel) === Number(subjectPickerYearFilter));
+    }
+
+    if (subjectPickerSemesterFilter !== 'all') {
+      candidates = candidates.filter((course) => Number(course.semester) === Number(subjectPickerSemesterFilter));
+    }
+
+    const query = subjectPickerSearch.trim().toLowerCase();
+    if (query) {
+      candidates = candidates.filter((course) => {
+        const curriculumName = getCurriculumName(course.curriculumId).toLowerCase();
+        const classification = course.isMajor ? 'major' : 'available';
+        return (
+          (course.courseCode || '').toString().toLowerCase().includes(query) ||
+          (course.courseTitle || '').toString().toLowerCase().includes(query) ||
+          String(course.units ?? '').toLowerCase().includes(query) ||
+          String(course.yearLevel ?? '').toLowerCase().includes(query) ||
+          String(course.semester ?? '').toLowerCase().includes(query) ||
+          curriculumName.includes(query) ||
+          classification.includes(query)
+        );
+      });
+    }
+
+    return candidates.sort((a, b) => {
+      let aValue = '';
+      let bValue = '';
+
+      switch (subjectPickerSortBy) {
+        case 'courseCode':
+          aValue = (a.courseCode || '').toString().toLowerCase();
+          bValue = (b.courseCode || '').toString().toLowerCase();
+          break;
+        case 'courseTitle':
+          aValue = (a.courseTitle || '').toString().toLowerCase();
+          bValue = (b.courseTitle || '').toString().toLowerCase();
+          break;
+        case 'units':
+          return subjectPickerSortOrder === 'asc'
+            ? (parseFloat(a.units) || 0) - (parseFloat(b.units) || 0)
+            : (parseFloat(b.units) || 0) - (parseFloat(a.units) || 0);
+        case 'yearLevel':
+          return subjectPickerSortOrder === 'asc'
+            ? (parseFloat(a.yearLevel) || 0) - (parseFloat(b.yearLevel) || 0)
+            : (parseFloat(b.yearLevel) || 0) - (parseFloat(a.yearLevel) || 0);
+        case 'semester':
+          return subjectPickerSortOrder === 'asc'
+            ? (parseFloat(a.semester) || 0) - (parseFloat(b.semester) || 0)
+            : (parseFloat(b.semester) || 0) - (parseFloat(a.semester) || 0);
+        case 'curriculum':
+        default:
+          aValue = (getCurriculumName(a.curriculumId) || '').toLowerCase();
+          bValue = (getCurriculumName(b.curriculumId) || '').toLowerCase();
+          break;
+      }
+
+      const primaryCompare = subjectPickerSortOrder === 'asc'
+        ? aValue.localeCompare(bValue)
+        : bValue.localeCompare(aValue);
+
+      if (primaryCompare !== 0) {
+        return primaryCompare;
+      }
+
+      const aCode = (a.courseCode || '').toString().toLowerCase();
+      const bCode = (b.courseCode || '').toString().toLowerCase();
+      return aCode.localeCompare(bCode);
+    });
+  };
+
   const isCourseCompleted = (courseCode) => {
     // Check if course is marked as completed OR if it has a grade (except failed/incomplete)
     const hasGrade = studentGrades[courseCode] && studentGrades[courseCode] !== '';
@@ -505,21 +587,36 @@ const StudentManagement = ({ onBack }) => {
            (hasGrade && !isFailed && !isIncomplete);
   };
 
-  const handleAddIrregularSubject = async (semester) => {
+  const handleAddIrregularSubject = async (semester, course) => {
     if (!selectedStudent) return;
-    if (!newIrregularSubject.courseCode || !newIrregularSubject.courseTitle || !newIrregularSubject.units) {
-      setError('Please fill in course code, title, and units');
+    if (!course) {
+      setError('Please select a subject to add');
       return;
     }
 
     const semKey = `sem${semester}`;
+    const targetYear = courseTab + 1;
+    const duplicate = (irregularSubjects[semKey] || []).some(
+      (subject) =>
+        (subject.courseCode || '').toString().trim().toUpperCase() === (course.courseCode || '').toString().trim().toUpperCase() &&
+        Number(subject.yearLevel || targetYear) === targetYear
+    );
+
+    if (duplicate) {
+      setError('This subject is already added for the selected year and semester');
+      return;
+    }
+
     const item = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      courseCode: newIrregularSubject.courseCode.trim().toUpperCase(),
-      courseTitle: newIrregularSubject.courseTitle.trim(),
-      units: parseFloat(newIrregularSubject.units) || 0,
-      isMajor: !!newIrregularSubject.isMajor,
-      yearLevel: courseTab + 1
+      courseCode: (course.courseCode || '').toString().trim().toUpperCase(),
+      courseTitle: (course.courseTitle || '').toString().trim(),
+      units: parseFloat(course.units) || 0,
+      isMajor: !!course.isMajor,
+      prerequisites: Array.isArray(course.prerequisites) ? course.prerequisites : [],
+      curriculumId: course.curriculumId || null,
+      curriculumName: getCurriculumName(course.curriculumId) || 'Unknown Curriculum',
+      yearLevel: targetYear
     };
 
     const next = {
@@ -534,23 +631,21 @@ const StudentManagement = ({ onBack }) => {
         updatedAt: new Date()
       });
       setSelectedStudent(prev => (prev ? { ...prev, irregularSubjects: next } : prev));
-      setNewIrregularSubject({ courseCode: '', courseTitle: '', units: '', isMajor: false });
       setSuccess('Subject added to irregular semester load');
     } catch (err) {
       setError('Failed to add subject: ' + err.message);
     }
   };
 
-  const findCourseByCode = (code) => {
-    const normalized = (code || '').trim().toUpperCase();
-    if (!normalized) return null;
-    return allCourses.find((course) => (course.courseCode || '').toString().trim().toUpperCase() === normalized) || null;
-  };
-
-  const findCourseByTitle = (title) => {
-    const normalized = (title || '').trim().toLowerCase();
-    if (!normalized) return null;
-    return allCourses.find((course) => (course.courseTitle || '').toString().trim().toLowerCase() === normalized) || null;
+  const openSubjectPicker = (semester) => {
+    setSubjectPickerSemester(semester);
+    setSubjectPickerCurriculumFilter('all');
+    setSubjectPickerYearFilter(String(courseTab + 1));
+    setSubjectPickerSemesterFilter('all');
+    setSubjectPickerSearch('');
+    setSubjectPickerSortBy('yearLevel');
+    setSubjectPickerSortOrder('asc');
+    setSubjectPickerOpen(true);
   };
 
   const handleRemoveIrregularSubject = async (semester, subjectId) => {
@@ -573,6 +668,23 @@ const StudentManagement = ({ onBack }) => {
       setIrregularSubjects({ ...irregularSubjects, [semKey]: previous });
       setError('Failed to remove subject: ' + err.message);
     }
+  };
+
+  const promptRemoveIrregularSubject = (semester, subject) => {
+    setIrregularSubjectToDelete({
+      semester,
+      subjectId: subject.id,
+      courseCode: subject.courseCode,
+      courseTitle: subject.courseTitle
+    });
+    setIrregularDeleteDialogOpen(true);
+  };
+
+  const handleConfirmIrregularDelete = async () => {
+    if (!irregularSubjectToDelete) return;
+    await handleRemoveIrregularSubject(irregularSubjectToDelete.semester, irregularSubjectToDelete.subjectId);
+    setIrregularDeleteDialogOpen(false);
+    setIrregularSubjectToDelete(null);
   };
 
   // Calculate Dean's Lister eligibility for a semester
@@ -1145,11 +1257,7 @@ const StudentManagement = ({ onBack }) => {
     if (selectedStudent.isIrregular) {
       return (
         <div className="flex flex-col h-full">
-          <div className="mb-3 p-3 bg-white rounded-xl shadow-md border border-gray-300">
-            <div className="font-semibold mb-2">Irregular Student Subject Loads (Manual per Semester)</div>
-            <div className="text-sm text-gray-600">Add subjects per semester, then encode grades to evaluate eligibility.</div>
-          </div>
-
+         
           <div className="mt-2 mb-4 gap-2 flex">
             {[1, 2, 3, 4].map((year, idx) => (
               <button
@@ -1168,102 +1276,159 @@ const StudentManagement = ({ onBack }) => {
             ))}
           </div>
 
-          {[1, 2].map((semester) => {
+          {[1, 2, currentYear === 3 ? 3 : null].filter(Boolean).map((semester) => {
             const semKey = `sem${semester}`;
             const semSubjects = (irregularSubjects[semKey] || []).filter(s => Number(s.yearLevel || currentYear) === currentYear);
             return (
-              <div key={semester} className="mb-4 border border-gray-300 rounded-xl overflow-hidden bg-white">
-                <div className="px-4 py-2 bg-blue-700 text-white font-semibold">{semester === 1 ? '1st' : '2nd'} Semester</div>
-                <div className="p-3 border-b border-gray-200">
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
-                    <input
-                      className="border border-gray-300 rounded px-2 py-1"
-                      placeholder="Course Code"
-                      list="irregular-course-codes"
-                      value={newIrregularSubject.courseCode}
-                      onChange={(e) => {
-                        const nextCode = e.target.value;
-                        const match = findCourseByCode(nextCode);
-                        setNewIrregularSubject(prev => ({
-                          ...prev,
-                          courseCode: nextCode,
-                          courseTitle: match ? match.courseTitle || prev.courseTitle : prev.courseTitle,
-                          units: match ? String(match.units ?? prev.units ?? '') : prev.units,
-                          isMajor: match ? !!match.isMajor : prev.isMajor
-                        }));
-                      }}
-                    />
-                    <input
-                      className="border border-gray-300 rounded px-2 py-1 md:col-span-2"
-                      placeholder="Course Title"
-                      list="irregular-course-titles"
-                      value={newIrregularSubject.courseTitle}
-                      onChange={(e) => {
-                        const nextTitle = e.target.value;
-                        const match = findCourseByTitle(nextTitle);
-                        setNewIrregularSubject(prev => ({
-                          ...prev,
-                          courseTitle: nextTitle,
-                          courseCode: match ? match.courseCode || prev.courseCode : prev.courseCode,
-                          units: match ? String(match.units ?? prev.units ?? '') : prev.units,
-                          isMajor: match ? !!match.isMajor : prev.isMajor
-                        }));
-                      }}
-                    />
-                    <input type="number" min="0" step="0.01" className="border border-gray-300 rounded px-2 py-1" placeholder="Units" value={newIrregularSubject.units} onChange={(e) => setNewIrregularSubject(prev => ({ ...prev, units: e.target.value }))} />
-                    <button className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700" onClick={() => handleAddIrregularSubject(semester)}>Add Subject</button>
-                  </div>
-                  <datalist id="irregular-course-codes">
-                    {Array.from(new Set(allCourses.map(course => (course.courseCode || '').toString().trim()).filter(Boolean)))
-                      .map((code) => (
-                        <option key={code} value={code} />
-                      ))}
-                  </datalist>
-                  <datalist id="irregular-course-titles">
-                    {Array.from(new Set(allCourses.map(course => (course.courseTitle || '').toString().trim()).filter(Boolean)))
-                      .map((title) => (
-                        <option key={title} value={title} />
-                      ))}
-                  </datalist>
-                </div>
+              <div
+  key={semester}
+  className="mb-5 rounded-2xl overflow-hidden bg-white shadow-sm border border-gray-200"
+>
+  {/* Header */}
+  <div className="flex items-center justify-between px-5 py-3 bg-linear-to-r from-blue-600 to-blue-700 text-white">
+    <div className="flex items-center gap-2">
+      <span className="text-sm font-semibold">
+        {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
+      </span>
+      <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
+        Year {currentYear}
+      </span>
+    </div>
 
-                <table className="min-w-full text-sm">
-                  <thead className="bg-blue-50">
-                    <tr>
-                      <th className="p-2 text-left">Code</th>
-                      <th className="p-2 text-left">Title</th>
-                      <th className="p-2 text-left">Units</th>
-                      <th className="p-2 text-left">Grade</th>
-                      <th className="p-2 text-left">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {semSubjects.length === 0 ? (
-                      <tr>
-                        <td className="p-3 text-gray-500" colSpan={5}>No subjects added for this semester and year.</td>
-                      </tr>
-                    ) : semSubjects.map((subject) => (
-                      <tr key={subject.id} className="border-t border-gray-200">
-                        <td className="p-2 font-semibold text-blue-700">{subject.courseCode}</td>
-                        <td className="p-2">{subject.courseTitle}</td>
-                        <td className="p-2">{subject.units}</td>
-                        <td className="p-2">
-                          <select className="border border-gray-300 rounded px-2 py-1 text-sm" value={editingGrades[subject.courseCode] || ''} onChange={(e) => handleGradeChange(subject.courseCode, e.target.value)}>
-                            <option value="" disabled>Select Grade</option>
-                            {["1.0","1.1","1.2","1.3","1.4","1.5","1.6","1.7","1.8","1.9","2.0","2.1","2.2","2.3","2.4","2.5","2.6","2.7","2.8","2.9","3.0","5.0","INC","CRED",""]
-                              .map((g, idx) => <option key={idx} value={g}>{g === '' ? 'No Grade' : g}</option>)}
-                          </select>
-                        </td>
-                        <td className="p-2">
-                          <button className="px-2 py-1 rounded text-xs bg-red-600 text-white hover:bg-red-700" onClick={() => handleRemoveIrregularSubject(semester, subject.id)}>
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+ 
+  </div>
+
+  <div className='flex items-center justify-between py-0.5 border-b border-slate-300'>
+    {/* Sub-header */}
+  <div className="px-5 py-2 text-sm text-gray-500 ">
+    Select subjects offered for this semester.
+  </div>
+
+     <button
+      type="button"
+      onClick={() => openSubjectPicker(semester)}
+
+      className="mr-5 inline-flex items-center gap-1 rounded-lg cursor-pointer bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 transition">
+      <Plus className="w-4 h-4" />
+      Add Subject
+    </button>
+  </div>
+
+  {/* Table */}
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-sm">
+      <thead className="bg-blue-50 text-blue-800 text-xs uppercase border-b border-gray-300">
+        <tr>
+          <th className="px-2 py-1.5 text-left w-[10%]">Code</th>
+          <th className="px-4 py-1.5 text-left w-[30%]">Title</th>
+          <th className="px-4 py-1.5 text-left w-[10%]">Units</th>
+          <th className="px-4 py-1.5 text-left w-[20%]">Prerequisites</th>
+          <th className="px-4 py-1.5 text-left w-[20%]">Grade</th>
+          <th className="px-4 py-1.5 text-right w-[10%]">Action</th>
+        </tr>
+      </thead>
+
+      <tbody>
+          {semSubjects.length === 0 ? (
+            <tr>
+            <td colSpan={6} className="py-8 text-center text-gray-400">
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-sm">No subjects yet</span>
+                <span className="text-xs">
+                  Click “Add Subject” to get started
+                </span>
               </div>
+            </td>
+          </tr>
+        ) : (
+          semSubjects.map((subject, index) => {
+            const fallbackCourse = allCourses.find((course) =>
+              (course.courseCode || '').toString().trim().toUpperCase() === (subject.courseCode || '').toString().trim().toUpperCase()
+            );
+            const prerequisites = Array.isArray(subject.prerequisites)
+              ? subject.prerequisites
+              : (Array.isArray(fallbackCourse?.prerequisites) ? fallbackCourse.prerequisites : []);
+
+            return (
+              <tr
+                key={subject.id}
+                className={`transition ${
+                  index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                } text-xs`}
+              >
+                <td className="px-4 py-1.5 font-semibold text-blue-600 w-[10%]">
+                  {subject.courseCode}
+                </td>
+
+                <td className="px-4 py-1.5 text-gray-700 w-[30%]">
+                  {subject.courseTitle}
+                </td>
+
+                <td className="px-4 py-1.5 text-gray-600 w-[10%]">
+                  {subject.units}
+                </td>
+
+                <td className="px-4 py-1.5 text-gray-600 text-xs w-[20%]">
+                  {prerequisites.length > 0 ? prerequisites.join(', ') : 'None'}
+                </td>
+
+                <td className="px-4 py-1.5 w-[20%]">
+                  <select
+                    className="w-full border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none rounded-lg px-2 py-1 text-xs bg-white"
+                    value={editingGrades[subject.courseCode] || ''}
+                    onChange={(e) =>
+                      handleGradeChange(subject.courseCode, e.target.value)
+                    }
+                  >
+                    <option value="" disabled>
+                      Select
+                    </option>
+                    {[
+                      "1.0","1.1","1.2","1.3","1.4","1.5","1.6","1.7","1.8","1.9",
+                      "2.0","2.1","2.2","2.3","2.4","2.5","2.6","2.7","2.8","2.9",
+                      "3.0","5.0","INC","CRED",""
+                    ].map((g, idx) => (
+                      <option key={idx} value={g}>
+                        {g === '' ? 'No Grade' : g}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-1 text-xs">
+                    {editingGrades[subject.courseCode] === '5.0' && (
+                      <span className="text-red-600">Failed</span>
+                    )}
+                    {editingGrades[subject.courseCode] === 'INC' && (
+                      <span className="text-amber-600">Incomplete</span>
+                    )}
+                    {editingGrades[subject.courseCode] === 'CRED' && (
+                      <span className="text-green-700">Credited</span>
+                    )}
+                    {editingGrades[subject.courseCode] &&
+                      !['5.0', 'INC', 'CRED'].includes(editingGrades[subject.courseCode]) && (
+                        <span className="text-green-700">Completed</span>
+                      )}
+                    {!editingGrades[subject.courseCode] && (
+                      <span className="text-gray-500">Not Graded</span>
+                    )}
+                  </div>
+                </td>
+
+                <td className="px-4 py-1.5 text-end w-[10%]">
+                  <button
+                    onClick={() => promptRemoveIrregularSubject(semester, subject)}
+                    className="p-1 rounded-full cursor-pointer bg-gray-50 text-gray-600 hover:bg-gray-100 transition"
+                  >
+                    <Trash className="w-4 h-4" />
+                  </button>
+                </td>
+              </tr>
+            );
+          })
+        )}
+      </tbody>
+    </table>
+  </div>
+</div>
             );
           })}
         </div>
@@ -1910,6 +2075,275 @@ const StudentManagement = ({ onBack }) => {
               >
                 {loading ? 'Deleting...' : 'Delete'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {irregularDeleteDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setIrregularDeleteDialogOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+            <div className="text-xl font-semibold mb-4">Remove Subject</div>
+            <div className="text-gray-700 m text-justify text-sm">
+              Are you sure you want to remove this subject to <span className='font-semibold'>{selectedStudent.name}</span>? This action cannot be undone.
+              {irregularSubjectToDelete && (
+                <div className="mt-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+                  <div className="font-semibold text-blue-700">{irregularSubjectToDelete.courseCode}</div>
+                  <div>{irregularSubjectToDelete.courseTitle}</div>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-10">
+              <button
+                onClick={() => {
+                  setIrregularDeleteDialogOpen(false);
+                  setIrregularSubjectToDelete(null);
+                }}
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmIrregularDelete}
+                disabled={loading}
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+              >
+                {loading ? 'Removing...' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {subjectPickerOpen && selectedStudent?.isIrregular && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setSubjectPickerOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-5xl border border-gray-300 bg-white rounded-2xl shadow p-4 md:p-6 max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-blue-700">Add Irregular Subject</h3>
+               <p className="text-sm text-gray-600">
+                    Showing all subjects from all curriculums. Sort by curriculum, year level, or semester.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSubjectPickerOpen(false)}
+                className="p-1 rounded-full cursor-pointer bg-gray-50 hover:bg-gray-100 text-gray-500 hover:text-red-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className='flex items-center gap-2'>
+                <div className='flex items-center gap-2'>
+                  <Funnel className="w-4 h-4 text-gray-500" />
+
+                <select
+                  value={subjectPickerYearFilter}
+                  onChange={(e) => setSubjectPickerYearFilter(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                >
+                  <option value="all">All Year Levels</option>
+                  <option value="1">1st Year</option>
+                  <option value="2">2nd Year</option>
+                  <option value="3">3rd Year</option>
+                  <option value="4">4th Year</option>
+                </select>
+              </div>
+
+              <div>
+                <select
+                  value={subjectPickerSemesterFilter}
+                  onChange={(e) => setSubjectPickerSemesterFilter(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                >
+                  <option value="all">All Semesters</option>
+                  <option value="1">1st Semester</option>
+                  <option value="2">2nd Semester</option>
+                  <option value="3">Summer</option>
+                </select>
+              </div>
+                <div className="flex items-center gap-2">
+                <select
+                  value={subjectPickerCurriculumFilter}
+                  onChange={(e) => setSubjectPickerCurriculumFilter(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                >
+                  <option value="all">All Curriculum</option>
+                  {curriculums.map((curriculum) => (
+                    <option key={curriculum.id} value={curriculum.id}>{curriculum.name}</option>
+                  ))}
+                </select>
+              </div>
+              </div>
+
+            
+
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  value={subjectPickerSearch}
+                  onChange={(e) => setSubjectPickerSearch(e.target.value)}
+                  placeholder="Search code, description, curriculum, or classification"
+                  className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="max-h-[55vh] overflow-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-blue-50 text-blue-800 sticky top-0">
+                    <tr>
+                      <th
+                        className="px-2 py-2 text-left cursor-pointer select-none"
+                        onClick={() => {
+                          if (subjectPickerSortBy === 'curriculum') {
+                            setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                          } else {
+                            setSubjectPickerSortBy('curriculum');
+                            setSubjectPickerSortOrder('asc');
+                          }
+                        }}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          Curriculum
+                          {subjectPickerSortBy === 'curriculum' && subjectPickerSortOrder === 'asc' ? (
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          ) : subjectPickerSortBy === 'curriculum' ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronsUpDown className="w-3.5 h-3.5" />
+                          )}
+                        </span>
+                      </th>
+                      
+                    
+                      <th
+                        className="px-2 py-2 text-left cursor-pointer select-none"
+                        onClick={() => {
+                          if (subjectPickerSortBy === 'courseCode') {
+                            setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                          } else {
+                            setSubjectPickerSortBy('courseCode');
+                            setSubjectPickerSortOrder('asc');
+                          }
+                        }}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          Subject Code
+                          {subjectPickerSortBy === 'courseCode' && subjectPickerSortOrder === 'asc' ? (
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          ) : subjectPickerSortBy === 'courseCode' ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronsUpDown className="w-3.5 h-3.5" />
+                          )}
+                        </span>
+                      </th>
+                      <th
+                        className="px-2 py-2 text-left cursor-pointer select-none"
+                        onClick={() => {
+                          if (subjectPickerSortBy === 'courseTitle') {
+                            setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                          } else {
+                            setSubjectPickerSortBy('courseTitle');
+                            setSubjectPickerSortOrder('asc');
+                          }
+                        }}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          Description
+                          {subjectPickerSortBy === 'courseTitle' && subjectPickerSortOrder === 'asc' ? (
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          ) : subjectPickerSortBy === 'courseTitle' ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronsUpDown className="w-3.5 h-3.5" />
+                          )}
+                        </span>
+                      </th>
+                      <th
+                        className="px-2 py-2 text-left cursor-pointer select-none"
+                        onClick={() => {
+                          if (subjectPickerSortBy === 'units') {
+                            setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                          } else {
+                            setSubjectPickerSortBy('units');
+                            setSubjectPickerSortOrder('asc');
+                          }
+                        }}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          Units
+                          {subjectPickerSortBy === 'units' && subjectPickerSortOrder === 'asc' ? (
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          ) : subjectPickerSortBy === 'units' ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronsUpDown className="w-3.5 h-3.5" />
+                          )}
+                        </span>
+                      </th>
+                      <th className="px-2 py-2 text-left">Major</th>
+                      <th className="px-2 py-2 text-left">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getIrregularSubjectCandidates().length === 0 ? (
+                      <tr>
+                        <td className="px-2 py-4 text-gray-500" colSpan={6}>No offered subjects found for this filter.</td>
+                      </tr>
+                    ) : (
+                      getIrregularSubjectCandidates().map((course) => {
+                        const semKey = `sem${subjectPickerSemester}`;
+                        const alreadyAdded = (irregularSubjects[semKey] || []).some(
+                          (subject) =>
+                            (subject.courseCode || '').toString().trim().toUpperCase() === (course.courseCode || '').toString().trim().toUpperCase() &&
+                            Number(subject.yearLevel || (courseTab + 1)) === (courseTab + 1)
+                        );
+                        return (
+                          <tr key={course.id} className="border-t border-gray-200">
+                            <td className="px-2 py-2">{getCurriculumName(course.curriculumId) || 'Unknown Curriculum'}</td>
+                            <td className="px-2 py-2 font-semibold text-blue-700">{course.courseCode}</td>
+                            <td className="px-2 py-2">{course.courseTitle}</td>
+                            <td className="px-2 py-2">{course.units}</td>
+                            <td className="px-2 py-2">
+                              {course.isMajor ? (
+                                <span className="inline-block px-2 py-0.5 rounded-full text-xs border bg-blue-50 border-blue-200 text-blue-700">
+                                  Major
+                                </span>
+                              ) : (
+                                 <span className="inline-block px-2 py-0.5 rounded-full text-xs border bg-yellow-50 border-yellow-200 text-yellow-700">
+                                  Minor
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-2 py-2">
+                              {alreadyAdded ? (
+                                <span className="w-15  text-center inline-block cursor-not-allowed px-2 py-1 rounded text-xs bg-gray-100 text-gray-600 border border-gray-200">
+                                  Added
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddIrregularSubject(subjectPickerSemester, course)}
+                                  className="w-15 text-center px-2 py-1 rounded text-xs bg-blue-600 text-white hover:bg-blue-700"
+                                >
+                                  Add
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
