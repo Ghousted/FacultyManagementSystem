@@ -4,6 +4,7 @@ import {
   getDocs, 
   getDoc, 
   doc, 
+  setDoc,
   updateDoc, 
   query, 
   where, 
@@ -346,6 +347,84 @@ export const getStudentCurriculumStatus = async (studentId) => {
     
     return { success: true, data: { student: { ...studentData, id: studentId }, courses: courseStatuses } };
   } catch (error) {
+    return { success: false, error: error.message };
+  }
+};
+
+const DEAN_LIST_CRITERIA_DOC = doc(db, 'dean_list_criteria', 'default');
+const LEGACY_DEAN_LIST_CRITERIA_DOC = doc(db, 'settings', 'dean_list_criteria');
+const DEFAULT_DEAN_LIST_CRITERIA = {
+  major: 1.7,
+  minor: 2.0,
+  gwa: 1.7
+};
+
+const toValidNumber = (value, fallback) => {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+export const getDeanListCriteria = async () => {
+  try {
+    const criteriaDoc = await getDoc(DEAN_LIST_CRITERIA_DOC);
+
+    // Backward compatibility for older data location.
+    if (!criteriaDoc.exists()) {
+      const legacyDoc = await getDoc(LEGACY_DEAN_LIST_CRITERIA_DOC);
+      if (legacyDoc.exists()) {
+        const legacyData = legacyDoc.data() || {};
+        const migrated = {
+          major: toValidNumber(legacyData.major, DEFAULT_DEAN_LIST_CRITERIA.major),
+          minor: toValidNumber(legacyData.minor, DEFAULT_DEAN_LIST_CRITERIA.minor),
+          gwa: toValidNumber(legacyData.gwa, DEFAULT_DEAN_LIST_CRITERIA.gwa),
+          createdAt: legacyData.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        await setDoc(DEAN_LIST_CRITERIA_DOC, migrated, { merge: true });
+        return { success: true, data: { major: migrated.major, minor: migrated.minor, gwa: migrated.gwa } };
+      }
+    }
+
+    if (!criteriaDoc.exists()) {
+      await setDoc(DEAN_LIST_CRITERIA_DOC, {
+        ...DEFAULT_DEAN_LIST_CRITERIA,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      return { success: true, data: DEFAULT_DEAN_LIST_CRITERIA };
+    }
+
+    const data = criteriaDoc.data() || {};
+    return {
+      success: true,
+      data: {
+        major: toValidNumber(data.major, DEFAULT_DEAN_LIST_CRITERIA.major),
+        minor: toValidNumber(data.minor, DEFAULT_DEAN_LIST_CRITERIA.minor),
+        gwa: toValidNumber(data.gwa, DEFAULT_DEAN_LIST_CRITERIA.gwa)
+      }
+    };
+  } catch (error) {
+    console.error('Error getting dean list criteria:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+export const saveDeanListCriteria = async (criteria = {}) => {
+  try {
+    const payload = {
+      major: toValidNumber(criteria.major, DEFAULT_DEAN_LIST_CRITERIA.major),
+      minor: toValidNumber(criteria.minor, DEFAULT_DEAN_LIST_CRITERIA.minor),
+      gwa: toValidNumber(criteria.gwa, DEFAULT_DEAN_LIST_CRITERIA.gwa),
+      updatedAt: new Date().toISOString()
+    };
+
+    await setDoc(DEAN_LIST_CRITERIA_DOC, payload, { merge: true });
+    // Keep legacy document updated for compatibility with existing dashboards/manual checks.
+    await setDoc(LEGACY_DEAN_LIST_CRITERIA_DOC, payload, { merge: true });
+    return { success: true, data: payload };
+  } catch (error) {
+    console.error('Error saving dean list criteria:', error);
     return { success: false, error: error.message };
   }
 };

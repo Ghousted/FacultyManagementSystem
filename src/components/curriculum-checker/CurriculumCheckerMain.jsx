@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAllCourses } from '../../models/curriculumModels';
+import { useState, useEffect, useMemo } from 'react';
+import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAllCourses, getCurriculums } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { LayoutPanelLeft, List, Printer } from 'lucide-react'; 
+import { Printer, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
 import CurriculumPreview from './CurriculumPReview';
 import { evaluateDeansListerEligibility, resolveSemesterCoursesForStudent } from '../../utils/deansListerUtils';
 
@@ -19,10 +19,14 @@ const CurriculumCheckerMain = ({ onBack }) => {
   const [studentCourses, setStudentCourses] = useState([]);
   const [allCourses, setAllCourses] = useState([]);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewTarget, setPreviewTarget] = useState(null); // { student, studentCurriculum }
+  const [previewTarget, setPreviewTarget] = useState(null);
+  const [printOnlyOpen, setPrintOnlyOpen] = useState(false);
   const [expandedYears, setExpandedYears] = useState({ 1: true, 2: true, 3: true, 4: true });
   const [showEquivalentCourses, setShowEquivalentCourses] = useState(false);
-  const [studentView, setStudentView] = useState('grid'); // 'grid' | 'list'
+  const [showAvailableCourses, setShowAvailableCourses] = useState(true);
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+  const [lastSelectedStudentId, setLastSelectedStudentId] = useState(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
   useEffect(() => {
     if (currentUser) {
@@ -32,7 +36,6 @@ const CurriculumCheckerMain = ({ onBack }) => {
   }, [currentUser]);
 
   useEffect(() => {
-    // Filter students based on search term and year level or irregular status
     let filtered;
     if (tabValue === 4) {
       filtered = students.filter(student => student.isIrregular);
@@ -47,23 +50,131 @@ const CurriculumCheckerMain = ({ onBack }) => {
     setFilteredStudents(filtered);
   }, [students, searchTerm, tabValue]);
 
+  // When returning to the student list, scroll the previously selected student into view
+  useEffect(() => {
+    if (!selectedStudent && lastSelectedStudentId) {
+      setTimeout(() => {
+        const el = document.getElementById(`student-row-${lastSelectedStudentId}`);
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 50);
+    }
+  }, [selectedStudent, lastSelectedStudentId, tabValue]);
+
+  useEffect(() => {
+    const getCurrentScrollTop = () => {
+      const rootElement = document.getElementById('root');
+      const mainElement = document.querySelector('main');
+
+      return Math.max(
+        window.scrollY || 0,
+        window.pageYOffset || 0,
+        document.documentElement?.scrollTop || 0,
+        document.body?.scrollTop || 0,
+        rootElement?.scrollTop || 0,
+        mainElement?.scrollTop || 0
+      );
+    };
+
+    const handleScroll = () => {
+      setShowScrollTop(getCurrentScrollTop() > 180);
+    };
+
+    const rootElement = document.getElementById('root');
+    const mainElement = document.querySelector('main');
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    document.addEventListener('scroll', handleScroll, { passive: true });
+
+    if (rootElement) {
+      rootElement.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    if (mainElement) {
+      mainElement.addEventListener('scroll', handleScroll, { passive: true });
+    }
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('scroll', handleScroll);
+      if (rootElement) {
+        rootElement.removeEventListener('scroll', handleScroll);
+      }
+      if (mainElement) {
+        mainElement.removeEventListener('scroll', handleScroll);
+      }
+    };
+  }, []);
+
+  const requestSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedStudents = useMemo(() => {
+    let sortableStudents = [...filteredStudents];
+    if (sortConfig.key) {
+      sortableStudents.sort((a, b) => {
+        if (sortConfig.key === 'completedCourses') {
+          const aValue = a.completedCourses?.length || 0;
+          const bValue = b.completedCourses?.length || 0;
+          if (aValue < bValue) {
+            return sortConfig.direction === 'asc' ? -1 : 1;
+          }
+          if (aValue > bValue) {
+            return sortConfig.direction === 'asc' ? 1 : -1;
+          }
+          return 0;
+        } else {
+          if (a[sortConfig.key] < b[sortConfig.key]) {
+            return sortConfig.direction === 'asc' ? -1 : 1;
+          }
+          if (a[sortConfig.key] > b[sortConfig.key]) {
+            return sortConfig.direction === 'asc' ? 1 : -1;
+          }
+          return 0;
+        }
+      });
+    }
+    return sortableStudents;
+  }, [filteredStudents, sortConfig]);
+
   const loadStudents = async () => {
     if (!currentUser) {
       setError('Please sign in to access student data');
       return;
     }
-    
+
     setLoading(true);
     setError('');
     const result = await getStudents();
     if (result.success) {
-      setStudents(result.data);
+      let studentsWithCurriculum = result.data;
+
+      try {
+        const curResult = await getCurriculums();
+        if (curResult.success) {
+          const curMap = new Map(curResult.data.map(c => [c.id, c.name]));
+          studentsWithCurriculum = result.data.map(s => ({
+            ...s,
+            curriculumName: curMap.get(s.curriculumId) || s.curriculumName || 'Not Set'
+          }));
+        }
+      } catch (e) {
+        // ignore curriculum name lookup failures
+      }
+
+      setStudents(studentsWithCurriculum);
       if (result.offline) {
         console.log('Loaded students from offline storage');
       }
-      // Load courses for the first student to have course data available
-      if (result.data.length > 0) {
-        await loadStudentCourses(result.data[0].curriculumId);
+      if (studentsWithCurriculum.length > 0) {
+        await loadStudentCourses(studentsWithCurriculum[0].curriculumId);
       }
     } else {
       setError(result.error);
@@ -72,11 +183,16 @@ const CurriculumCheckerMain = ({ onBack }) => {
   };
 
   const loadStudentCourses = async (curriculumId) => {
+<<<<<<< HEAD
     if (!curriculumId) {
       setStudentCourses([]);
       return;
     }
     
+=======
+    if (!curriculumId) return;
+
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
     const result = await getCoursesByCurriculum(curriculumId);
     if (result.success) {
       setStudentCourses(result.data);
@@ -91,17 +207,24 @@ const CurriculumCheckerMain = ({ onBack }) => {
     if (result.success) setAllCourses(result.data);
   };
 
-  // Open preview modal that renders CurriculumPreview (use component's own print styles)
-  const handlePrintStudentPDF = (student, studentCurriculum) => {
+  const handlePrintStudentPDF = (student, studentCurriculum, summerCourses = []) => {
     if (!student || !studentCurriculum) return;
-    setPreviewTarget({ student, studentCurriculum });
-    setPreviewOpen(true);
+    const firstYearCourses = studentCurriculum.courses.filter(c => c.yearLevel === 1);
+    const firstYearSummerCourses = summerCourses.filter(c => c.yearLevel === 1 && c.semester === 3);
+    setPreviewTarget({
+      student,
+      studentCurriculum: {
+        ...studentCurriculum,
+        courses: firstYearCourses
+      },
+      summerCourses: firstYearSummerCourses
+    });
+    setPrintOnlyOpen(true);
   };
 
   const printPreview = () => {
     if (!previewTarget) return;
     try {
-      // Rendered CurriculumPreview includes its own @media print rules
       window.focus();
       window.print();
     } catch (e) {
@@ -112,15 +235,29 @@ const CurriculumCheckerMain = ({ onBack }) => {
     setPreviewTarget(null);
   };
 
+  useEffect(() => {
+    if (!printOnlyOpen) return;
+    const t = setTimeout(() => {
+      try {
+        window.print();
+      } catch (e) {
+        // ignore
+      }
+      setPrintOnlyOpen(false);
+      setPreviewTarget(null);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [printOnlyOpen]);
+
   const handleStudentSelect = async (student) => {
     setSelectedStudent(student);
+    setLastSelectedStudentId(student.id);
     setTabValue(student.isIrregular ? 4 : student.yearLevel - 1);
     setLoading(true);
-    
+
     const result = await getStudentCurriculumStatus(student.id);
     if (result.success) {
       setStudentCurriculum(result.data);
-      // Load courses for the selected student's curriculum
       loadStudentCourses(student.curriculumId);
     } else {
       setError(result.error);
@@ -133,7 +270,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
       setError('Please sign in to check curriculum status');
       return;
     }
-    
+
     if (!selectedStudent) {
       setError('Please select a student first');
       return;
@@ -149,6 +286,28 @@ const CurriculumCheckerMain = ({ onBack }) => {
       setError(result.error);
     }
     setLoading(false);
+  };
+
+  const handleScrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (document.documentElement) {
+      document.documentElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    if (document.body) {
+      document.body.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const rootElement = document.getElementById('root');
+    if (rootElement && typeof rootElement.scrollTo === 'function') {
+      rootElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const mainElement = document.querySelector('main');
+    if (mainElement && typeof mainElement.scrollTo === 'function') {
+      mainElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const getStatusColor = (status) => {
@@ -173,9 +332,8 @@ const CurriculumCheckerMain = ({ onBack }) => {
       case 'completed':
         return 'Completed';
       case 'blocked':
-        // Check if any prerequisites are failed or incomplete
-        const hasFailedOrIncompletePrereqs = course.prerequisites.some(prereq => 
-          student.completedCourses?.includes(prereq) && 
+        const hasFailedOrIncompletePrereqs = course.prerequisites.some(prereq =>
+          student.completedCourses?.includes(prereq) &&
           (isCourseFailed(student, prereq) || isCourseIncomplete(student, prereq))
         );
         return hasFailedOrIncompletePrereqs ? 'Blocked (Incomplete or Failed)' : 'Blocked (Prerequisite not met)';
@@ -192,8 +350,8 @@ const CurriculumCheckerMain = ({ onBack }) => {
     }
   };
 
-  // Calculate Dean's Lister eligibility for a semester
   const calculateDeansListerEligibility = (student, semester, year) => {
+<<<<<<< HEAD
     if (!student) return false;
     const semesterCourses = resolveSemesterCoursesForStudent({
       student,
@@ -201,6 +359,23 @@ const CurriculumCheckerMain = ({ onBack }) => {
       year,
       curriculumCourses: studentCourses,
       allCourses
+=======
+    if (!student || !student.grades) return false;
+
+    const semesterCourses = studentCourses
+      ?.filter(course => course.yearLevel === year && course.semester === semester)
+      ?.map(course => course.courseCode) || [];
+
+    const semesterGrades = semesterCourses
+      .map(courseCode => student.grades[courseCode])
+      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC' && grade !== 'CRED');
+
+    if (semesterGrades.length === 0) return false;
+
+    return semesterGrades.every(grade => {
+      const numGrade = parseFloat(grade);
+      return numGrade <= 2.1;
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
     });
 
     const result = evaluateDeansListerEligibility({
@@ -216,24 +391,21 @@ const CurriculumCheckerMain = ({ onBack }) => {
     return result.eligible;
   };
 
-  // Calculate Scholarship eligibility for both semesters
   const calculateScholarshipEligibility = (student, year) => {
     if (!student || !student.grades) return { eligible: false, percentage: 0 };
-    
-    // Get courses for the specific year
+
     const yearCourses = studentCourses
       ?.filter(course => course.yearLevel === year)
-      .map(course => course.courseCode) || [];
-    
-    // Get grades for those courses
+      ?.map(course => course.courseCode) || [];
+
     const yearGrades = yearCourses
       .map(courseCode => student.grades[courseCode])
       .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC' && grade !== 'CRED');
-    
+
     if (yearGrades.length === 0) return { eligible: false, percentage: 0 };
-    
+
     const maxGrade = Math.max(...yearGrades.map(grade => parseFloat(grade)));
-    
+
     if (maxGrade <= 1.5) {
       return { eligible: true, percentage: 100 };
     } else if (maxGrade <= 1.7) {
@@ -243,32 +415,27 @@ const CurriculumCheckerMain = ({ onBack }) => {
     }
   };
 
-  // Check if a course is failed (grade 5.0 or above)
   const isCourseFailed = (student, courseCode) => {
     if (!student || !student.grades) return false;
     const grade = student.grades[courseCode];
     return grade && parseFloat(grade) >= 5.0;
   };
 
-  // Check if a course is incomplete
   const isCourseIncomplete = (student, courseCode) => {
     if (!student || !student.grades) return false;
     const grade = student.grades[courseCode];
     return grade === 'INC';
   };
 
-  // Check if a course is credited
   const isCourseCredited = (student, courseCode) => {
     if (!student || !student.grades) return false;
     const grade = student.grades[courseCode];
     return grade === 'CRED';
   };
 
-  // Helper: For irregular students, process equivalents
   const getAvailableCoursesForIrregular = (student, curriculumCourses) => {
     if (!student?.isIrregular) return curriculumCourses;
-    
-    // Map: equivalentSubjectId -> all courses with that id
+
     const equivMap = {};
     allCourses.forEach(course => {
       if (course.equivalentSubjectId) {
@@ -276,14 +443,11 @@ const CurriculumCheckerMain = ({ onBack }) => {
         equivMap[course.equivalentSubjectId].push(course);
       }
     });
-    
-    // For each course in the student's curriculum, check equivalents
+
     return curriculumCourses.map(course => {
       if (!course.equivalentSubjectId) return course;
       const equivalents = equivMap[course.equivalentSubjectId] || [];
-      // If any equivalent is available, mark as available
       const anyAvailable = equivalents.some(eq => eq.isAvailable !== false);
-      // If the course is already completed/failed, keep its status
       if (course.status === 'completed' || course.status === 'failed') return course;
       return {
         ...course,
@@ -292,42 +456,35 @@ const CurriculumCheckerMain = ({ onBack }) => {
     });
   };
 
-  // Helper: Get equivalent courses from other curriculums for irregular students
   const getEquivalentCoursesFromOtherCurriculums = (student, curriculumCourses) => {
     if (!student?.isIrregular) return [];
-    
+
     const equivalentCourses = [];
     const studentCurriculumIds = new Set([student.curriculumId]);
-    
-    // Helper function to check if a course meets prerequisites
+
     const isPrerequisiteMet = (courseCode) => {
-      return student.completedCourses?.includes(courseCode) && 
-             !isCourseFailed(student, courseCode) && 
+      return student.completedCourses?.includes(courseCode) &&
+             !isCourseFailed(student, courseCode) &&
              !isCourseIncomplete(student, courseCode);
     };
-    
-    // Get all courses that have equivalentSubjectId and are available
+
     allCourses.forEach(course => {
       if (course.equivalentSubjectId && course.isAvailable !== false) {
-        // Check if this course is equivalent to any course in the student's curriculum
-        const isEquivalentToStudentCourse = curriculumCourses.some(studentCourse => 
+        const isEquivalentToStudentCourse = curriculumCourses.some(studentCourse =>
           studentCourse.equivalentSubjectId === course.equivalentSubjectId
         );
-        
-        // Only include courses from different curriculums that are equivalent to student's courses
+
         if (isEquivalentToStudentCourse && !studentCurriculumIds.has(course.curriculumId)) {
-          // Check if the student meets the prerequisites for this equivalent course
           let meetsPrerequisites = true;
           if (course.prerequisites && course.prerequisites.length > 0) {
             meetsPrerequisites = course.prerequisites.every(isPrerequisiteMet);
           }
-          
-          // Only include if prerequisites are met
+
           if (meetsPrerequisites) {
             equivalentCourses.push({
               ...course,
               isEquivalentCourse: true,
-              originalCourseCode: curriculumCourses.find(sc => 
+              originalCourseCode: curriculumCourses.find(sc =>
                 sc.equivalentSubjectId === course.equivalentSubjectId
               )?.courseCode
             });
@@ -335,133 +492,168 @@ const CurriculumCheckerMain = ({ onBack }) => {
         }
       }
     });
-    
+
     return equivalentCourses;
   };
 
   const renderStudentList = () => (
     <div className="">
-      <div className=" bg-white text-black p-6 rounded-2xl mb-10 flex items-center justify-between border border-gray-300 shadow-lg">
+      <div className="bg-white text-black p-6 rounded-2xl mb-6 flex items-center justify-between border border-gray-300 shadow-lg">
         <div className="flex items-center gap-6">
           <button
             onClick={onBack}
-            className="bg-blue-600 text-white px-4 py-1.5 rounded-full hover:bg-blue-700"
+            className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
           >
-            Back
+            <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
           </button>
-         <div>
-           <h5 className="text-2xl font-bold text-blue-600">Curriculum Checker</h5>
+          <div>
+            <h5 className="text-2xl font-bold text-blue-600">Curriculum Checker</h5>
             <p className="text-gray-600">Select a student to check their curriculum status</p>
-         </div>
+          </div>
         </div>
       </div>
 
-      <div className="mb-6">
-        <div className="flex border-b border-gray-200">
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex gap-2 text-sm">
           {[1, 2, 3, 4].map(year => (
             <button
               key={year}
-              className={`px-4 py-2 ${tabValue === year - 1 ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'}`}
+                className={`px-3 py-1 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+                  ${tabValue === year - 1
+                    ? 'bg-blue-600 text-white border-blue-700 scale-105'
+                    : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                  }`}
               onClick={() => setTabValue(year - 1)}
             >
               {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
             </button>
           ))}
           <button
-            className={`px-4 py-2 ${tabValue === 4 ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-600'}`}
+            className={`px-3 py-1 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+              ${tabValue === 4 
+                ? 'bg-blue-600 text-white border-blue-700 scale-105'
+                : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+              }`}
             onClick={() => setTabValue(4)}
           >
             Irregular Students
           </button>
         </div>
-      </div>
-
-      {/* Search + View Toggle */}
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="w-full sm:max-w-90">
-          <label className="sr-only" htmlFor="student-search">Search students</label>
+          <label className="sr-only" htmlFor="student-search">
+            Search students
+          </label>
           <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
               id="student-search"
               type="text"
               placeholder="Search students by name..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-        className="w-full sm:w-90 border border-gray-300 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+              className="w-full text-sm sm:w-90 border border-gray-300 rounded-full pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
             />
           </div>
         </div>
-        <div className="flex items-center gap-2 self-end md:self-auto">
-          <button
-            type="button"
-            onClick={() => setStudentView('grid')}
-            className={`p-2 rounded-lg border text-sm flex items-center justify-center ${studentView === 'grid' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-            aria-pressed={studentView === 'grid'}
-            aria-label="Grid view"
-            title="Grid view"
-          >
-            <LayoutPanelLeft className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setStudentView('list')}
-            className={`p-2 rounded-lg border text-sm flex items-center justify-center ${studentView === 'list' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-            aria-pressed={studentView === 'list'}
-            aria-label="List view"
-            title="List view"
-          >
-            <List className="w-4 h-4" />
-          </button>
-        </div>
       </div>
 
-      {studentView === 'grid' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-          {filteredStudents.map((student) => (
-            <div
+      <div className="overflow-hidden rounded-lg border border-gray-300 bg-white mb-4">
+        <table className="min-w-full text-sm">
+          <thead className="bg-blue-600 text-white">
+            <tr>
+              <th
+                className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[12%] cursor-pointer"
+                onClick={() => requestSort('studentNumber')}
+              >
+                <div className="flex items-center">
+                  Student No.
+                  {sortConfig.key === 'studentNumber' ? (
+                    sortConfig.direction === 'asc' ? (
+                      <ChevronUp className="w-4 h-4 ml-1" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 ml-1" />
+                    )
+                  ) : (
+                    <ChevronsUpDown className="w-4 h-4 ml-1" />
+                  )}
+                </div>
+              </th>
+              <th
+                className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[20%] cursor-pointer"
+                onClick={() => requestSort('name')}
+              >
+                <div className="flex items-center">
+                  Name
+                  {sortConfig.key === 'name' ? (
+                    sortConfig.direction === 'asc' ? (
+                      <ChevronUp className="w-4 h-4 ml-1" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 ml-1" />
+                    )
+                  ) : (
+                    <ChevronsUpDown className="w-4 h-4 ml-1" />
+                  )}
+                </div>
+              </th>
+              <th className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[18%]">Email</th>
+              <th className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[10%]">Contact No.</th>
+              <th
+                className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[20%] cursor-pointer"
+                onClick={() => requestSort('curriculumName')}
+              >
+                <div className="flex items-center">
+                  Curriculum
+                  {sortConfig.key === 'curriculumName' ? (
+                    sortConfig.direction === 'asc' ? (
+                      <ChevronUp className="w-4 h-4 ml-1" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 ml-1" />
+                    )
+                  ) : (
+                    <ChevronsUpDown className="w-4 h-4 ml-1" />
+                  )}
+                </div>
+              </th>
+              <th
+                className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[15%] cursor-pointer"
+                onClick={() => requestSort('completedCourses')}
+              >
+                <div className="flex items-center">
+                  Completed Courses
+                  {sortConfig.key === 'completedCourses' ? (
+                    sortConfig.direction === 'asc' ? (
+                      <ChevronUp className="w-4 h-4 ml-1" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 ml-1" />
+                    )
+                  ) : (
+                    <ChevronsUpDown className="w-4 h-4 ml-1" />
+                  )}
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedStudents.map((student) => (
+             <tr
+              id={`student-row-${student.id}`}
               key={student.id}
-              className="cursor-pointer transition-all duration-300 border border-gray-300 rounded-xl bg-white hover:shadow-lg hover:border-blue-500 p-6"
               onClick={() => handleStudentSelect(student)}
+              className="odd:bg-white even:bg-gray-100 hover:bg-gray-200 cursor-pointer"
             >
-              <div className="flex items-center gap-2 mb-2">
-                <h6 className="text-lg font-bold text-blue-600">{student.name}</h6>
-              </div>
-              <p className="text-gray-600 text-sm mb-4">
-                {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year
-                <br></br><span className='text-xs'>{student.completedCourses?.length || 0} courses completed</span>
-              </p>
-             
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white">
-          <table className="min-w-full text-sm">
-            <thead className="bg-blue-600 text-white">
-              <tr>
-                <th className="px-4 py-2 text-left font-semibold border-b border-gray-300">Name</th>
-                <th className="px-4 py-2 text-left font-semibold border-b border-gray-300">Year</th>
-                <th className="px-4 py-2 text-left font-semibold border-b border-gray-300">Completed</th>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[12%]">{student.studentNumber}</td>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[20%]">{student.name}</td>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[18%]">{student.email}</td>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[10%]">{student.contactNumber}</td>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[20%]">
+                  <span>{student.curriculumName || student.curriculumId || 'Not Set'}</span>
+                </td>
+                <td className="px-2 py-1.5 border-b border-gray-300 w-[15%]">{student.completedCourses?.length || 0}</td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredStudents.map((student) => (
-                <tr
-                  key={student.id}
-                  onClick={() => handleStudentSelect(student)}
-                  className="hover:bg-gray-50 cursor-pointer"
-                >
-                  <td className="px-4 py-2 border-b border-gray-300 text-blue-700 font-medium">{student.name}</td>
-                  <td className="px-4 py-2 border-b border-gray-300">
-                    {student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year
-                  </td>
-                  <td className="px-4 py-2 border-b border-gray-300">{student.completedCourses?.length || 0}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {filteredStudents.length === 0 && searchTerm && (
         <div className="text-center py-16">
@@ -487,22 +679,21 @@ const CurriculumCheckerMain = ({ onBack }) => {
     if (!studentCurriculum) return null;
 
     const { student, courses } = studentCurriculum;
-    // Use processed courses for irregulars
     const processedCourses = getAvailableCoursesForIrregular(student, courses);
 
     return (
       <div>
-        <div className=" bg-white text-black p-6 rounded-2xl mb-10 flex items-center justify-between border border-gray-300 shadow-lg">
+        <div className="bg-white text-black p-6 rounded-2xl mb-6 flex items-center justify-between border border-gray-300 shadow-lg">
           <div className="flex items-center gap-6">
             <button
               onClick={() => {
                 setSelectedStudent(null);
                 setTabValue(selectedStudent.isIrregular ? 4 : selectedStudent.yearLevel - 1);
               }}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
               aria-label="Back"
             >
-              <span className="hidden sm:inline text-sm font-medium">Back</span>
+              <ArrowBigLeft className="w-4 h-4" />
             </button>
             <div>
               <div className="text-2xl font-bold text-blue-600">Curriculum Status</div>
@@ -515,57 +706,56 @@ const CurriculumCheckerMain = ({ onBack }) => {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => handlePrintStudentPDF(student, studentCurriculum)}
-              className="inline-flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300"
+              onClick={() => handlePrintStudentPDF(
+                student,
+                studentCurriculum,
+                processedCourses.filter(c => c.yearLevel === 3 && c.semester === 3)
+              )}
+              className="inline-flex items-center text-sm gap-2 bg-green-600 cursor-pointer text-white px-2 py-1.5 rounded-full hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300"
             >
               <Printer className="w-4 h-4" />
-              <span>Print PDF</span>
+              <span>Print Curriculum</span>
             </button>
           </div>
         </div>
 
-        
-       
-
-            
-        
-        <div className="mt-6 space-y-4">
+        <div className="mt-4 space-y-2 mb-4">
           {[1, 2, 3, 4].map(year => {
             const scholarshipEligibility = calculateScholarshipEligibility(student, year);
             const deansLister1stSem = calculateDeansListerEligibility(student, 1, year);
             const deansLister2ndSem = calculateDeansListerEligibility(student, 2, year);
-            
+
             return (
               <div key={year} className="border bg-white border-gray-300 rounded-lg overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setExpandedYears(prev => ({ ...prev, [year]: !prev[year] }))}
-                  className="w-full flex items-center justify-between bg-blue-500 hover:bg-blue-600 text-white px-4 py-3"
+                  className="w-full flex items-center justify-between bg-blue-500 hover:bg-blue-600 cursor-pointer text-white px-3 py-1.5"
                 >
                   <span className="text-lg font-semibold">{year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year</span>
-                    <span className={`transition-transform text-lg ${expandedYears[year] ? 'rotate-180' : ''}`}>
-                      <i className="bi bi-chevron-up"></i>
-                    </span>
+                  <span className={`transition-transform text-lg ${expandedYears[year] ? 'rotate-180' : ''}`}>
+                    <ChevronUp className="w-5 h-5" />
+                  </span>
                 </button>
                 {expandedYears[year] && (
-                  <div className="p-4">
-                    <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                      <h4 className="font-semibold mb-2">Academic Eligibility Summary - {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year</h4>
+                  <div className="py-6 px-10">
+                    <div className="mb-4">
+                      <h4 className="font-semibold text-sm">Academic Eligibility Summary</h4>
                       <div className="flex flex-wrap gap-6">
                         <div>
-                          <p className="text-sm text-gray-600">1st Semester Dean's Lister:</p>
+                          <p className="text-xs text-gray-600">1st Semester Dean's Lister:</p>
                           <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full border ${deansLister1stSem ? 'bg-green-100 text-green-800 border-green-300' : 'bg-gray-100 text-gray-800 border-gray-300'}`}>
                             {deansLister1stSem ? 'Eligible' : 'Not Eligible'}
                           </span>
                         </div>
                         <div>
-                          <p className="text-sm text-gray-600">2nd Semester Dean's Lister:</p>
+                          <p className="text-xs text-gray-600">2nd Semester Dean's Lister:</p>
                           <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full border ${deansLister2ndSem ? 'bg-green-100 text-green-800 border-green-300' : 'bg-gray-100 text-gray-800 border-gray-300'}`}>
                             {deansLister2ndSem ? 'Eligible' : 'Not Eligible'}
                           </span>
                         </div>
                         <div>
-                          <p className="text-sm text-gray-600">Scholarship Eligibility:</p>
+                          <p className="text-xs text-gray-600">Scholarship Eligibility:</p>
                           <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full border ${scholarshipEligibility.eligible ? 'bg-blue-100 text-blue-800 border-blue-300' : 'bg-gray-100 text-gray-800 border-gray-300'}`}>
                             {scholarshipEligibility.eligible ? `${scholarshipEligibility.percentage}% Scholarship` : 'Not Eligible'}
                           </span>
@@ -573,94 +763,92 @@ const CurriculumCheckerMain = ({ onBack }) => {
                       </div>
                     </div>
                     {[1, 2].map(semester => (
-                      <div key={semester} className="mb-6">
-                        <h5 className="text-blue-600 font-semibold mb-2">{semester === 1 ? '1st' : '2nd'} Semester</h5>
-                        <div className="border border-gray-300 rounded-lg overflow-hidden">
-                          <table className="min-w-full text-sm">
-                            <thead className="bg-blue-600 text-white">
-                              <tr>
-                                <th className="text-left font-semibold px-4 py-2 border-b border-gray-300">Course Code</th>
-                                <th className="text-left font-semibold px-4 py-2 border-b border-gray-300">Course Title</th>
-                                <th className="text-left font-semibold px-4 py-2 border-b border-gray-300">Units</th>
-                                <th className="text-left font-semibold px-4 py-2 border-b border-gray-300">Prerequisites</th>
-                                <th className="text-left font-semibold px-4 py-2 border-b border-gray-300">Status</th>
-                                <th className="text-left font-semibold px-4 py-2 border-b border-gray-300">Grade</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {processedCourses
-                                .filter(course => course.yearLevel === year && course.semester === semester)
-                                .map((course) => {
-                                  const failed = isCourseFailed(student, course.courseCode);
-                                  const incomplete = isCourseIncomplete(student, course.courseCode);
-                                  const rowBg = failed
-                                    ? 'bg-red-50 hover:bg-red-100'
-                                    : incomplete
-                                    ? 'bg-amber-50 hover:bg-amber-100'
-                                    : course.status === 'completed'
-                                    ? 'bg-green-50 hover:bg-green-100'
-                                    : course.status === 'blocked'
-                                    ? 'bg-red-50 hover:bg-red-100'
-                                    : 'hover:bg-gray-50';
-                                  return (
-                                    <tr key={course.id} className={`${rowBg} transition-colors`}>
-                                      <td className="px-4 py-2 border-b border-gray-300">
-                                        <span className="text-blue-700 font-semibold">{course.courseCode}</span>
-                                      </td>
-                                      <td className="px-4 py-2 border-b border-gray-300">{course.courseTitle}</td>
-                                      <td className="px-4 py-2 border-b border-gray-300">{course.units}</td>
-                                      <td className="px-4 py-2 border-b border-gray-300">
-                                        {course.prerequisites.length > 0 ? (
-                                          <div className="flex flex-wrap gap-1">
-                                            {course.prerequisites.map(prereq => {
-                                              const isPrereqMet = student.completedCourses?.includes(prereq) &&
-                                                !isCourseFailed(student, prereq) &&
-                                                !isCourseIncomplete(student, prereq);
+                      <div className='' key={semester}>
+                        <div className="mb-3">
+                          <h5 className="text-blue-600 font-semibold mb-2">{semester === 1 ? '1st' : '2nd'} Semester</h5>
+                          <div className="border border-gray-300 rounded-lg overflow-hidden">
+                            <table className="min-w-full text-xs">
+                              <thead className="bg-blue-100 text-blue-800">
+                                <tr>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[10%]">Code</th>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[30%]">Description</th>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[10%]">Units</th>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[20%]">Prerequisites</th>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[15%]">Status</th>
+                                  <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[15%]">Grade</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {processedCourses
+                                  .filter(course => course.yearLevel === year && course.semester === semester)
+                                  .map((course) => {
+                                    const failed = isCourseFailed(student, course.courseCode);
+                                    const incomplete = isCourseIncomplete(student, course.courseCode);
+                                    return (
+                                      <tr key={course.id} className="transition-colors">
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[10%]">
+                                          <span className="text-blue-700 font-semibold">{course.courseCode}</span>
+                                        </td>
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[30%]">{course.courseTitle}</td>
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[10%]">{course.units}</td>
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[20%]">
+                                          {course.prerequisites.length > 0 ? (
+                                            <div className="flex flex-wrap gap-1">
+                                              {course.prerequisites.map(prereq => {
+                                                const isPrereqMet = student.completedCourses?.includes(prereq) &&
+                                                  !isCourseFailed(student, prereq) &&
+                                                  !isCourseIncomplete(student, prereq);
+                                                return (
+                                                  <span
+                                                    key={prereq}
+                                                    className={`px-2 py-0.5 text-xs rounded-full border
+                                                                ${isPrereqMet
+                                                                  ? 'bg-green-50 text-green-700 border-green-200'
+                                                                  : 'bg-red-50 text-red-700 border-red-200'
+                                                                }`
+                                                              }
+                                                  >
+                                                    {prereq}
+                                                  </span>
+                                                );
+                                              })}
+                                            </div>
+                                          ) : (
+                                            <span className="text-gray-500">None</span>
+                                          )}
+                                        </td>
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[15%]">
+                                          <span className={`inline-block px-2 py-0.5 text-xs rounded-full border ${getStatusColor(course.status)}`}>
+                                            {getStatusLabel(course.status, course, student)}
+                                          </span>
+                                        </td>
+                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[15%]">
+                                          {student.grades && student.grades[course.courseCode] ? (
+                                            (() => {
+                                              const val = student.grades[course.courseCode];
+                                              const cls =
+                                                val === 'INC' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                val === 'CRED' ? 'bg-green-50 text-green-700 border-green-200' :
+                                                parseFloat(val) >= 5.0 ? 'bg-red-50 text-red-700 border-red-200' :
+                                                parseFloat(val) <= 2.1 ? 'bg-green-50 text-green-700 border-green-200' :
+                                                parseFloat(val) <= 2.5 ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                'bg-red-50 text-red-700 border-red-200';
                                               return (
-                                                <span
-                                                  key={prereq}
-                                                  className={`px-2 py-0.5 text-xs rounded-full border ${isPrereqMet ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}
-                                                >
-                                                  {prereq}
+                                                <span className={`inline-block px-2 py-0.5 text-xs rounded-full border ${cls}`}>
+                                                  {val}
                                                 </span>
                                               );
-                                            })}
-                                          </div>
-                                        ) : (
-                                          <span className="text-gray-500">None</span>
-                                        )}
-                                      </td>
-                                      <td className="px-4 py-2 border-b border-gray-300">
-                                        <span className={`inline-block px-2 py-0.5 text-xs rounded-full border ${getStatusColor(course.status)}`}>
-                                          {getStatusLabel(course.status, course, student)}
-                                        </span>
-                                      </td>
-                                      <td className="px-4 py-2 border-b border-gray-300">
-                                        {student.grades && student.grades[course.courseCode] ? (
-                                          (() => {
-                                            const val = student.grades[course.courseCode];
-                                            const cls =
-                                              val === 'INC' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                              val === 'CRED' ? 'bg-green-50 text-green-700 border-green-200' :
-                                              parseFloat(val) >= 5.0 ? 'bg-red-50 text-red-700 border-red-200' :
-                                              parseFloat(val) <= 2.1 ? 'bg-green-50 text-green-700 border-green-200' :
-                                              parseFloat(val) <= 2.5 ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                              'bg-red-50 text-red-700 border-red-200';
-                                            return (
-                                              <span className={`inline-block px-2 py-0.5 text-xs rounded-full border ${cls}`}>
-                                                {val}
-                                              </span>
-                                            );
-                                          })()
-                                        ) : (
-                                          <span className="text-gray-500">Not Graded</span>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                            </tbody>
-                          </table>
+                                            })()
+                                          ) : (
+                                            <span className="text-gray-500">Not Graded</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -669,57 +857,103 @@ const CurriculumCheckerMain = ({ onBack }) => {
               </div>
             );
           })}
-          {/* Available Courses */}
-          <div className="border border-blue-500 rounded-xl mb-4">
-            <div className="px-4 py-3 bg-blue-50 rounded-t-xl">
-              <span className="text-lg font-bold text-blue-700">Available Courses This Term</span>
-            </div>
-            <div className="p-4">
-              <div className="flex flex-wrap gap-2">
-                {processedCourses.filter(c => c.status === 'available').length === 0 ? (
-                  <span className="text-gray-500 text-sm">No available courses for this term.</span>
-                ) : (
-                  processedCourses.filter(c => c.status === 'available').map(course => (
-                    <span key={course.id} className="px-3 py-1 text-sm rounded-full border bg-blue-50 text-blue-700 border-blue-200">
-                      {course.courseCode} - {course.courseTitle}
-                    </span>
-                  ))
-                )}
+        </div>
+
+        <div className='flex flex-col gap-2 mb-4'>
+          <div className="rounded-xl border border-blue-300 bg-white shadow-sm">
+            <button
+              type="button"
+              onClick={() => setShowAvailableCourses(s => !s)}
+              className="w-full flex items-center cursor-pointer justify-between px-2 py-1.5 rounded-xl transition"
+            >
+              <span className="text-base font-semibold text-blue-800">
+                Available Courses This Term
+              </span>
+              <span
+                className={`text-blue-700 text-xl transition-transform duration-300 ${
+                  showAvailableCourses ? "rotate-180" : "rotate-0"
+                }`}
+              >
+                <ChevronUp className="w-5 h-5" />
+              </span>
+            </button>
+            {showAvailableCourses && (
+              <div className="px-5 py-4">
+                <div className="flex flex-wrap gap-2">
+                  {processedCourses.filter(c => c.status === "available").length === 0 ? (
+                    <div className="w-full text-sm text-gray-500 italic bg-gray-50 border border-dashed rounded-md px-3 py-2">
+                      No available courses for this term.
+                    </div>
+                  ) : (
+                    processedCourses
+                      .filter(c => c.status === "available")
+                      .map(course => (
+                        <div
+                          key={course.id}
+                          className="px-2 py-1.5 text-xs rounded-lg border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100 transition"
+                        >
+                          <span className="font-medium">{course.courseCode}</span>
+                          <span className="mx-1">•</span>
+                          <span>{course.courseTitle}</span>
+                        </div>
+                      ))
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
-          {/* Equivalent Courses from Other Curriculums (for irregular students only) */}
           {student.isIrregular && (
-            <div className="border border-amber-500 rounded-lg">
+            <div className="rounded-xl border border-blue-300 bg-white shadow-sm">
               <button
                 type="button"
                 onClick={() => setShowEquivalentCourses(s => !s)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-amber-50 hover:bg-amber-100"
+                className="w-full flex cursor-pointer items-center justify-between px-2 py-1.5 rounded-xl transition"
               >
-                <span className="text-lg font-bold text-amber-700">Equivalent Courses from Other Curriculums</span>
-                <span className={`text-amber-700 transition-transform ${showEquivalentCourses ? 'rotate-180' : ''}`}>⌄</span>
+                <span className="text-base font-semibold text-blue-800">
+                  Equivalent Courses from Other Curriculums
+                </span>
+                <span
+                  className={`text-blue-700 text-xl transition-transform duration-300 ${
+                    showEquivalentCourses ? "rotate-180" : "rotate-0"
+                  }`}
+                >
+                  <ChevronUp className="w-5 h-5" />
+                </span>
               </button>
               {showEquivalentCourses && (
-                <div className="p-4">
-                  <p className="text-sm text-gray-600 mb-2">
-                    As an irregular student, you can enroll in these equivalent courses from other curriculums:
+                <div className="px-5 py-4 space-y-3">
+                  <p className="text-xs text-gray-600">
+                    As an irregular student, you may enroll in these equivalent courses:
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {(() => {
-                      const equivalentCourses = getEquivalentCoursesFromOtherCurriculums(student, processedCourses);
+                      const equivalentCourses =
+                        getEquivalentCoursesFromOtherCurriculums(
+                          student,
+                          processedCourses
+                        );
+
                       if (equivalentCourses.length === 0) {
                         return (
-                          <span className="text-gray-500 text-sm">No equivalent courses available from other curriculums.</span>
+                          <div className="w-full text-sm text-gray-500 italic bg-gray-50 border border-dashed rounded-md px-3 py-2">
+                            No equivalent courses available.
+                          </div>
                         );
                       }
+
                       return equivalentCourses.map(course => (
-                        <span
+                        <div
                           key={course.id}
-                          className="px-3 py-1 text-sm rounded-full border border-amber-300 text-amber-700 bg-amber-50"
+                          className="px-2 py-1.5 text-xs rounded-lg border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100 transition"
                         >
-                          {course.courseCode} - {course.courseTitle} (Equivalent to {course.originalCourseCode})
-                        </span>
+                          <span className="font-medium">{course.courseCode}</span>
+                          <span className="mx-1">•</span>
+                          <span>{course.courseTitle}</span>
+                          <div className="text-xs text-blue-700 mt-1">
+                            Equivalent to {course.originalCourseCode}
+                          </div>
+                        </div>
                       ));
                     })()}
                   </div>
@@ -728,8 +962,6 @@ const CurriculumCheckerMain = ({ onBack }) => {
             </div>
           )}
         </div>
-        
-  
       </div>
     );
   };
@@ -737,16 +969,16 @@ const CurriculumCheckerMain = ({ onBack }) => {
   return (
     <div className="h-screen flex flex-col">
       {!currentUser && (
-        <div className="mx-3 mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-4 py-2 text-sm">
+        <div className="mx-3 mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-2 py-1.5 text-sm">
           Please sign in to access the Curriculum Checker
         </div>
       )}
 
       {error && (
-        <div className="mx-3 mb-2 rounded border border-red-200 bg-red-50 text-red-800 px-4 py-2 text-sm">{error}</div>
+        <div className="mx-3 mb-2 rounded border border-red-200 bg-red-50 text-red-800 px-2 py-1.5 text-sm">{error}</div>
       )}
       {success && (
-        <div className="mx-3 mb-2 rounded border border-green-200 bg-green-50 text-green-800 px-4 py-2 text-sm">{success}</div>
+        <div className="mx-3 mb-2 rounded border border-green-200 bg-green-50 text-green-800 px-2 py-1.5 text-sm">{success}</div>
       )}
 
       {currentUser ? (
@@ -755,13 +987,13 @@ const CurriculumCheckerMain = ({ onBack }) => {
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center">
-          <div className="p-4 text-center border border-gray-200 ">
+          <div className="p-4 text-center border border-gray-200">
             <p className="text-gray-600">Sign in to access curriculum checking features</p>
           </div>
         </div>
       )}
       {previewOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center absolute inset-0 bg-black/40">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white max-w-4xl w-full max-h-[90vh] overflow-auto rounded-lg p-4">
             <div className="flex justify-between items-center mb-2">
               <h3 className="text-lg font-bold">Print Preview - {previewTarget?.student?.name}</h3>
@@ -775,6 +1007,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
                 <CurriculumPreview
                   curriculumId={previewTarget.studentCurriculum?.curriculumId || previewTarget.student?.curriculumId}
                   student={previewTarget.student}
+                  summerCourses={previewTarget.summerCourses || []}
                 />
               ) : (
                 <div className="text-gray-600">No preview data available.</div>
@@ -782,6 +1015,30 @@ const CurriculumCheckerMain = ({ onBack }) => {
             </div>
           </div>
         </div>
+      )}
+      {printOnlyOpen && previewTarget && (
+        <div className="print-only-preview" aria-hidden>
+          <div style={{ position: 'fixed', left: '-9999px', top: 0 }}>
+            <CurriculumPreview
+              curriculumId={previewTarget.studentCurriculum?.curriculumId || previewTarget.student?.curriculumId}
+              student={previewTarget.student}
+              summerCourses={previewTarget.summerCourses || []}
+            />
+          </div>
+          <style>{`@media screen { .print-only-preview { display: none; } } @media print { body * { visibility: hidden !important; } .print-only-preview, .print-only-preview * { visibility: visible !important; } .print-only-preview { position: static !important; left: 0 !important; width: 100% !important; } }`}</style>
+        </div>
+      )}
+
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={handleScrollToTop}
+          className="fixed bottom-6 right-6 cursor-pointer z-40 rounded-full bg-blue-600 text-white p-3 shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+          aria-label="Scroll to top"
+          title="Scroll to top"
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
       )}
     </div>
   );

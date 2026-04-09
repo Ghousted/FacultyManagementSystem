@@ -5,17 +5,23 @@ import {
   getStudents, 
   updateStudentCourse,
   getCurriculums,
-  getCoursesByCurriculum 
+  getCoursesByCurriculum,
+  getAllCourses
 } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
+<<<<<<< HEAD
 import { evaluateDeansListerEligibility, resolveSemesterCoursesForStudent } from '../../utils/deansListerUtils';
+=======
+import { BadgePlus, Pencil, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
 
 const StudentManagement = ({ onBack }) => {
   const { currentUser } = useAuth();
   const [students, setStudents] = useState([]);
   const [curriculums, setCurriculums] = useState([]);
+  const [allCourses, setAllCourses] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentCourses, setStudentCourses] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -26,12 +32,14 @@ const StudentManagement = ({ onBack }) => {
   const handleSelectStudent = (student) => {
     setSelectedStudent(student);
     setCourseTab(student.yearLevel - 1);
+    setLastSelectedStudentId(student.id);
   };
   
   // Student form state
   const [studentForm, setStudentForm] = useState({
     name: '',
     email: '',
+    contactNumber: '',
     studentNumber: '',
     yearLevel: 1,
     curriculumId: '',
@@ -50,6 +58,7 @@ const StudentManagement = ({ onBack }) => {
   // Grade management state
   const [studentGrades, setStudentGrades] = useState({});
   const [editingGrades, setEditingGrades] = useState({});
+<<<<<<< HEAD
   const [semesterLoads, setSemesterLoads] = useState({ sem1: [], sem2: [] });
 
   // Dean's list criteria (editable)
@@ -58,6 +67,8 @@ const StudentManagement = ({ onBack }) => {
     gwa: 2.0,
     minUnits: 15
   });
+=======
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
   const [irregularSubjects, setIrregularSubjects] = useState({ sem1: [], sem2: [] });
   const [newIrregularSubject, setNewIrregularSubject] = useState({
     courseCode: '',
@@ -76,6 +87,14 @@ const StudentManagement = ({ onBack }) => {
   // Dropdown state for grid view
   const [openDropdown, setOpenDropdown] = useState(null);
 
+  // Selection state for bulk actions
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [lastSelectedStudentId, setLastSelectedStudentId] = useState(null);
+  const [multiEditOpen, setMultiEditOpen] = useState(false);
+  const [multiDeleteOpen, setMultiDeleteOpen] = useState(false);
+  const [multiEditYear, setMultiEditYear] = useState(1);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
   const handleSort = (column) => {
     if (sortBy === column) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -83,6 +102,69 @@ const StudentManagement = ({ onBack }) => {
       setSortBy(column);
       setSortOrder('asc');
     }
+  };
+
+  // Toggle a single student's selection
+  const toggleSelectId = (id) => {
+    setSelectedIds(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(x => x !== id);
+      }
+      return [...prev, id];
+    });
+  };
+
+  // Batch edit: update year level for selected students
+  const handleMultiEditSave = async () => {
+    if (!currentUser) {
+      setError('Please sign in to update students');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const updates = selectedIds.map(async (id) => {
+        const studentRef = doc(db, 'students', id);
+        await updateDoc(studentRef, { yearLevel: multiEditYear, updatedAt: new Date() });
+      });
+
+      await Promise.all(updates);
+
+      setStudents(prev => prev.map(s => selectedIds.includes(s.id) ? { ...s, yearLevel: multiEditYear } : s));
+      setSuccess('Students updated successfully!');
+      setSelectedIds([]);
+      setMultiEditOpen(false);
+    } catch (err) {
+      setError('Failed to update students: ' + err.message);
+    }
+    setLoading(false);
+  };
+
+  // Batch delete: confirm then delete selected studs
+  const handleConfirmMultiDelete = async () => {
+    if (!currentUser) {
+      setError('Please sign in to delete students');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const deletes = selectedIds.map(async (id) => {
+        await deleteDoc(doc(db, 'students', id));
+      });
+      await Promise.all(deletes);
+
+      setStudents(prev => prev.filter(s => !selectedIds.includes(s.id)));
+      if (selectedIds.includes(selectedStudent?.id)) setSelectedStudent(null);
+      setSuccess('Selected students deleted successfully!');
+      setSelectedIds([]);
+      setMultiDeleteOpen(false);
+    } catch (err) {
+      setError('Failed to delete students: ' + err.message);
+    }
+    setLoading(false);
   };
 
   // Helper: format student number as XXXX-XXXXX, limiting input
@@ -129,21 +211,50 @@ const StudentManagement = ({ onBack }) => {
     setLoading(false);
   }, [currentUser]);
 
+  const loadAllCourses = useCallback(async () => {
+    if (!currentUser) {
+      setError('Please sign in to access course data');
+      return;
+    }
+
+    const result = await getAllCourses();
+    if (result.success) {
+      setAllCourses(result.data);
+    }
+  }, [currentUser]);
+
   useEffect(() => {
     if (currentUser) {
       loadStudents();
       loadCurriculums();
+      loadAllCourses();
     }
-  }, [currentUser, loadStudents, loadCurriculums]);
+  }, [currentUser, loadStudents, loadCurriculums, loadAllCourses]);
 
   useEffect(() => {
     if (selectedStudent) {
       loadStudentCourses(selectedStudent.curriculumId);
       loadStudentGrades(selectedStudent.id);
+<<<<<<< HEAD
       setSemesterLoads(selectedStudent.semesterLoads || { sem1: [], sem2: [] });
+=======
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
       setIrregularSubjects(selectedStudent.irregularSubjects || { sem1: [], sem2: [] });
     }
   }, [selectedStudent]);
+
+  // When returning to the student list, scroll the previously selected student into view
+  useEffect(() => {
+    if (!selectedStudent && lastSelectedStudentId) {
+      // allow DOM to update
+      setTimeout(() => {
+        const el = document.getElementById(`student-row-${lastSelectedStudentId}`);
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 50);
+    }
+  }, [selectedStudent, lastSelectedStudentId, studentListTab, viewMode]);
 
   useEffect(() => {
     if (success) {
@@ -153,6 +264,34 @@ const StudentManagement = ({ onBack }) => {
       return () => clearTimeout(timer);
     }
   }, [success]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 250);
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const handleScrollToTop = () => {
+    // Scroll every likely scroll container to ensure we reach the true page top.
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (document.documentElement) {
+      document.documentElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    if (document.body) {
+      document.body.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const rootElement = document.getElementById('root');
+    if (rootElement && typeof rootElement.scrollTo === 'function') {
+      rootElement.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   const loadStudentCourses = async (curriculumId) => {
     if (!curriculumId) {
@@ -172,18 +311,20 @@ const StudentManagement = ({ onBack }) => {
       return;
     }
     
-    // Validate student number format
+    // Validate student number format only if provided
     const studentNumberPattern = /^\d{4}-\d{5}$/;
-    if (!studentForm.studentNumber || !studentNumberPattern.test(studentForm.studentNumber)) {
+    if (studentForm.studentNumber && !studentNumberPattern.test(studentForm.studentNumber)) {
       setError('Please enter a valid student number in the format XXXX-XXXXX');
       return;
     }
-    
-    // Check for duplicate student number
-    const existingStudent = students.find(student => student.studentNumber === studentForm.studentNumber);
-    if (existingStudent) {
-      setError('A student with this student number already exists');
-      return;
+
+    // Check for duplicate student number only if provided
+    if (studentForm.studentNumber) {
+      const existingStudent = students.find(student => student.studentNumber === studentForm.studentNumber);
+      if (existingStudent) {
+        setError('A student with this student number already exists');
+        return;
+      }
     }
     
     if (!studentForm.isIrregular && !studentForm.curriculumId) {
@@ -200,7 +341,7 @@ const StudentManagement = ({ onBack }) => {
     });
     if (result.success) {
       setSuccess('Student added successfully!');
-      setStudentForm({ name: '', email: '', studentNumber: '', yearLevel: 1, curriculumId: '', isIrregular: false });
+      setStudentForm({ name: '', email: '', contactNumber: '', studentNumber: '', yearLevel: 1, curriculumId: '', isIrregular: false });
       setStudentDialogOpen(false);
       loadStudents();
     } else {
@@ -261,6 +402,7 @@ const StudentManagement = ({ onBack }) => {
       id: student.id,
       name: student.name,
       email: student.email,
+      contactNumber: student.contactNumber || '',
       studentNumber: student.studentNumber,
       yearLevel: student.yearLevel,
       curriculumId: student.curriculumId || '',
@@ -281,18 +423,20 @@ const StudentManagement = ({ onBack }) => {
       return;
     }
     
-    // Validate student number format
+    // Validate student number format only if provided
     const studentNumberPattern = /^\d{4}-\d{5}$/;
-    if (!editingData.studentNumber || !studentNumberPattern.test(editingData.studentNumber)) {
+    if (editingData.studentNumber && !studentNumberPattern.test(editingData.studentNumber)) {
       setError('Please enter a valid student number in the format XXXX-XXXXX');
       return;
     }
-    
-    // Check for duplicate student number (excluding current student)
-    const existingStudent = students.find(student => student.studentNumber === editingData.studentNumber && student.id !== studentId);
-    if (existingStudent) {
-      setError('A student with this student number already exists');
-      return;
+
+    // Check for duplicate student number (excluding current student) only if provided
+    if (editingData.studentNumber) {
+      const existingStudent = students.find(student => student.studentNumber === editingData.studentNumber && student.id !== studentId);
+      if (existingStudent) {
+        setError('A student with this student number already exists');
+        return;
+      }
     }
     
     if (!editingData.isIrregular && !editingData.curriculumId) {
@@ -380,7 +524,7 @@ const StudentManagement = ({ onBack }) => {
 
   const getCurriculumName = (curriculumId) => {
     const curriculum = curriculums.find(c => c.id === curriculumId);
-    return curriculum ? curriculum.name : 'Not Set';
+    return curriculum ? curriculum.name : '';
   };
 
   const isCourseCompleted = (courseCode) => {
@@ -393,6 +537,7 @@ const StudentManagement = ({ onBack }) => {
            (hasGrade && !isFailed && !isIncomplete);
   };
 
+<<<<<<< HEAD
   const getStudentWithContext = () => {
     if (!selectedStudent) return null;
     return {
@@ -419,6 +564,76 @@ const StudentManagement = ({ onBack }) => {
       courses: semesterCourses,
       criteria: deansCriteria
     });
+=======
+  const handleAddIrregularSubject = async (semester) => {
+    if (!selectedStudent) return;
+    if (!newIrregularSubject.courseCode || !newIrregularSubject.courseTitle || !newIrregularSubject.units) {
+      setError('Please fill in course code, title, and units');
+      return;
+    }
+
+    const semKey = `sem${semester}`;
+    const item = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      courseCode: newIrregularSubject.courseCode.trim().toUpperCase(),
+      courseTitle: newIrregularSubject.courseTitle.trim(),
+      units: parseFloat(newIrregularSubject.units) || 0,
+      isMajor: !!newIrregularSubject.isMajor,
+      yearLevel: courseTab + 1
+    };
+
+    const next = {
+      ...irregularSubjects,
+      [semKey]: [...(irregularSubjects[semKey] || []), item]
+    };
+
+    setIrregularSubjects(next);
+    try {
+      await updateDoc(doc(db, 'students', selectedStudent.id), {
+        irregularSubjects: next,
+        updatedAt: new Date()
+      });
+      setSelectedStudent(prev => (prev ? { ...prev, irregularSubjects: next } : prev));
+      setNewIrregularSubject({ courseCode: '', courseTitle: '', units: '', isMajor: false });
+      setSuccess('Subject added to irregular semester load');
+    } catch (err) {
+      setError('Failed to add subject: ' + err.message);
+    }
+  };
+
+  const findCourseByCode = (code) => {
+    const normalized = (code || '').trim().toUpperCase();
+    if (!normalized) return null;
+    return allCourses.find((course) => (course.courseCode || '').toString().trim().toUpperCase() === normalized) || null;
+  };
+
+  const findCourseByTitle = (title) => {
+    const normalized = (title || '').trim().toLowerCase();
+    if (!normalized) return null;
+    return allCourses.find((course) => (course.courseTitle || '').toString().trim().toLowerCase() === normalized) || null;
+  };
+
+  const handleRemoveIrregularSubject = async (semester, subjectId) => {
+    if (!selectedStudent) return;
+    const semKey = `sem${semester}`;
+    const previous = irregularSubjects[semKey] || [];
+    const next = {
+      ...irregularSubjects,
+      [semKey]: previous.filter(s => s.id !== subjectId)
+    };
+    setIrregularSubjects(next);
+    try {
+      await updateDoc(doc(db, 'students', selectedStudent.id), {
+        irregularSubjects: next,
+        updatedAt: new Date()
+      });
+      setSelectedStudent(prev => (prev ? { ...prev, irregularSubjects: next } : prev));
+      setSuccess('Subject removed');
+    } catch (err) {
+      setIrregularSubjects({ ...irregularSubjects, [semKey]: previous });
+      setError('Failed to remove subject: ' + err.message);
+    }
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
   };
 
   // Calculate Dean's Lister eligibility for a semester
@@ -633,80 +848,152 @@ const StudentManagement = ({ onBack }) => {
   const renderStudentList = () => (
     <div>
      
-     <div className='flex-1 items-center  gap-4 mb-4'>
-      <div className=" flex flex-wrap gap-2 border-b border-gray-300">
-  {[1, 2, 3, 4].map((year, idx) => (
-    <button
-      key={year}
-      onClick={() => setStudentListTab(idx + 1)}
-      className={`
-        px-2 py-1 cursor-pointer
-        ${studentListTab === idx + 1
-          ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
-          : 'text-gray-700 border-b-2 border-transparent hover:text-blue-500'
-        }
-      `}
-    >
-      {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year ({getStudentCountByYear(year)})
-    </button>
-  ))}
+     <div className='flex-1 flex justify-between items-center  gap-4 mb-4'>
+      <div className=" flex flex-wrap gap-2  border-gray-300 text-sm">
+        {[1, 2, 3, 4].map((year, idx) => (
+          <button
+            key={year}
+            onClick={() => setStudentListTab(idx + 1)}
+            className={`px-3 py-1  rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
+              ${studentListTab === idx + 1
+                ? 'bg-blue-600 text-white border-blue-700 '
+                : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+              }
+            `}
+          >
+            {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year ({getStudentCountByYear(year)})
+          </button>
+        ))}
 
-  <button
-    onClick={() => setStudentListTab(5)}
-    className={`
-        px-2 py-1 cursor-pointer
-      ${studentListTab === 5
-        ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
-        : 'text-gray-700 border-b-2 border-transparent hover:text-blue-500'
-      }
-    `}
-  >
-    Irregular ({getIrregularStudentCount()})
-  </button>
+        <button
+          onClick={() => setStudentListTab(5)}
+          className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
+              ${studentListTab === 5
+              ? 'bg-blue-600 text-white border-blue-700'
+              : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+            }
+          `}
+        >
+          Irregular ({getIrregularStudentCount()})
+        </button>
+      </div>
+
+
+     <div className="flex items-center gap-4">
+ 
+<div className="relative w-full sm:w-70">
+  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+  
+  <input
+    className="w-full border text-sm border-gray-300 rounded-full pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+    placeholder="Search students name..."
+    value={searchTerm}
+    onChange={(e) => setSearchTerm(e.target.value)}
+  />
 </div>
 
+  {selectedIds.length > 0 && (
+        <div className="flex items-center  gap-2">
+          <div className="text-xs text-gray-700">{selectedIds.length} selected</div>
+          <div className="flex items-center gap">
+            <button
+              onClick={() => {
+                const first = students.find(s => s.id === selectedIds[0]);
+                setMultiEditYear(first ? first.yearLevel : 1);
+                setMultiEditOpen(true);
+              }}
+              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setMultiDeleteOpen(true)}
+              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+            >
+              <Trash className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
+</div>
      </div>
 
-     <div className="flex items-center justify-between gap-4 mb-6">
- 
- <div>
-   <input
-        className="w-full sm:w-90 border border-gray-300 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-        placeholder="Search students name or curriculum..."
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-      />
 
-</div>
-
-    <div className="flex items-center gap-2 ">
     
-      <button
-        onClick={() => setViewMode('grid')}
-        className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
-          viewMode === 'grid'
-            ? 'bg-blue-600 text-white border-blue-600'
-            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-        }`}
-      >
-        <i className="bi bi-grid text-base"></i>
-      </button>
-        <button
-        onClick={() => setViewMode('list')}
-        className={`px-3 py-1.5 rounded-lg border text-sm flex items-center justify-center font-medium ${
-          viewMode === 'list'
-            ? 'bg-blue-600 text-white border-blue-600'
-            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-        }`}
-      >
-            <i className="bi bi-list text-base"></i>
-      </button>
-</div>
+      {/* Multi-edit Year Modal */}
+      {multiEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setMultiEditOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-6">
+            <div className="text-lg mb-2 font-medium">Edit Year Level for Selected Students</div>
+            
+             
 
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+              <select
+                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm cursor-pointer"
+                value={multiEditYear}
+                onChange={(e) => setMultiEditYear(parseInt(e.target.value, 10))}
+              >
+                {[1,2,3,4].map(y => (
+                  <option key={y} value={y}>{y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : '4th'} Year</option>
+                ))}
+              </select>
+            </div>
 
-</div>
+            {/* Info / Warning */}
+              <div className="px-4 py-2 mb-8 text-sm mt-4  text-blue-800 bg-blue-50 border border-blue-200 rounded-lg">
+                Updating the year level will affect all selected students.
+              </div>
 
+            <div className="mt-8 flex justify-end gap-2">
+              <button 
+                onClick={() => setMultiEditOpen(false)} 
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleMultiEditSave} 
+                disabled={loading} 
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Multi-delete Confirmation Modal */}
+      {multiDeleteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setMultiDeleteOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+            <div className="text-xl font-semibold mb-4">Confirm Delete</div>
+            <div className="text-gray-700 mb-8">
+              Are you sure you want to delete the selected students? This action cannot be undone.
+            </div>
+            <div className="flex justify-end gap-2">
+              <button 
+                onClick={() => setMultiDeleteOpen(false)} 
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleConfirmMultiDelete}
+                 disabled={loading} 
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                >
+                  {loading ? 'Deleting...' : 'Delete'}
+                </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="">
         {(() => {
@@ -727,6 +1014,36 @@ const StudentManagement = ({ onBack }) => {
                 getCurriculumName(student.curriculumId).toLowerCase().includes(searchTerm.toLowerCase())
             );
           }
+
+          // Create a sorted copy of filtered students for table display
+          const sortedStudents = filteredStudents.slice().sort((a, b) => {
+            let aValue = '';
+            let bValue = '';
+            switch (sortBy) {
+              case 'studentNumber':
+                aValue = a.studentNumber || '';
+                bValue = b.studentNumber || '';
+                return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+              case 'name':
+                aValue = a.name || '';
+                bValue = b.name || '';
+                return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+              case 'email':
+                aValue = a.email || '';
+                bValue = b.email || '';
+                return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+              case 'contactNumber':
+                aValue = a.contactNumber || '';
+                bValue = b.contactNumber || '';
+                return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+              case 'curriculum':
+                aValue = getCurriculumName(a.curriculumId) || '';
+                bValue = getCurriculumName(b.curriculumId) || '';
+                return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+              default:
+                return 0;
+            }
+          });
 
           if (filteredStudents.length === 0) {
             return (
@@ -762,11 +1079,21 @@ const StudentManagement = ({ onBack }) => {
             return (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredStudents.map((student) => (
-                  <div
-                    key={student.id}
-                    className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md cursor-pointer transition-shadow relative"
-                    onClick={() => handleSelectStudent(student)}
-                  >
+                      <div
+                          id={`student-row-${student.id}`}
+                          key={student.id}
+                          className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm hover:shadow-md cursor-pointer transition-shadow relative"
+                          onClick={() => handleSelectStudent(student)}
+                        >
+                          <div className="absolute top-2 left-2">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4"
+                              checked={selectedIds.includes(student.id)}
+                              onClick={(e) => { e.stopPropagation(); toggleSelectId(student.id); }}
+                              onChange={() => {}}
+                            />
+                          </div>
                     <div className="absolute bottom-2 right-2">
                       <div className="relative">
                         <button
@@ -806,7 +1133,7 @@ const StudentManagement = ({ onBack }) => {
                     </div>
                     <div className="mb-2">
                       <div className="font-semibold text-blue-700 text-lg">{student.name}</div>
-                      <div className="text-sm text-gray-600">{student.studentNumber || 'N/A'}</div>
+                      <div className="text-sm text-gray-600">{student.studentNumber || ''}</div>
                     </div>
                     <div className="text-sm text-gray-700 mb-1">
                       <i className="bi bi-envelope mr-1"></i>{student.email}
@@ -826,69 +1153,115 @@ const StudentManagement = ({ onBack }) => {
           }
 
           return (
-            <div className="border border-gray-200 rounded-xl overflow-hidden">
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
               <table className="min-w-full text-sm">
                 <thead className="bg-blue-700 text-white sticky top-0">
                   <tr>
-                    <th className="p-2 w-[20%] text-left">Student Number</th>
-                    <th className="p-2 w-[20%] text-left">Name</th>
-                    <th className="p-2 w-[20%] text-left">Email</th>
-                    <th className="p-2 w-[10%] text-left">Year Level</th>
-                    <th className="p-2 w-[20%] text-left">Curriculum</th>
-                    <th className="p-2 w-[10%] text-left">Actions</th>
+                    <th className="px-2 py-1 w-[5%] text-left">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={filteredStudents.length > 0 && filteredStudents.every(s => selectedIds.includes(s.id))}
+                        onChange={() => {
+                          if (filteredStudents.length > 0 && filteredStudents.every(s => selectedIds.includes(s.id))) {
+                            setSelectedIds([]);
+                          } else {
+                            setSelectedIds(filteredStudents.map(s => s.id));
+                          }
+                        }}
+                      />
+                    </th>
+                    <th
+                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
+                      onClick={() => handleSort('studentNumber')}
+                    >
+                      Student No. {sortBy === 'studentNumber' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
+                    </th>
+                    <th
+                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
+                      onClick={() => handleSort('name')}
+                    >
+                      Name {sortBy === 'name' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
+                    </th>
+                    <th
+                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
+                      onClick={() => handleSort('email')}
+                    >
+                      Email {sortBy === 'email' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
+                    </th>
+                    <th
+                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
+                      onClick={() => handleSort('contactNumber')}
+                    >
+                      Contact No.
+                    </th>
+                    <th
+                      className="px-2 py-1 w-[15%] text-left cursor-pointer"
+                      onClick={() => handleSort('curriculum')}
+                    >
+                      Curriculum 
+                    </th>
+                    <th className="px-2 py-1 w-[10%] text-left">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredStudents.map((student) => {
+                  {sortedStudents.map((student) => {
                     return (
                       <tr
+                        id={`student-row-${student.id}`}
                         key={student.id}
                         className="border-t border-gray-300 hover:bg-gray-50 cursor-pointer"
                         onClick={() => handleSelectStudent(student)}
                       >
-                        <td className="p-2">
-                          <span className="font-semibold">{student.studentNumber || 'N/A'}</span>
+                        <td className="px-2 py-1">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={selectedIds.includes(student.id)}
+                            onClick={(e) => { e.stopPropagation(); toggleSelectId(student.id); }}
+                            onChange={() => {}}
+                          />
                         </td>
-                        <td className="p-2">
+                        <td className="px-2 py-1">
+                          <span className="font-semibold">{student.studentNumber || ''}</span>
+                        </td>
+                        <td className="px-2 py-1">
                           <span className="font-semibold">{student.name}</span>
                         </td>
-                        <td className="p-2">
+                        <td className="px-2 py-1">
                           <span>{student.email}</span>
                         </td>
-                        <td className="p-2">
-                          <span>
-                            {student.yearLevel === 1
-                              ? '1st'
-                              : student.yearLevel === 2
-                              ? '2nd'
-                              : student.yearLevel === 3
-                              ? '3rd'
-                              : '4th'}{' '}
-                            Year
-                          </span>
+                    
+                        <td className="px-2 py-1">
+                          <span>{student.contactNumber || ''}</span>
                         </td>
+<<<<<<< HEAD
                         <td className="p-2">
                           <span>{student.isIrregular ? 'Manual Subjects' : getCurriculumName(student.curriculumId)}</span>
+=======
+                        <td className="px-2 py-1">
+                          <span>{getCurriculumName(student.curriculumId)}</span>
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
                         </td>
-                        <td className="p-2">
+                        <td className="px-2 py-1">
                           <div className="flex items-center gap-2">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleStartEdit(student);
                               }}
-                              className="px-2 py-1 rounded text-xs font-medium bg-green-600 text-white border border-green-600 hover:bg-green-700"
+                              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                             >
-                              Edit
+                              <Pencil className="w-4 h-4" />
                             </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteStudent(student.id);
                               }}
-                              className="px-2 py-1 rounded text-xs font-medium bg-red-600 text-white border border-red-600 hover:bg-red-700"
+                              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
                             >
-                              Delete
+                              <Trash className="w-4 h-4" />
                             </button>
                           </div>
                         </td>
@@ -916,6 +1289,7 @@ const StudentManagement = ({ onBack }) => {
         <div className="flex flex-col h-full">
           <div className="mb-3 p-3 bg-white rounded-xl shadow-md border border-gray-300">
             <div className="font-semibold mb-2">Irregular Student Subject Loads (Manual per Semester)</div>
+<<<<<<< HEAD
             <div className="text-sm text-gray-600">Add subjects per semester, then encode grades to evaluate dean's list eligibility.</div>
           </div>
 
@@ -1104,19 +1478,144 @@ const StudentManagement = ({ onBack }) => {
                 {scholarshipEligibility.eligible ? `${scholarshipEligibility.percentage}% Scholarship` : 'Not Eligible'}
               </span>
             </div>
+=======
+            <div className="text-sm text-gray-600">Add subjects per semester, then encode grades to evaluate eligibility.</div>
           </div>
-        </div>
 
-        <div className="mb-4 mt-4 flex flex-wrap gap-6 border-b border-gray-300">
+          <div className="mt-2 mb-4 gap-2 flex">
+            {[1, 2, 3, 4].map((year, idx) => (
+              <button
+                key={year}
+                onClick={() => setCourseTab(idx)}
+                className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+
+                  ${courseTab === idx
+                    ? 'bg-blue-600 text-white border-blue-700 scale-105'
+                    : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                  }
+                `}
+              >
+                {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
+              </button>
+            ))}
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
+          </div>
+
+          {[1, 2].map((semester) => {
+            const semKey = `sem${semester}`;
+            const semSubjects = (irregularSubjects[semKey] || []).filter(s => Number(s.yearLevel || currentYear) === currentYear);
+            return (
+              <div key={semester} className="mb-4 border border-gray-300 rounded-xl overflow-hidden bg-white">
+                <div className="px-4 py-2 bg-blue-700 text-white font-semibold">{semester === 1 ? '1st' : '2nd'} Semester</div>
+                <div className="p-3 border-b border-gray-200">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+                    <input
+                      className="border border-gray-300 rounded px-2 py-1"
+                      placeholder="Course Code"
+                      list="irregular-course-codes"
+                      value={newIrregularSubject.courseCode}
+                      onChange={(e) => {
+                        const nextCode = e.target.value;
+                        const match = findCourseByCode(nextCode);
+                        setNewIrregularSubject(prev => ({
+                          ...prev,
+                          courseCode: nextCode,
+                          courseTitle: match ? match.courseTitle || prev.courseTitle : prev.courseTitle,
+                          units: match ? String(match.units ?? prev.units ?? '') : prev.units,
+                          isMajor: match ? !!match.isMajor : prev.isMajor
+                        }));
+                      }}
+                    />
+                    <input
+                      className="border border-gray-300 rounded px-2 py-1 md:col-span-2"
+                      placeholder="Course Title"
+                      list="irregular-course-titles"
+                      value={newIrregularSubject.courseTitle}
+                      onChange={(e) => {
+                        const nextTitle = e.target.value;
+                        const match = findCourseByTitle(nextTitle);
+                        setNewIrregularSubject(prev => ({
+                          ...prev,
+                          courseTitle: nextTitle,
+                          courseCode: match ? match.courseCode || prev.courseCode : prev.courseCode,
+                          units: match ? String(match.units ?? prev.units ?? '') : prev.units,
+                          isMajor: match ? !!match.isMajor : prev.isMajor
+                        }));
+                      }}
+                    />
+                    <input type="number" min="0" step="0.01" className="border border-gray-300 rounded px-2 py-1" placeholder="Units" value={newIrregularSubject.units} onChange={(e) => setNewIrregularSubject(prev => ({ ...prev, units: e.target.value }))} />
+                    <button className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700" onClick={() => handleAddIrregularSubject(semester)}>Add Subject</button>
+                  </div>
+                  <datalist id="irregular-course-codes">
+                    {Array.from(new Set(allCourses.map(course => (course.courseCode || '').toString().trim()).filter(Boolean)))
+                      .map((code) => (
+                        <option key={code} value={code} />
+                      ))}
+                  </datalist>
+                  <datalist id="irregular-course-titles">
+                    {Array.from(new Set(allCourses.map(course => (course.courseTitle || '').toString().trim()).filter(Boolean)))
+                      .map((title) => (
+                        <option key={title} value={title} />
+                      ))}
+                  </datalist>
+                </div>
+
+                <table className="min-w-full text-sm">
+                  <thead className="bg-blue-50">
+                    <tr>
+                      <th className="p-2 text-left">Code</th>
+                      <th className="p-2 text-left">Title</th>
+                      <th className="p-2 text-left">Units</th>
+                      <th className="p-2 text-left">Grade</th>
+                      <th className="p-2 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {semSubjects.length === 0 ? (
+                      <tr>
+                        <td className="p-3 text-gray-500" colSpan={5}>No subjects added for this semester and year.</td>
+                      </tr>
+                    ) : semSubjects.map((subject) => (
+                      <tr key={subject.id} className="border-t border-gray-200">
+                        <td className="p-2 font-semibold text-blue-700">{subject.courseCode}</td>
+                        <td className="p-2">{subject.courseTitle}</td>
+                        <td className="p-2">{subject.units}</td>
+                        <td className="p-2">
+                          <select className="border border-gray-300 rounded px-2 py-1 text-sm" value={editingGrades[subject.courseCode] || ''} onChange={(e) => handleGradeChange(subject.courseCode, e.target.value)}>
+                            <option value="" disabled>Select Grade</option>
+                            {["1.0","1.1","1.2","1.3","1.4","1.5","1.6","1.7","1.8","1.9","2.0","2.1","2.2","2.3","2.4","2.5","2.6","2.7","2.8","2.9","3.0","5.0","INC","CRED",""]
+                              .map((g, idx) => <option key={idx} value={g}>{g === '' ? 'No Grade' : g}</option>)}
+                          </select>
+                        </td>
+                        <td className="p-2">
+                          <button className="px-2 py-1 rounded text-xs bg-red-600 text-white hover:bg-red-700" onClick={() => handleRemoveIrregularSubject(semester, subject.id)}>
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    return (
+        <div className="flex flex-col h-full">
+
+        <div className="mt-2 mb-4 gap-2 flex">
           {[1, 2, 3, 4].map((year, idx) => (
             <button
               key={year}
               onClick={() => setCourseTab(idx)}
-              className={`
-                px-2 py-0.5 cursor-pointer
+              className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+
                 ${courseTab === idx
-                  ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
-                  : 'text-gray-700 border-b-2 border-transparent hover:text-blue-500'
+                  ? 'bg-blue-600 text-white border-blue-700 scale-105'
+                    : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
                 }
               `}
             >
@@ -1132,22 +1631,27 @@ const StudentManagement = ({ onBack }) => {
               <div className="text-lg font-semibold text-blue-700 mb-2">
                 {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
               </div>
-             <div className="border border-gray-300 rounded-xl overflow-hidden">
+             <div className="border border-gray-300 rounded-lg overflow-hidden">
   <table className="min-w-full text-sm">
     <thead className="bg-blue-700 text-white">
       <tr>
-        <th className="p-2 w-[12%] text-left cursor-pointer" onClick={() => handleSort('courseCode')}>
-          Course Code {sortBy === 'courseCode' && (sortOrder === 'asc' ? '↑' : '↓')}
+        <th className="px-2 py-1.5 w-[12%] text-left cursor-pointer" onClick={() => handleSort('courseCode')}>
+          Course Code {sortBy === 'courseCode' && (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />)}
         </th>
-        <th className="p-2 w-[35%] text-left cursor-pointer" onClick={() => handleSort('courseTitle')}>
+        <th className="px-2 py-1.5 w-[35%] text-left cursor-pointer" onClick={() => handleSort('courseTitle')}>
           Course Title {sortBy === 'courseTitle' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
-        <th className="p-2 w-[8%] text-left cursor-pointer" onClick={() => handleSort('units')}>
-          Units {sortBy === 'units' && (sortOrder === 'asc' ? '↑' : '↓')}
+          <th className="px-2 py-1.5 w-[8%] text-center cursor-pointer" onClick={() => handleSort('units')}>
+            Units {sortBy === 'units' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
+<<<<<<< HEAD
         <th className="p-2 w-[20%] text-left">Prerequisites</th>
         <th className="p-2 w-[12%] text-center">Taking This Sem</th>
         <th className="p-2 w-[10%] text-left">Grade</th>
+=======
+        <th className="px-2 py-1.5 w-[20%] text-left">Prerequisites</th>
+        <th className="px-2 py-1.5 w-[10%] text-left">Grade</th>
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
       </tr>
     </thead>
 
@@ -1175,14 +1679,14 @@ const StudentManagement = ({ onBack }) => {
         })
         .map((course) => (
           <tr key={course.id} className="border-t border-gray-300 hover:bg-gray-50">
-            <td className="p-2">
+            <td className="px-2 py-1.5">
               <span className="font-semibold text-blue-700">{course.courseCode}</span>
             </td>
-            <td className="p-2">
+            <td className="px-2 py-1.5">
               <span>{course.courseTitle}</span>
             </td>
-            <td className="p-2">{course.units}</td>
-            <td className="p-2">
+            <td className="px-2 py-1.5 text-center">{course.units}</td>
+            <td className="px-2 py-1.5">
               {course.prerequisites.length > 0 ? (
                 <div className="flex flex-wrap gap-1">
                   {course.prerequisites.slice(0, 2).map((prereq) => (
@@ -1209,6 +1713,7 @@ const StudentManagement = ({ onBack }) => {
               )}
             </td>
 
+<<<<<<< HEAD
             <td className="p-2 text-center">
               <input
                 type="checkbox"
@@ -1220,6 +1725,9 @@ const StudentManagement = ({ onBack }) => {
             </td>
 
             <td className="p-2">
+=======
+            <td className="px-2 py-1.5">
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
               <select
                 className="border border-gray-300 rounded px-2 py-1 text-sm"
                 value={editingGrades[course.courseCode] || ''}
@@ -1281,57 +1789,154 @@ const StudentManagement = ({ onBack }) => {
     );
   };
 
+  // Header summary values (displayed inside the Selected Student header)
+  const headerYear = courseTab + 1;
+  const headerScholarshipEligibility = calculateScholarshipEligibility(headerYear);
+
   return (
-    <div className="">
-      <div className=" bg-white text-black p-6 rounded-2xl mb-10 flex items-center justify-between border border-gray-300 shadow-lg">
-        <div className="flex items-center gap-6">
-          <button
-            onClick={selectedStudent ? () => { 
-              setSelectedStudent(null); 
-              setStudentListTab(selectedStudent.isIrregular ? 5 : selectedStudent.yearLevel); 
-            } : onBack}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
-            aria-label="Back"
-          >
-            <span className="hidden sm:inline text-sm font-medium">Back</span>
-          </button>
+    <div id="student-management-root" className="">
+      <div className="bg-white text-black p-6 rounded-2xl mb-6 flex items-center justify-between border border-gray-300 shadow-lg">
+  
+  {/* LEFT SIDE */}
+  <div id="back-button-container" className="flex items-center gap-6">
+    <button
+      onClick={
+        selectedStudent
+          ? () => {
+              setSelectedStudent(null);
+              setStudentListTab(
+                selectedStudent.isIrregular ? 5 : selectedStudent.yearLevel
+              );
+            }
+          : onBack
+      }
+            className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+      aria-label="Back"
+    >
+            <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+    </button>
+
+    <div>
+      {selectedStudent ? (
+        <div className="flex  gap-40">
           <div>
-            {selectedStudent ? (
-              <>
-                <div className="text-2xl font-bold text-blue-600">Selected Student</div>
-                <div className="text-gray-600">{selectedStudent.name}</div>
-                <div className="text-gray-600">
-                  {selectedStudent.yearLevel === 1 ? '1st' : selectedStudent.yearLevel === 2 ? '2nd' : selectedStudent.yearLevel === 3 ? '3rd' : '4th'} Year{selectedStudent.isIrregular ? ' - Irregular' : ''} Student
+          
+            <div className="text-blue-600 font-medilum text-xl">{selectedStudent.name}</div>
+            <div className="text-gray-600">
+              {selectedStudent.yearLevel === 1
+                ? "1st"
+                : selectedStudent.yearLevel === 2
+                ? "2nd"
+                : selectedStudent.yearLevel === 3
+                ? "3rd"
+                : "4th"}{" "}
+              Year
+              {selectedStudent.isIrregular ? " - Irregular" : ""} Student
+            </div>
+          </div>
+
+          {/* Academic Eligibility Summary */}
+          <div>
+            <div className="font-semibold uppercase text-sm text-gray-800">
+              Academic Eligibility Summary
+            </div>
+
+            <div className="flex gap-6 flex-wrap">
+              {/* 1st Sem */}
+              <div>
+                <div className="text-xs text-gray-600">
+                  1st Semester Dean's Lister:
                 </div>
-              </>
-            ) : (
-              <>
-                <div className="text-2xl font-bold text-blue-600 mb-2">Student Management</div>
-                <div className="text-gray-600">Manage students and track their curriculum progress</div>
-              </>
-            )}
+                <span
+                  className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
+                    calculateDeansListerEligibility(1, headerYear)
+                      ? "bg-green-50 border-green-200 text-green-700"
+                      : "bg-gray-50 border-gray-200 text-gray-700"
+                  }`}
+                >
+                  {calculateDeansListerEligibility(1, headerYear)
+                    ? "Eligible"
+                    : "Not Eligible"}
+                </span>
+              </div>
+
+              {/* 2nd Sem */}
+              <div>
+                <div className="text-xs text-gray-600">
+                  2nd Semester Dean's Lister:
+                </div>
+                <span
+                  className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
+                    calculateDeansListerEligibility(2, headerYear)
+                      ? "bg-green-50 border-green-200 text-green-700"
+                      : "bg-gray-50 border-gray-200 text-gray-700"
+                  }`}
+                >
+                  {calculateDeansListerEligibility(2, headerYear)
+                    ? "Eligible"
+                    : "Not Eligible"}
+                </span>
+              </div>
+
+              {/* Scholarship */}
+              <div>
+                <div className="text-xs text-gray-600">
+                  Scholarship Eligibility:
+                </div>
+                <span
+                  className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs border ${
+                    headerScholarshipEligibility.eligible
+                      ? "bg-blue-50 border-blue-200 text-blue-700"
+                      : "bg-gray-50 border-gray-200 text-gray-700"
+                  }`}
+                >
+                  {headerScholarshipEligibility.eligible
+                    ? `${headerScholarshipEligibility.percentage}% Scholarship`
+                    : "Not Eligible"}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
-        {!selectedStudent && (
-          <button
-            onClick={() => {
-              setStudentForm({
-                name: '',
-                email: '',
-                studentNumber: '',
-                yearLevel: studentListTab === 0 ? 1 : studentListTab === 5 ? 1 : studentListTab,
-                curriculumId: '',
-                isIrregular: studentListTab === 5,
-              });
-              setStudentDialogOpen(true);
-            }}
-            className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-          >
-            <i className="bi bi-plus-lg"></i>
-            <span>Add Student</span>
-          </button>
-        )}
-      </div>
+      ) : (
+        <>
+          <div className="text-2xl font-bold text-blue-600">
+            Student Management
+          </div>
+          <div className="text-gray-600">
+            Manage students and track their curriculum progress
+          </div>
+        </>
+      )}
+    </div>
+  </div>
+
+  {/* RIGHT SIDE */}
+  {!selectedStudent && (
+    <button
+      onClick={() => {
+        setStudentForm({
+          name: "",
+          email: "",
+          studentNumber: "",
+          yearLevel:
+            studentListTab === 0
+              ? 1
+              : studentListTab === 5
+              ? 1
+              : studentListTab,
+          curriculumId: "",
+          isIrregular: studentListTab === 5,
+        });
+        setStudentDialogOpen(true);
+      }}
+      className="inline-flex items-center text-sm gap-2 cursor-pointer bg-green-600 text-white px-3 py-2 rounded-full hover:bg-green-700"
+    >
+      <BadgePlus className="w-4 h-4" />
+      <span>Add Student</span>
+    </button>
+  )}
+</div>
 
       {!currentUser && (
         <div className="mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-4 py-2">
@@ -1367,7 +1972,7 @@ const StudentManagement = ({ onBack }) => {
       {/* Edit Student Modal */}
       {editingDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setEditingDialogOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setEditingDialogOpen(false)}></div>
           <div className="relative z-10 w-full max-w-lg border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Edit Student</div>
            
@@ -1378,7 +1983,7 @@ const StudentManagement = ({ onBack }) => {
                   type="text"
                   inputMode="numeric"
                   maxLength={10}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   placeholder="Enter student number (e.g., 2024-00001)"
                   value={editingData.studentNumber || ''}
                   onChange={(e) => setEditingData({ ...editingData, studentNumber: formatStudentNumber(e.target.value) })}
@@ -1389,7 +1994,7 @@ const StudentManagement = ({ onBack }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Student Name</label>
                 <input
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   placeholder="Last Name, First Name, Middle Name"
                   value={editingData.name}
                   onChange={(e) => setEditingData({ ...editingData, name: e.target.value })}
@@ -1399,16 +2004,42 @@ const StudentManagement = ({ onBack }) => {
                 <label className="block text-sm text-gray-600 mb-1">Email</label>
                 <input
                   type="email"
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   placeholder="name@example.com"
                   value={editingData.email || ''}
                   onChange={(e) => setEditingData({ ...editingData, email: e.target.value })}
                 />
               </div>
               <div>
+                <label className="block text-sm text-gray-600 mb-1">Contact Number</label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+                  placeholder="Enter contact number"
+                  value={editingData.contactNumber || ''}
+                  onChange ={(e) => {
+                    let input = e.target.value.replace(/\D/g, ''); // remove non-numeric characters
+
+                    // Handle international format starting with 63
+                    if (input.startsWith('63')) {
+                      input = '+' + input;
+                    } else if (input.startsWith('0')) {
+                      input = input; // local format
+                    }
+                    // Format local numbers as 0917 123 4567
+                    if (input.startsWith('0') && input.length > 4) {
+                      input = input.replace(/(\d{4})(\d{3})(\d{4})/, '$1 $2 $3');
+                    } else if (input.startsWith('+63') && input.length > 5) {
+                      input = input.replace(/(\+\d{2})(\d{4})(\d{3})(\d{4})/, '$1 $2 $3 $4');
+                    }
+                    setEditingData({ ...editingData, contactNumber: input });
+                  }}
+                />
+              </div>
+              <div>
                 <label className="block text-sm text-gray-600 mb-1">Year Level</label>
                 <select
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   value={editingData.yearLevel}
                   onChange={(e) => setEditingData({ ...editingData, yearLevel: parseInt(e.target.value, 10) })}
                 >
@@ -1422,7 +2053,7 @@ const StudentManagement = ({ onBack }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Curriculum</label>
                 <select
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   value={editingData.curriculumId}
                   onChange={(e) => setEditingData({ ...editingData, curriculumId: e.target.value })}
                   disabled={editingData.isIrregular}
@@ -1448,14 +2079,19 @@ const StudentManagement = ({ onBack }) => {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={handleCancelEdit}
-                className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100"
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleSaveEdit(editingData.id)}
+<<<<<<< HEAD
                 disabled={loading || !editingData.name || !editingData.email || !editingData.studentNumber || (!editingData.isIrregular && !editingData.curriculumId)}
                 className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+=======
+                disabled={loading || !editingData.name}
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
               >
                 Save Changes
               </button>
@@ -1466,7 +2102,7 @@ const StudentManagement = ({ onBack }) => {
       {/* Add Student Modal */}
       {studentDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setStudentDialogOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setStudentDialogOpen(false)}></div>
           <div className="relative z-10 w-full max-w-lg border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className="text-xl font-semibold mb-4">{studentForm.isIrregular ? 'Add New Irregular Student' : 'Add New Student'}</div>
            
@@ -1477,8 +2113,8 @@ const StudentManagement = ({ onBack }) => {
                   type="text"
                   inputMode="numeric"
                   maxLength={10}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
-                  placeholder="Enter student number (e.g., 2024-00001)"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
+                  placeholder="(e.g., 2024-00001)"
                   value={studentForm.studentNumber || ''}
                   onChange={(e) => setStudentForm({ ...studentForm, studentNumber: formatStudentNumber(e.target.value) })}
                   pattern="^\\d{4}-\\d{5}$"
@@ -1488,17 +2124,65 @@ const StudentManagement = ({ onBack }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Student Name</label>
                 <input
-                  className="w-full border border-gray-300 rounded px-3 py-2"
-                              placeholder="Last Name, First Name, Middle Name"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
+                  placeholder="Last Name, First Name, Middle Name"
                   value={studentForm.name}
                   onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
+                  required
                 />
               </div>
+             <div>
+              <label className="block text-sm text-gray-600 mb-1">Contact Number</label>
+              <input
+                type="tel"
+                className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
+                placeholder="(eg. 0917 123 4567)"
+                value={studentForm.contactNumber || ''}
+                onChange={(e) => {
+                  let input = e.target.value.replace(/\D/g, ''); // remove non-numeric characters
+
+                  // Handle international format starting with 63
+                  if (input.startsWith('63')) {
+                    input = '+' + input;
+                  } else if (input.startsWith('0')) {
+                    input = input; // local format
+                  }
+
+                  // Format local numbers as 0917 123 4567
+                  if (input.startsWith('0')) {
+                    if (input.length > 4 && input.length <= 7) {
+                      input = input.slice(0, 4) + ' ' + input.slice(4);
+                    } else if (input.length > 7) {
+                      input = input.slice(0, 4) + ' ' + input.slice(4, 7) + ' ' + input.slice(7, 11);
+                    }
+                  }
+
+                  // Format international +63 numbers as +63 917 123 4567
+                  if (input.startsWith('+63')) {
+                    let withoutPrefix = input.slice(3); // remove +63
+                    if (withoutPrefix.length > 3 && withoutPrefix.length <= 6) {
+                      withoutPrefix = withoutPrefix.slice(0, 3) + ' ' + withoutPrefix.slice(3);
+                    } else if (withoutPrefix.length > 6) {
+                      withoutPrefix =
+                        withoutPrefix.slice(0, 3) +
+                        ' ' +
+                        withoutPrefix.slice(3, 6) +
+                        ' ' +
+                        withoutPrefix.slice(6, 10);
+                    }
+                    input = '+63 ' + withoutPrefix;
+                  }
+
+                  setStudentForm({ ...studentForm, contactNumber: input });
+                }}
+              />
+            </div>
+                  
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Email</label>
                 <input
                   type="email"
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
                   placeholder="name@example.com"
                   value={studentForm.email || ''}
                   onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
@@ -1507,7 +2191,7 @@ const StudentManagement = ({ onBack }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Year Level</label>
                 <select
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
                   value={studentForm.yearLevel}
                   onChange={(e) => setStudentForm({ ...studentForm, yearLevel: parseInt(e.target.value, 10) })}
                 >
@@ -1521,7 +2205,7 @@ const StudentManagement = ({ onBack }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Curriculum</label>
                 <select
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
                   value={studentForm.curriculumId}
                   onChange={(e) => setStudentForm({ ...studentForm, curriculumId: e.target.value })}
                   disabled={studentForm.isIrregular}
@@ -1547,14 +2231,19 @@ const StudentManagement = ({ onBack }) => {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={() => setStudentDialogOpen(false)}
-                className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100"
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddStudent}
+<<<<<<< HEAD
                 disabled={loading || !studentForm.name || !studentForm.studentNumber || (!studentForm.isIrregular && !studentForm.curriculumId)}
                 className="px-4 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+=======
+                disabled={loading || !studentForm.name}
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+>>>>>>> ac98f3daa47094dbd423acea372c3dfcf4ab05e5
               >
                 Add Student
               </button>
@@ -1565,10 +2254,10 @@ const StudentManagement = ({ onBack }) => {
       {/* Delete Confirmation Modal */}
       {deleteDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setDeleteDialogOpen(false)}></div>
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setDeleteDialogOpen(false)}></div>
           <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Confirm Delete</div>
-            <div className="text-gray-700 mb-6">
+            <div className="text-gray-700 mb-8">
               Are you sure you want to delete this student? This action cannot be undone.
             </div>
             <div className="flex justify-end gap-2">
@@ -1577,20 +2266,32 @@ const StudentManagement = ({ onBack }) => {
                   setDeleteDialogOpen(false);
                   setStudentToDelete(null);
                 }}
-                className="px-4 py-1.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100"
+                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDelete}
                 disabled={loading}
-                className="px-4 py-1.5 rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 {loading ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={handleScrollToTop}
+          className="fixed bottom-6 right-6 z-40 rounded-full bg-blue-600 text-white p-3 shadow-lg cursor-pointer hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+          aria-label="Scroll to top"
+          title="Scroll to top"
+        >
+          <ChevronUp className="w-5 h-5" />
+        </button>
       )}
     </div>
   );
