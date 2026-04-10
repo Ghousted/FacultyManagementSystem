@@ -28,7 +28,7 @@ const Modal = ({ open, onClose, children }) => {
       />
       <div
         ref={modalRef}
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-auto z-10 overflow-hidden modal-dialog"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-auto z-10 overflow-hidden modal-dialog"
         role="dialog"
         aria-modal="true"
         tabIndex="-1"
@@ -55,6 +55,7 @@ const ReceiptLayout = ({ label, receiptData }) => {
     balance,
     mode,
     reference,
+    items,
     otherPayables,
     totalOtherBalance,
     receivedBy,
@@ -86,6 +87,46 @@ const ReceiptLayout = ({ label, receiptData }) => {
     ? Math.max(0, toNumber(balance))
     : Math.max(0, priceNum - totalPaidNum);
 
+  const receiptItems = Array.isArray(items) && items.length > 0
+    ? items.map((item, idx) => {
+        const rowPrice = toNumber(item?.price);
+        const rowPayment = toNumber(item?.payment ?? item?.amount);
+        const rowVoucherAmount = Math.max(0, toNumber(item?.voucherAmount));
+        const rowVoucherDescription = String(item?.voucherDescription || '').trim();
+        const rowPreviousBalance = typeof item?.previousBalance !== 'undefined'
+          ? Math.max(0, toNumber(item.previousBalance))
+          : Math.max(0, rowPrice - toNumber(item?.previousPaid));
+        const rowCurrentBalance = typeof item?.balance !== 'undefined'
+          ? Math.max(0, toNumber(item.balance))
+          : Math.max(0, rowPrice - (toNumber(item?.previousPaid) + rowPayment));
+        return {
+          key: item?.payableId || item?.id || `${idx}-${item?.description || 'item'}`,
+          description: item?.description || 'Payment',
+          price: rowPrice,
+          previousBalance: rowPreviousBalance,
+          payment: rowPayment,
+          balance: rowCurrentBalance,
+          voucherAmount: rowVoucherAmount,
+          voucherDescription: rowVoucherDescription,
+        };
+      })
+    : [{
+        key: 'default-item',
+        description: description || 'Payment',
+        price: priceNum,
+        previousBalance: previousBalanceNum,
+        payment: paymentAmountNum,
+        balance: updatedBalanceNum,
+        voucherAmount: Math.max(0, toNumber(receiptData?.voucherAmount)),
+        voucherDescription: String(receiptData?.voucherDescription || '').trim(),
+      }];
+
+  const totalPriceNum = receiptItems.reduce((sum, item) => sum + item.price, 0);
+  const totalPreviousBalanceNum = receiptItems.reduce((sum, item) => sum + item.previousBalance, 0);
+  const totalPaymentAmountNum = receiptItems.reduce((sum, item) => sum + item.payment, 0);
+  const totalCurrentBalanceNum = receiptItems.reduce((sum, item) => sum + item.balance, 0);
+  const totalVoucherAmountNum = receiptItems.reduce((sum, item) => sum + item.voucherAmount, 0);
+
   const modeNormalized = String(mode || '').trim().toLowerCase();
   const isCash = modeNormalized === 'cash';
   const isGCash = modeNormalized === 'gcash';
@@ -95,13 +136,13 @@ const ReceiptLayout = ({ label, receiptData }) => {
   const otherBalanceTotalNum = toNumber(totalOtherBalance);
 
   return (
-    <div className="p-3 border border-slate-300 bg-white text-[11px] relative receipt-copy rounded-xl shadow-sm">
+    <div className="p-4 border border-slate-300 bg-white text-[11px] relative receipt-copy rounded-xl shadow-sm">
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden="true">
         <img
           src={Logo}
           alt=""
           className="opacity-[0.08]"
-          style={{ width: '35%', height: 'auto' }}
+          style={{ width: '60%', height: 'auto' }}
         />
       </div>
 
@@ -130,7 +171,7 @@ const ReceiptLayout = ({ label, receiptData }) => {
         </div>
 
         {/* Student Info Section */}
-        <div className="grid grid-cols-3 pt-2  border-b border-slate-300 ">
+        <div className="grid grid-cols-3 pt-1  border-b border-slate-300 ">
           <div className="col-span-2 flex gap-2">
             <span className="text-xs uppercase tracking-wider text-slate-700 font-semibold min-w-fit">Name:</span>
             <span className="text-xs uppercase font-semibold text-slate-900 flex-1 wrap-break-word">
@@ -145,7 +186,7 @@ const ReceiptLayout = ({ label, receiptData }) => {
           </div>
         </div>
 
-        <div className="border border-slate-200 rounded-sm overflow-hidden my-6">
+        <div className="border border-slate-200 rounded-sm overflow-hidden my-2.5">
           <table className="w-full text-[9px]">
             <thead className="bg-slate-100">
               <tr>
@@ -157,16 +198,37 @@ const ReceiptLayout = ({ label, receiptData }) => {
               </tr>
             </thead>
             <tbody>
-              <tr className="border-t border-slate-200">
-                <td className="px-2 py-1.5 text-slate-800 text-xs">{description}</td>
-                <td className="px-2 py-1.5 text-right text-slate-900 font-semibold text-xs">{formatPhp(priceNum)}</td>
-                <td className="px-2 py-1.5 text-right text-slate-700 font-semibold text-xs">{formatPhp(previousBalanceNum)}</td>
-                <td className="px-2 py-1.5 text-right text-emerald-700 font-semibold text-xs">{formatPhp(paymentAmountNum)}</td>
-                <td className="px-2 py-1.5 text-right text-slate-900 font-bold text-xs">{formatPhp(updatedBalanceNum)}</td>
-              </tr>
+              {receiptItems.map((item) => (
+                <tr key={item.key} className="border-t border-slate-200">
+                  <td className="px-2 py-1.5 text-slate-800 text-xs">{item.description}</td>
+                  <td className="px-2 py-1.5 text-right text-slate-900 font-semibold text-xs">{formatPhp(item.price)}</td>
+                  <td className="px-2 py-1.5 text-right text-slate-700 font-semibold text-xs">{formatPhp(item.previousBalance)}</td>
+                  <td className="px-2 py-1.5 text-right text-emerald-700 font-semibold text-xs">{formatPhp(item.payment)}</td>
+                  <td className="px-2 py-1.5 text-right text-slate-900 font-bold text-xs">{formatPhp(item.balance)}</td>
+                </tr>
+              ))}
+              {receiptItems.length > 1 && (
+                <tr className="border-t border-slate-300 bg-slate-50">
+                  <td className="px-2 py-1.5 text-slate-800 font-bold text-xs">TOTAL</td>
+                  <td className="px-2 py-1.5 text-right text-slate-900 font-bold text-xs">{formatPhp(totalPriceNum)}</td>
+                  <td className="px-2 py-1.5 text-right text-slate-700 font-bold text-xs">{formatPhp(totalPreviousBalanceNum)}</td>
+                  <td className="px-2 py-1.5 text-right text-emerald-700 font-bold text-xs">{formatPhp(totalPaymentAmountNum)}</td>
+                  <td className="px-2 py-1.5 text-right text-slate-900 font-bold text-xs">{formatPhp(totalCurrentBalanceNum)}</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
+
+        {totalVoucherAmountNum > 0 && (
+           
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <p className="text-slate-700 truncate">
+                Total voucher applied
+              </p>
+              <p className="font-semibold text-emerald-700">-{formatPhp(totalVoucherAmountNum)}</p>
+            </div>
+        )}
  
 
         <div className="border border-slate-200 rounded-sm overflow-hidden">
@@ -221,7 +283,7 @@ const ReceiptLayout = ({ label, receiptData }) => {
 
         <div className='flex items-start justify-between'>
           {/* Mode of Payment Section */}
-        <div className="space-y-1 mt-6">
+        <div className="space-y-1 ">
           <div className='flex items-center gap-2'>
             <p className="text-xs tracking-wider text-slate-600 font-semibold">Mode of Payment:</p>
           <div className="flex flex-wrap gap-3 items-center">
@@ -264,7 +326,7 @@ const ReceiptLayout = ({ label, receiptData }) => {
         {/* Signature Section */}
         <div className="">
           <div className="w-46 text-center">
-            <div className="h-8 border-b border-slate-400 mb-1" />
+            <div className="h-4 border-b border-slate-400 mb-1" />
             <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Received By</p>
           </div>
         </div>
@@ -305,7 +367,7 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="p-4 max-h-[90vh] overflow-y-auto bg-linear-to-b from-slate-50 to-white receipt-modal-content">
+      <div className="p-4 max-h-[60vh] overflow-y-auto bg-linear-to-b from-slate-50 to-white receipt-modal-content">
         <style>{`
           .receipt-preview-stack {
             width: 100%;
@@ -324,8 +386,8 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
 
           @media print {
             @page { 
-              size: A5 portrait;
-              margin: 0.22in;
+              size: auto;
+              margin: 10mm;
             }
             body {
               -webkit-print-color-adjust: exact;
@@ -363,38 +425,39 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
               background: #fff !important;
             }
             #receipt-preview {
-              display: flex !important;
-              flex-direction: column !important;
-              align-items: center !important;
-              justify-content: space-between !important;
+              display: block !important;
               padding: 0 !important;
-              gap: 0 !important;
               margin: 0 auto !important;
               width: 100% !important;
-              max-width: 5.43in !important;
+              max-width: 100% !important;
               height: auto !important;
-              min-height: calc(8.27in - 0.44in) !important;
+              min-height: auto !important;
               break-before: auto !important;
               page-break-before: auto !important;
             }
             .receipt-copy {
               break-inside: avoid;
               page-break-inside: avoid;
-              page-break-after: avoid;
+              page-break-after: always;
+              break-after: page;
               box-shadow: none !important;
               border: 1px solid #cbd5e1 !important;
               border-radius: 0 !important;
-              padding: 0.09in !important;
+              padding: 4mm !important;
               width: 100% !important;
               max-width: 100% !important;
-              min-height: 3.2in !important;
-              height: 3.2in !important;
+              min-height: auto !important;
+              height: auto !important;
               flex: 0 0 auto !important;
               aspect-ratio: auto !important;
               overflow: hidden !important;
               font-size: 9px !important;
               line-height: 1.15 !important;
               margin: 0 !important;
+            }
+            .receipt-copy:last-child {
+              page-break-after: auto;
+              break-after: auto;
             }
             .receipt-copy .text-\[8px\] { font-size: 7px !important; }
             .receipt-copy .text-\[9px\] { font-size: 7.5px !important; }

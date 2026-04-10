@@ -65,6 +65,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   // Per-payable payment mode and reference (not yet persisted)
   const [stagedPaymentModes, setStagedPaymentModes] = useState({}); // { payableId: 'cash'|'gcash'|'bank' }
   const [stagedPaymentReferences, setStagedPaymentReferences] = useState({}); // { payableId: reference }
+  const [stagedVouchers, setStagedVouchers] = useState({}); // { payableId: { enabled, amount, description } }
   
   // Individual student payable states
   const [individualPayableDialogOpen, setIndividualPayableDialogOpen] = useState(false);
@@ -397,6 +398,28 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     setLoading(false);
   };
 
+  const getVoucherData = useCallback((payable, studentId) => {
+    if (!payable || !studentId) {
+      return { enabled: false, amount: 0, description: '' };
+    }
+
+    const studentPayment = payable.studentPayments?.[studentId] || {};
+    const persistedAmount = Math.max(0, Number(studentPayment.voucherAmount || 0));
+    const persistedDescription = (studentPayment.voucherDescription || '').toString();
+    const staged = stagedVouchers?.[payable.id];
+
+    const hasStagedAmount = !!staged && Object.prototype.hasOwnProperty.call(staged, 'amount');
+    const hasStagedDescription = !!staged && Object.prototype.hasOwnProperty.call(staged, 'description');
+    const enabled = typeof staged?.enabled === 'boolean' ? staged.enabled : persistedAmount > 0;
+
+    const rawAmount = hasStagedAmount ? staged.amount : (persistedAmount > 0 ? String(persistedAmount) : '');
+    const parsedAmount = enabled ? Math.max(0, Number(rawAmount || 0)) : 0;
+    const amount = Math.min(parsedAmount, Math.max(0, Number(payable.amount || 0)));
+    const description = hasStagedDescription ? (staged.description || '') : persistedDescription;
+
+    return { enabled, amount, description };
+  }, [stagedVouchers]);
+
   const handleStartEditPayables = (payableId) => {
     const currentYear = tabValue + 1;
     const payable = payables[currentYear]?.find(p => p.id === payableId) || Object.values(payables).flat().find(p => p.id === payableId);
@@ -440,25 +463,62 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     const changes = [];
     let totalCurrentBalance = 0;
     let totalNewBalance = 0;
-    Object.entries(stagedPayments).forEach(([payableId, newPaymentAmount]) => {
+
+    const voucherPayableIds = Object.entries(stagedVouchers)
+      .filter(([, v]) => v && (v.enabled || Number(v.amount || 0) > 0 || (v.description || '').trim() !== ''))
+      .map(([payableId]) => payableId);
+    const payableIds = Array.from(new Set([...Object.keys(stagedPayments), ...voucherPayableIds]));
+
+    for (const payableId of payableIds) {
+      const rawPaymentAmount = Number(stagedPayments?.[payableId] || 0);
       const payable = Object.values(payables).flat().find(p => p.id === payableId);
       if (payable) {
         const currentPaid = payable.studentPayments?.[studentId]?.paidAmount || 0;
-        const amount = Number(payable.amount) || 0;
-        totalCurrentBalance += Math.max(0, amount - currentPaid);
-        totalNewBalance += Math.max(0, amount - (currentPaid + newPaymentAmount));
+        const amount = Math.max(0, Number(payable.amount) || 0);
+
+        const voucher = getVoucherData(payable, studentId);
+        const voucherAmount = Math.min(voucher.amount, amount);
+        const voucherDescription = (voucher.description || '').trim();
+
+        if (voucherAmount > 0 && !voucherDescription) {
+          setError(`Voucher description is required for ${payable.type}.`);
+          return;
+        }
+
+        const effectiveAmount = Math.max(0, amount - voucherAmount);
+        const maxAllowedPayment = Math.max(0, effectiveAmount - currentPaid);
+        const newPaymentAmount = Math.min(Math.max(0, rawPaymentAmount), maxAllowedPayment);
+        const newTotalPaid = currentPaid + newPaymentAmount;
+        const currentBalance = Math.max(0, amount - currentPaid);
+        const newBalance = Math.max(0, effectiveAmount - newTotalPaid);
+
+        const persistedVoucherAmount = Math.max(0, Number(payable.studentPayments?.[studentId]?.voucherAmount || 0));
+        const persistedVoucherDescription = (payable.studentPayments?.[studentId]?.voucherDescription || '').trim();
+        const hasVoucherChange = voucherAmount !== persistedVoucherAmount || voucherDescription !== persistedVoucherDescription;
+        const hasPaymentChange = newPaymentAmount > 0;
+
+        if (!hasVoucherChange && !hasPaymentChange) {
+          continue;
+        }
+
+        totalCurrentBalance += currentBalance;
+        totalNewBalance += newBalance;
         changes.push({
           payableId,
           type: payable.type,
-          amount,
+          amount: effectiveAmount,
+          originalAmount: amount,
+          voucherAmount,
+          voucherDescription,
           currentPaid,
           newPayment: newPaymentAmount,
-          newTotalPaid: currentPaid + newPaymentAmount,
+          newTotalPaid,
           mode: stagedPaymentModes?.[payableId] || 'cash',
           reference: stagedPaymentReferences?.[payableId] || ''
         });
       }
-    });
+    }
+
     setSummaryData({ changes, totalCurrentBalance, totalNewBalance });
     setSummaryModalOpen(true);
   };
@@ -474,82 +534,81 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     try {
       let lastReceiptPreview = null;
       const updatedPaidByPayable = {};
+      const paymentDate = new Date();
+      const receiptLineItems = [];
+      const paymentsToCreate = [];
+
       // For each change, compute status and send update
       for (const change of summaryData.changes) {
-        const { payableId, newPayment, mode, reference } = change;
+        const { payableId, newPayment, mode, reference, voucherAmount, voucherDescription } = change;
         // Find payable to get total amount
         const payable = Object.values(payables).flat().find(p => p.id === payableId);
         if (!payable) continue;
-        const payableAmount = Number(payable.amount) || 0;
+        const payableAmount = Math.max(0, Number(payable.amount) || 0);
+        const effectivePayableAmount = Math.max(0, payableAmount - Math.max(0, Number(voucherAmount || 0)));
         const newTotalPaid = change.currentPaid + newPayment;
         updatedPaidByPayable[payableId] = Number(newTotalPaid || 0);
-        const newStatus = newTotalPaid >= payableAmount ? 'fully_paid' : (newTotalPaid > 0 ? 'partially_paid' : 'unpaid');
+        const newStatus = newTotalPaid >= effectivePayableAmount ? 'fully_paid' : (newTotalPaid > 0 ? 'partially_paid' : 'unpaid');
 
         const updateObj = {
           [`studentPayments.${studentId}.paidAmount`]: newTotalPaid,
           [`studentPayments.${studentId}.status`]: newStatus,
           [`studentPayments.${studentId}.lastPaymentMode`]: mode || 'cash',
-          [`studentPayments.${studentId}.lastPaymentReference`]: reference || ''
+          [`studentPayments.${studentId}.lastPaymentReference`]: reference || '',
+          [`studentPayments.${studentId}.voucherAmount`]: Math.max(0, Number(voucherAmount || 0)),
+          [`studentPayments.${studentId}.voucherDescription`]: (voucherDescription || '').trim()
         };
         const result = await updatePayable(payableId, updateObj);
         if (!result.success) {
           throw new Error(result.error || 'Failed to update payable ' + payableId);
         }
+
+        const previousPaid = Number(change.currentPaid || 0);
+        const totalPaidAfter = Number(newTotalPaid || 0);
+        const computedBalanceAfter = Math.max(0, effectivePayableAmount - totalPaidAfter);
+
+        const { otherPayables, totalOtherBalance } = getOtherOutstandingPayables(
+          studentSnapshot,
+          payableId,
+          updatedPaidByPayable
+        );
+
+        // Always prepare a printable preview so confirm action consistently opens the receipt modal.
+        lastReceiptPreview = {
+          receiptNumber: '—',
+          studentName: studentSnapshot.name,
+          date: formatDateFull(paymentDate),
+          course: studentSnapshot.course || studentSnapshot.program || 'BSCS',
+          yearLevel: studentSnapshot.yearLevel || '',
+          description: payable.type || change.type,
+          amount: Number(newPayment || 0),
+          price: Number(effectivePayableAmount || 0),
+          previousPaid,
+          totalPaid: totalPaidAfter,
+          balance: computedBalanceAfter,
+          mode: mode || 'cash',
+          reference: reference || '',
+          otherPayables,
+          totalOtherBalance,
+          receivedBy:  ''
+        };
+
         // Record the transaction
         if (newPayment > 0) {
-          const paymentDate = new Date();
-          let receiptNumber = null;
-          let receiptId = null;
-          const balanceAfter = Math.max(0, payableAmount - newTotalPaid);
-          const previousPaid = Number(change.currentPaid || 0);
-          const totalPaidAfter = Number(newTotalPaid || 0);
+          receiptLineItems.push({
+            payableId,
+            description: payable.type || change.type,
+            price: Number(effectivePayableAmount || 0),
+            previousBalance: Math.max(0, Number(effectivePayableAmount || 0) - previousPaid),
+            payment: Number(newPayment || 0),
+            balance: Math.max(0, effectivePayableAmount - totalPaidAfter),
+            voucherAmount: Math.max(0, Number(voucherAmount || 0)),
+            voucherDescription: (voucherDescription || '').trim(),
+            mode: mode || 'cash',
+            reference: reference || ''
+          });
 
-          try {
-            receiptNumber = await generateReceiptNumber(db, paymentDate);
-            const receiptRecord = {
-              receiptNumber,
-              studentId,
-              studentName: studentSnapshot.name,
-              date: paymentDate.toISOString(),
-              formattedDate: formatDateFull(paymentDate),
-              course: studentSnapshot.course || studentSnapshot.program || 'BSCS',
-              yearLevel: studentSnapshot.yearLevel || '',
-              items: [{ description: payable.type || change.type, amount: newPayment }],
-              amount: Number(newPayment || 0),
-              mode: mode || 'cash',
-              cashierId: currentUser?.uid || null
-            };
-            receiptId = await createReceiptRecord(db, receiptRecord);
-
-            const { otherPayables, totalOtherBalance } = getOtherOutstandingPayables(
-              studentSnapshot,
-              payableId,
-              updatedPaidByPayable
-            );
-
-            lastReceiptPreview = {
-              receiptNumber,
-              studentName: studentSnapshot.name,
-              date: formatDateFull(paymentDate),
-              course: receiptRecord.course || 'BSCS',
-              yearLevel: receiptRecord.yearLevel,
-              description: payable.type || change.type,
-              amount: Number(newPayment || 0),
-              price: Number(payableAmount || 0),
-              previousPaid,
-              totalPaid: totalPaidAfter,
-              balance: balanceAfter,
-              mode: receiptRecord.mode,
-              reference: reference || '',
-              otherPayables,
-              totalOtherBalance,
-              receivedBy:  ''
-            };
-          } catch (err) {
-            console.warn('Failed to generate receipt for payment:', err);
-          }
-
-          await createStudentPayment({
+          paymentsToCreate.push({
             studentId,
             payableId,
             amount: newPayment,
@@ -557,14 +616,101 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             reference: reference || '',
             description: `Payment for ${change.type}`,
             date: paymentDate.toISOString(),
-            receiptNumber,
-            receiptId,
-            balanceAfter,
-            totalPrice: Number(payableAmount || 0),
+            balanceAfter: Math.max(0, effectivePayableAmount - totalPaidAfter),
+            totalPrice: Number(effectivePayableAmount || 0),
+            voucherAmount: Math.max(0, Number(voucherAmount || 0)),
+            voucherDescription: (voucherDescription || '').trim(),
             previousPaid,
             totalPaidAfter,
           });
         }
+      }
+
+      if (paymentsToCreate.length > 0) {
+        let receiptNumber = null;
+        let receiptId = null;
+
+        const receiptModes = Array.from(new Set(receiptLineItems.map((item) => item.mode).filter(Boolean)));
+        const receiptReferences = Array.from(new Set(receiptLineItems.map((item) => item.reference).filter(Boolean)));
+        const payableIdsOnReceipt = new Set(receiptLineItems.map((item) => item.payableId));
+
+        try {
+          receiptNumber = await generateReceiptNumber(db, paymentDate);
+          const receiptRecord = {
+            receiptNumber,
+            studentId,
+            studentName: studentSnapshot.name,
+            date: paymentDate.toISOString(),
+            formattedDate: formatDateFull(paymentDate),
+            course: studentSnapshot.course || studentSnapshot.program || 'BSCS',
+            yearLevel: studentSnapshot.yearLevel || '',
+            items: receiptLineItems.map((item) => ({ description: item.description, amount: item.payment })),
+            amount: receiptLineItems.reduce((sum, item) => sum + Number(item.payment || 0), 0),
+            mode: receiptModes.length === 1 ? receiptModes[0] : 'mixed',
+            cashierId: currentUser?.uid || null
+          };
+          receiptId = await createReceiptRecord(db, receiptRecord);
+        } catch (err) {
+          console.warn('Failed to generate combined receipt for payment:', err);
+        }
+
+        for (const payment of paymentsToCreate) {
+          await createStudentPayment({
+            ...payment,
+            receiptNumber,
+            receiptId,
+          });
+        }
+
+        const studentPayables = getStudentPayables(studentSnapshot);
+        const otherPayables = studentPayables
+          .filter((payable) => !payableIdsOnReceipt.has(payable.id))
+          .map((payable) => {
+            const defaultPaidAmount = Number(payable.studentPayments?.[studentId]?.paidAmount || 0);
+            const overriddenPaidAmount = updatedPaidByPayable?.[payable.id];
+            const paidAmount = typeof overriddenPaidAmount === 'number' ? overriddenPaidAmount : defaultPaidAmount;
+            const voucherAmount = Math.max(0, Number(payable.studentPayments?.[studentId]?.voucherAmount || 0));
+            const totalAmount = Math.max(0, Number(payable.amount || 0) - voucherAmount);
+            const remainingBalance = Math.max(0, totalAmount - paidAmount);
+            return {
+              payableId: payable.id,
+              type: payable.type || 'Payable',
+              remainingBalance
+            };
+          })
+          .filter((item) => item.remainingBalance > 0)
+          .sort((a, b) => b.remainingBalance - a.remainingBalance);
+
+        const totalOtherBalance = otherPayables.reduce((sum, item) => sum + item.remainingBalance, 0);
+
+        lastReceiptPreview = {
+          receiptNumber: receiptNumber || '—',
+          studentName: studentSnapshot.name,
+          date: formatDateFull(paymentDate),
+          course: studentSnapshot.course || studentSnapshot.program || 'BSCS',
+          yearLevel: studentSnapshot.yearLevel || '',
+          description: receiptLineItems.length === 1 ? receiptLineItems[0].description : `${receiptLineItems.length} payables`,
+          amount: receiptLineItems.reduce((sum, item) => sum + Number(item.payment || 0), 0),
+          price: receiptLineItems.reduce((sum, item) => sum + Number(item.price || 0), 0),
+          previousPaid: receiptLineItems.reduce((sum, item) => sum + Math.max(0, Number(item.previousBalance || 0)), 0),
+          totalPaid: receiptLineItems.reduce((sum, item) => sum + Number(item.payment || 0), 0),
+          balance: receiptLineItems.reduce((sum, item) => sum + Math.max(0, Number(item.balance || 0)), 0),
+          mode: receiptModes.length === 1 ? receiptModes[0] : '',
+          reference: receiptReferences.length === 1 ? receiptReferences[0] : '',
+          items: receiptLineItems.map((item) => ({
+            payableId: item.payableId,
+            description: item.description,
+            price: item.price,
+            previousBalance: item.previousBalance,
+            payment: item.payment,
+            balance: item.balance,
+            voucherAmount: item.voucherAmount,
+            voucherDescription: item.voucherDescription,
+          })),
+          otherPayables,
+          totalOtherBalance,
+          receivedBy: ''
+        };
       }
 
       setSuccess('Payments confirmed successfully');
@@ -575,6 +721,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       setStagedPayments({});
       setStagedPaymentModes({});
       setStagedPaymentReferences({});
+      setStagedVouchers({});
       // reload payables to reflect persisted state
       await loadPayables();
 
@@ -593,6 +740,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     setStagedPayments({});
     setStagedPaymentModes({});
     setStagedPaymentReferences({});
+    setStagedVouchers({});
   };
 
   // Collect a student's payables: all current-year payables plus any individual
@@ -628,9 +776,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       .filter((payable) => payable.id !== currentPayableId)
       .map((payable) => {
         const defaultPaidAmount = Number(payable.studentPayments?.[student.id]?.paidAmount || 0);
+        const voucherAmount = Math.max(0, Number(payable.studentPayments?.[student.id]?.voucherAmount || 0));
         const overriddenPaidAmount = updatedPaidByPayable?.[payable.id];
         const paidAmount = typeof overriddenPaidAmount === 'number' ? overriddenPaidAmount : defaultPaidAmount;
-        const totalAmount = Number(payable.amount || 0);
+        const totalAmount = Math.max(0, Number(payable.amount || 0) - voucherAmount);
         const remainingBalance = Math.max(0, totalAmount - paidAmount);
 
         return {
@@ -686,53 +835,127 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
   };
 
-  const openReceiptForPayment = useCallback((student, payable, payment) => {
+  const openReceiptForPayment = useCallback(async (student, payable, payment) => {
     if (!payment) return;
-    const paymentDateRaw = payment.date || payment.createdAt || new Date().toISOString();
+
+    let transactionPayments = [payment];
+    const receiptNumber = (payment.receiptNumber || '').toString().trim();
+
+    if (student?.id && receiptNumber && receiptNumber !== '—') {
+      try {
+        const allPaymentsResult = await getAllStudentPayments(student.id);
+        if (allPaymentsResult.success) {
+          const matched = (allPaymentsResult.data || []).filter((p) => (p.receiptNumber || '').toString().trim() === receiptNumber);
+          if (matched.length > 0) {
+            transactionPayments = matched;
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load grouped receipt payments:', err);
+      }
+    }
+
+    const payablesById = Object.values(payables)
+      .flat()
+      .reduce((acc, p) => {
+        acc[p.id] = p;
+        return acc;
+      }, {});
+
+    const receiptPayableIds = new Set();
+    const receiptItems = transactionPayments.map((entry, idx) => {
+      const payableId = entry.payableId || payable?.id || `item-${idx}`;
+      if (payableId) receiptPayableIds.add(payableId);
+
+      const payableInfo = payablesById[payableId] || payable;
+      const rowPrice = Number(entry.price ?? entry.totalPrice ?? payableInfo?.amount ?? 0);
+      const rowPayment = Number(entry.amount || 0);
+      const rowPreviousPaid = Number(entry.previousPaid ?? 0);
+      const rowBalance = Number(entry.balanceAfter ?? entry.balance ?? Math.max(0, rowPrice - (rowPreviousPaid + rowPayment)));
+
+      return {
+        payableId,
+        description: payableInfo?.type || entry.description || 'Payment',
+        price: rowPrice,
+        previousBalance: Math.max(0, rowPrice - rowPreviousPaid),
+        payment: rowPayment,
+        balance: Math.max(0, rowBalance),
+        voucherAmount: Math.max(0, Number(entry.voucherAmount || 0)),
+        voucherDescription: (entry.voucherDescription || '').trim(),
+      };
+    });
+
+    const totalPrice = receiptItems.reduce((sum, item) => sum + Number(item.price || 0), 0);
+    const totalPreviousBalance = receiptItems.reduce((sum, item) => sum + Number(item.previousBalance || 0), 0);
+    const totalPayment = receiptItems.reduce((sum, item) => sum + Number(item.payment || 0), 0);
+    const totalBalance = receiptItems.reduce((sum, item) => sum + Number(item.balance || 0), 0);
+
+    const modes = Array.from(new Set(transactionPayments.map((p) => p.mode || p.method || p.paymentMode).filter(Boolean)));
+    const references = Array.from(new Set(transactionPayments.map((p) => p.reference).filter(Boolean)));
+
+    const studentPayables = getStudentPayables(student || {});
+    const otherPayables = studentPayables
+      .filter((p) => !receiptPayableIds.has(p.id))
+      .map((p) => {
+        const paidAmount = Number(p.studentPayments?.[student?.id]?.paidAmount || 0);
+        const voucherAmount = Math.max(0, Number(p.studentPayments?.[student?.id]?.voucherAmount || 0));
+        const totalAmount = Math.max(0, Number(p.amount || 0) - voucherAmount);
+        const remainingBalance = Math.max(0, totalAmount - paidAmount);
+        return {
+          payableId: p.id,
+          type: p.type || 'Payable',
+          remainingBalance,
+        };
+      })
+      .filter((item) => item.remainingBalance > 0)
+      .sort((a, b) => b.remainingBalance - a.remainingBalance);
+    const totalOtherBalance = otherPayables.reduce((sum, item) => sum + item.remainingBalance, 0);
+
+    const paymentDateRaw = transactionPayments[0]?.date || transactionPayments[0]?.createdAt || payment.date || new Date().toISOString();
     const paymentDate = new Date(paymentDateRaw);
     const safeDate = Number.isNaN(paymentDate.getTime()) ? new Date() : paymentDate;
-    const amount = Number(payment.amount || 0);
-    const balance = Number(payment.balanceAfter ?? payment.balance ?? 0);
-    const price = Number(payment.price ?? payment.totalPrice ?? payable?.amount ?? 0);
-    const previousPaid = Number(payment.previousPaid ?? 0);
-    const totalPaid = Number(payment.totalPaid ?? payment.totalPaidAfter ?? 0);
-    const { otherPayables, totalOtherBalance } = getOtherOutstandingPayables(student, payable?.id);
 
     setReceiptData({
-      receiptNumber: payment.receiptNumber || '—',
+      receiptNumber: receiptNumber || '—',
       studentName: student?.name || '—',
       date: formatDateFull(safeDate),
       course: student?.course || student?.program || 'BSCS',
       yearLevel: student?.yearLevel || '',
-      description: payable?.type || payment.description || 'Payment',
-      amount,
-      price,
-      previousPaid,
-      totalPaid,
-      balance,
-      mode: payment.mode || payment.method || payment.paymentMode || '',
-      reference: payment.reference || '',
+      description: receiptItems.length === 1 ? receiptItems[0].description : `${receiptItems.length} payables`,
+      amount: totalPayment,
+      price: totalPrice,
+      previousPaid: totalPreviousBalance,
+      totalPaid: totalPayment,
+      balance: totalBalance,
+      items: receiptItems,
+      mode: modes.length === 1 ? modes[0] : '',
+      reference: references.length === 1 ? references[0] : '',
       otherPayables,
       totalOtherBalance,
       receivedBy:  ''
     });
     setReceiptModalOpen(true);
-  }, [currentUser, getOtherOutstandingPayables]);
+  }, [getStudentPayables, payables]);
 
   // Stage paid amount changes locally. Changes will not be saved until user clicks Confirm.
   const handleStagedPaidAmountChange = useCallback((payableId, newValue) => {
-    const newPaymentAmount = newValue === '' ? 0 : parseFloat(newValue) || 0;
-    // Find the payable
-    const payable = Object.values(payables).flat().find(p => p.id === payableId);
-    if (!payable || !selectedStudentModal) return;
-    const studentPayment = payable.studentPayments?.[selectedStudentModal.id] || { paidAmount: 0 };
-    const remaining = payable.amount - studentPayment.paidAmount;
-    const limitedAmount = Math.min(newPaymentAmount, remaining);
+    if (newValue === '') {
+      setStagedPayments(prev => ({
+        ...prev,
+        [payableId]: ''
+      }));
+      return;
+    }
+
+    const newPaymentAmount = Number(newValue);
+    if (!Number.isFinite(newPaymentAmount) || newPaymentAmount < 0) return;
+
+    // Keep input responsive while typing; overpayment cap is applied in summary/confirm.
     setStagedPayments(prev => ({
       ...prev,
-      [payableId]: limitedAmount
+      [payableId]: newValue
     }));
-  }, [payables, selectedStudentModal]);
+  }, []);
 
   const calculateTotalBalance = useCallback((studentId) => {
     if (!studentId || !payables) return 0;
@@ -742,8 +965,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     return studentPayables.reduce((total, payable) => {
       const studentPayment = payable.studentPayments?.[studentId] || { status: 'unpaid', paidAmount: 0 };
       const stagedPaid = stagedPayments?.[payable.id];
+      const voucher = getVoucherData(payable, studentId);
       const paidAmount = typeof stagedPaid !== 'undefined' ? Number(stagedPaid) : Number(studentPayment.paidAmount || 0);
-      const payableAmount = Number(payable.amount) || 0;
+      const payableAmount = Math.max(0, (Number(payable.amount) || 0) - voucher.amount);
       const status = typeof stagedPaid !== 'undefined'
         ? (paidAmount >= payableAmount ? 'fully_paid' : (paidAmount > 0 ? 'partially_paid' : 'unpaid'))
         : studentPayment.status;
@@ -752,7 +976,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       }
       return total;
     }, 0);
-  }, [payables, stagedPayments, students, getStudentPayables]);
+  }, [payables, stagedPayments, students, getStudentPayables, getVoucherData]);
 
   const handleScrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -913,6 +1137,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                       setStudentModalOpen(true);
                       // Clear any staged payments when opening a new student modal
                       setStagedPayments({});
+                      setStagedVouchers({});
                       setPayablesFilter('all');
                       setPayablesViewMode('list');
                       setPayablesSearch('');
@@ -1023,6 +1248,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                             setSelectedStudentModal(student);
                             setStudentModalOpen(true);
                             setStagedPayments({});
+                            setStagedVouchers({});
                             setPayablesFilter('all');
                             setPayablesViewMode('list');
                             setPayablesSearch('');
@@ -1371,9 +1597,21 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
                 const renderCard = (payable) => {
                   const studentPayment = payable.studentPayments?.[selectedStudentModal?.id] || { status: 'unpaid', paidAmount: 0 };
+                  const voucher = getVoucherData(payable, selectedStudentModal?.id);
+                  const stagedVoucher = stagedVouchers?.[payable.id] || {};
+                  const hasVoucherAmount = Object.prototype.hasOwnProperty.call(stagedVoucher, 'amount');
+                  const hasVoucherDescription = Object.prototype.hasOwnProperty.call(stagedVoucher, 'description');
+                  const voucherEnabled = voucher.enabled;
+                  const voucherAmountInput = hasVoucherAmount
+                    ? stagedVoucher.amount
+                    : (Number(studentPayment.voucherAmount || 0) > 0 ? String(studentPayment.voucherAmount) : '');
+                  const voucherDescriptionInput = hasVoucherDescription
+                    ? (stagedVoucher.description || '')
+                    : (studentPayment.voucherDescription || '');
                   const stagedPayment = stagedPayments?.[payable.id] || 0;
                   const totalPaid = studentPayment.paidAmount + stagedPayment;
-                  const remaining = payable.amount - totalPaid;
+                  const effectivePayableAmount = Math.max(0, Number(payable.amount || 0) - voucher.amount);
+                  const remaining = Math.max(0, effectivePayableAmount - totalPaid);
                   return (
                     <div key={payable.id} className="border border-gray-200 rounded-xl shadow p-4 bg-white">
                       <div className="flex items-center justify-between mb-4">
@@ -1389,6 +1627,11 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           <p className="text-sm text-gray-600">
                             Total Amount: ₱{Number(payable.amount || 0).toLocaleString()}
                           </p>
+                          {voucher.amount > 0 && (
+                            <p className="text-xs text-emerald-700 font-medium">
+                              Voucher: -₱{voucher.amount.toLocaleString()} | Net Amount: ₱{effectivePayableAmount.toLocaleString()}
+                            </p>
+                          )}
                         </div>
                         <span className={`inline-flex mr-1 items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(studentPayment.status) === 'success' ? 'bg-green-100 text-green-800 border border-green-300' : getStatusColor(studentPayment.status) === 'warning' ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' : 'bg-red-100 text-red-800 border border-red-300'}`}>
                           {getStatusLabel(studentPayment.status)}
@@ -1532,7 +1775,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           step="0.01"
                           className="w-1/3 flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-lg show-spinner"
                           placeholder="New Payment Amount"
-                          value={stagedPayments?.[payable.id] || ''}
+                          value={stagedPayments?.[payable.id] ?? ''}
                           onChange={(e) => selectedStudentModal && handleStagedPaidAmountChange(payable.id, e.target.value)}
                           onWheel={(e) => e.currentTarget.blur()}
                           onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
@@ -1547,7 +1790,89 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                         />
                      
                       </div>
+                      
                       </div>
+                      <div className="w-full mt-2">
+
+                        <div className='flex items-center gap-2 mb-1'>
+                          <span className='text-xs '>Apply Voucher:</span>
+                          <input
+                            type="checkbox"
+                            checked={voucherEnabled}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              if (!checked) {
+                                setStagedVouchers(prev => ({
+                                  ...prev,
+                                  [payable.id]: { enabled: false, amount: '', description: '' }
+                                }));
+                                return;
+                              }
+                              setStagedVouchers(prev => ({
+                                ...prev,
+                                [payable.id]: {
+                                  enabled: true,
+                                  amount: hasVoucherAmount ? stagedVoucher.amount : (studentPayment.voucherAmount ? String(studentPayment.voucherAmount) : ''),
+                                  description: hasVoucherDescription ? (stagedVoucher.description || '') : (studentPayment.voucherDescription || '')
+                                }
+                              }));
+                            }}
+                          />
+                        </div>
+
+                        {/* Voucher Fields */}
+                        <div className="flex gap-2 ">
+
+                            {/* Amount */}
+                          <input
+                            type="number"
+                            placeholder="Amount"
+                            className={`w-1/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg show-spinner ${!voucherEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            value={voucherAmountInput}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              setStagedVouchers(prev => ({
+                                ...prev,
+                                [payable.id]: {
+                                  ...(prev[payable.id] || {}),
+                                  enabled: true,
+                                  amount: raw
+                                }
+                              }));
+                            }}
+                            inputMode="decimal"
+                            min="0"
+                            step="0.01"
+                            disabled={!voucherEnabled}
+                          />
+
+                          {/* Description */}
+                          <input
+                            type="text"
+                            placeholder="e.g. Scholarship, Promo"
+                            className={`w-2/3 px-2 py-1.5 text-sm border rounded-lg show-spinner ${voucherEnabled && Number(voucherAmountInput || 0) > 0 && !(voucherDescriptionInput || '').trim() ? 'border-red-400' : 'border-gray-300'} ${!voucherEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            value={voucherDescriptionInput}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              setStagedVouchers(prev => ({
+                                ...prev,
+                                [payable.id]: {
+                                  ...(prev[payable.id] || {}),
+                                  enabled: true,
+                                  description: raw
+                                }
+                              }));
+                            }}
+                            required={voucherEnabled && Number(voucherAmountInput || 0) > 0}
+                            disabled={!voucherEnabled}
+                          />
+
+                        
+
+                        </div>
+
+                      </div>
+                      
                      
                       <div className="flex items-center justify-between gap-1 mt-4">
                         <p className="text-xs text-gray-600">
@@ -1587,6 +1912,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   setStudentModalOpen(false);
                   setSelectedStudentModal(null);
                   setStagedPayments({});
+                  setStagedVouchers({});
                 }}
                 className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
@@ -1595,7 +1921,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               <button 
                 onClick={handleShowSummary} 
                 className="px-4 py-1.5 rounded-full text-sm cursor-pointer bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={Object.keys(stagedPayments).length === 0 || confirmLoading}
+                disabled={(Object.keys(stagedPayments).length === 0 && Object.keys(stagedVouchers).length === 0) || confirmLoading}
               >
                 {confirmLoading ? 'Confirming...' : 'Confirm Changes'}
               </button>
@@ -1633,6 +1959,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                 <div>
   {summaryData.changes.map((change) => {
     const totalAmount = Number(change.amount || 0);
+    const originalAmount = Number(change.originalAmount || change.amount || 0);
+    const voucherAmount = Number(change.voucherAmount || 0);
     const prevPaid = Number(change.currentPaid || 0);
     const newPaid = Number(change.newTotalPaid || 0);
     const newPayment = Number(change.newPayment || 0);
@@ -1641,9 +1969,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     const newBalance = totalAmount - newPaid;
 
     return (
-      <div key={change.payableId} className="border border-gray-200 rounded-2xl p-4 mb-4 shadow-lg bg-white">
+      <div key={change.payableId} className="border border-gray-200 rounded-2xl p-4 mb-2 shadow-lg bg-white">
         {/* Header: description/type and status */}
-        <div className="flex justify-between items-start mb-10">
+        <div className="flex justify-between items-start mb-4">
           <div>
             <h4 className="text-lg font-semibold">{change.type}</h4>
 
@@ -1664,9 +1992,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
         
 
-        <div className='flex items-center justify-between'>
+        <div className='flex items-start justify-between'>
           {/* Payment Mode Checkboxes */}
-        <div className=" flex items-center gap-4 text-sm">
+        <div className=" flex items-center gap-4 text-xs">
           <label className="inline-flex items-center gap-2">
             <input type="checkbox" disabled checked={(change.mode || 'cash') === 'cash'} />
             <span className="ml-1">CASH</span>
@@ -1681,18 +2009,33 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           </label>
         </div>
 
-        <div className="text-sm ">Price: <span className="font-semibold">₱{totalAmount.toLocaleString()}</span></div>
+        <div className="text-xs text-right">
+          <div>
+            Price: <span className="font-semibold">₱{originalAmount.toLocaleString()}</span>
+          </div>
+          {voucherAmount > 0 && (
+            <div className="text-emerald-700">
+              Voucher: -₱{voucherAmount.toLocaleString()}
+            </div>
+          )}
+          <div>
+            Net Price: <span className="font-semibold">₱{totalAmount.toLocaleString()}</span>
+          </div>
+        </div>
 
         </div>
         
-        {change.reference && (
-          <p className="text-xs text-gray-500 mt-1.5 pb-2">Ref #: <span className="font-mono">{change.reference}</span></p>
+        {(change.reference || change.voucherDescription) && (
+          <div className="mt-1.5  space-y-0.5">
+            {change.reference && <p className="text-xs text-gray-500">Ref #: <span className="font-mono">{change.reference}</span></p>}
+            {change.voucherDescription && <p className="text-xs text-gray-500">Voucher: <span className="font-medium">{change.voucherDescription}</span></p>}
+          </div>
         )}
 
-        <div className="border-t border-gray-200 my-2 pt-2"></div>
+        <div className="border-t border-gray-200 mt-0.5"></div>
 
         {/* Three-column financial snapshot: previous balance, amount paid now, current balance */}
-        <div className="grid grid-cols-3 gap-4 text-sm">
+        <div className="grid grid-cols-3 gap-4 text-xs">
           <div>
             <p className="text-gray-500 mb-1">Previous Balance</p>
             <p className={prevBalance > 0 ? 'text-red-700 font-semibold' : 'text-green-700 font-semibold'}>₱ {prevBalance.toLocaleString()}</p>
@@ -1716,7 +2059,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 </div>
               )}
             </div>
-            <div className="flex gap-2 justify-end mt-8">
+            <div className="flex gap-2 justify-end mt-4">
               <button
                 onClick={() => setSummaryModalOpen(false)}
                 className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"

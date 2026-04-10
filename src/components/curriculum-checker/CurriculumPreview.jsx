@@ -471,7 +471,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                 <div className="flex items-end gap-6 mt-1">
                   <div className="flex items-end gap-2 text-sm">
                     <span className="min-w-[90px] text-sm">Contact no:</span>
-                    <div className="w-36 border-b border-gray-400">{student?.contact || ''}</div>
+                    <div className="w-36 border-b border-gray-400">{student?.contactNumber || student?.contact || ''}</div>
                   </div>
 
                   <div className="flex items-end flex-1 gap-3 text-sm">

@@ -1290,9 +1290,7 @@ const StudentManagement = ({ onBack }) => {
       <span className="text-sm font-semibold">
         {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
       </span>
-      <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
-        Year {currentYear}
-      </span>
+      
     </div>
 
  

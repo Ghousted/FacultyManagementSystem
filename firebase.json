@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "tcc-ccs-faculty",
     "public": "dist",
     "ignore": [
       "firebase.json",
