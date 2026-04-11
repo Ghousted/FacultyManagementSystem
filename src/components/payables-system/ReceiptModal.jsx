@@ -141,7 +141,7 @@ const ReceiptLayout = ({ label, receiptData }) => {
         <img
           src={Logo}
           alt=""
-          className="opacity-[0.08]"
+          className="opacity-[0.1]"
           style={{ width: '60%', height: 'auto' }}
         />
       </div>
@@ -386,8 +386,8 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
 
           @media print {
             @page { 
-              size: auto;
-              margin: 10mm;
+              size: 100mm 150mm;
+              margin: 0;
             }
             body {
               -webkit-print-color-adjust: exact;
@@ -395,7 +395,12 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
               font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
               background: #fff !important;
             }
-            html, body { margin: 0; padding: 0; }
+            html, body {
+              margin: 0;
+              padding: 0;
+              width: 100mm;
+              height: 150mm;
+            }
             body > *:not(.modal-container) { display: none !important; }
             .modal-backdrop { display: none !important; }
             .modal-container {
@@ -428,10 +433,10 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
               display: block !important;
               padding: 0 !important;
               margin: 0 auto !important;
-              width: 100% !important;
-              max-width: 100% !important;
+              width: 100mm !important;
+              max-width: 100mm !important;
               height: auto !important;
-              min-height: auto !important;
+              min-height: 0 !important;
               break-before: auto !important;
               page-break-before: auto !important;
             }
@@ -444,16 +449,19 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
               border: 1px solid #cbd5e1 !important;
               border-radius: 0 !important;
               padding: 4mm !important;
-              width: 100% !important;
-              max-width: 100% !important;
-              min-height: auto !important;
-              height: auto !important;
+              width: 150mm !important;
+              max-width: 150mm !important;
+              height: 100mm !important;
+              min-height: 100mm !important;
+              box-sizing: border-box !important;
               flex: 0 0 auto !important;
               aspect-ratio: auto !important;
               overflow: hidden !important;
               font-size: 9px !important;
               line-height: 1.15 !important;
               margin: 0 !important;
+              transform-origin: top left !important;
+              transform: translateX(100mm) rotate(90deg) !important;
             }
             .receipt-copy:last-child {
               page-break-after: auto;

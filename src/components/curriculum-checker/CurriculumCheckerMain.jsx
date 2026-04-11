@@ -693,6 +693,10 @@ const CurriculumCheckerMain = ({ onBack }) => {
             const scholarshipEligibility = calculateScholarshipEligibility(student, year);
             const deansLister1stSem = calculateDeansListerEligibility(student, 1, year);
             const deansLister2ndSem = calculateDeansListerEligibility(student, 2, year);
+            const yearLabel = year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th';
+            const hasSummer = processedCourses.some(
+              (course) => course.yearLevel === year && course.semester === 3
+            );
 
             return (
               <div key={year} className="border bg-white border-gray-300 rounded-lg overflow-hidden">
@@ -731,10 +735,17 @@ const CurriculumCheckerMain = ({ onBack }) => {
                         </div>
                       </div>
                     </div>
-                    {[1, 2].map(semester => (
+                    {[1, 2, hasSummer ? 3 : null].filter(Boolean).map(semester => (
                       <div className='' key={semester}>
                         <div className="mb-3">
-                          <h5 className="text-blue-600 font-semibold mb-2">{semester === 1 ? '1st' : '2nd'} Semester</h5>
+                          <h5 className="text-blue-600 font-semibold mb-2">
+                            {semester === 1
+                              ? '1st'
+                              : semester === 2
+                              ? '2nd'
+                              : `Summer (${yearLabel} Year)`}{' '}
+                            Semester
+                          </h5>
                           <div className="border border-gray-300 rounded-lg overflow-hidden">
                             <table className="min-w-full text-xs">
                               <thead className="bg-blue-100 text-blue-800">
