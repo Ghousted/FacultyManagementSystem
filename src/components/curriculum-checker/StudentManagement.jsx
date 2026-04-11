@@ -378,9 +378,9 @@ const StudentManagement = ({ onBack }) => {
     setEditingData({
       id: student.id,
       name: student.name,
-      email: student.email,
+      email: student.email || '',
       contactNumber: student.contactNumber || '',
-      studentNumber: student.studentNumber,
+      studentNumber: student.studentNumber || '',
       yearLevel: student.yearLevel,
       curriculumId: student.curriculumId,
       isIrregular: student.isIrregular || false
@@ -419,17 +419,20 @@ const StudentManagement = ({ onBack }) => {
     setLoading(true);
     setError('');
     try {
-      const studentRef = doc(db, 'students', studentId);
-      await updateDoc(studentRef, {
-        name: editingData.name,
-        email: editingData.email,
-        studentNumber: editingData.studentNumber,
+      const payload = {
+        name: editingData.name || '',
+        email: editingData.email || '',
+        contactNumber: editingData.contactNumber || '',
+        studentNumber: editingData.studentNumber || '',
         yearLevel: editingData.yearLevel,
-        curriculumId: editingData.isIrregular ? null : editingData.curriculumId,
+        curriculumId: editingData.isIrregular ? null : (editingData.curriculumId || ''),
         isIrregular: editingData.isIrregular,
         irregularSubjects: editingData.isIrregular ? (selectedStudent?.irregularSubjects || { sem1: [], sem2: [] }) : null,
         updatedAt: new Date()
-      });
+      };
+
+      const studentRef = doc(db, 'students', studentId);
+      await updateDoc(studentRef, payload);
       setSuccess('Student updated successfully!');
       setEditingStudent(null);
       setEditingData({});

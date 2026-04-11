@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "ccs-faculty-8c171"
-  }
+  },
+  "targets": {
+    "ccs-faculty-8c171": {
+      "hosting": {
+        "main": [
+          "tcc-ccs-faculty"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }
