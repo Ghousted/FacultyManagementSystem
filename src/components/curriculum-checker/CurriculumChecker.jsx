@@ -19,7 +19,7 @@ const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId
   // Render specific feature
   if (currentView === 'curriculum-maker') {
     return (
-      <div className="p-4 max-w-7xl mx-auto">
+      <div className="">
         <CurriculumMaker onBack={handleBackToMain} initialCurriculumId={initialCurriculumId} />
       </div>
     );
@@ -27,7 +27,7 @@ const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId
 
   if (currentView === 'student-management') {
     return (
-      <div className="p-4 max-w-7xl mx-auto">
+      <div className="">
         <StudentManagement onBack={handleBackToMain} />
       </div>
     );
@@ -35,7 +35,7 @@ const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId
 
   if (currentView === 'curriculum-checker') {
     return (
-      <div className="p-1 max-w-7xl mx-auto">
+      <div className="">
         <CurriculumCheckerMain onBack={handleBackToMain} />
       </div>
     );
@@ -43,9 +43,10 @@ const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId
 
   // Render main menu
   return (
-    <div className="p-4 max-w-7xl mx-auto">
+    <div className="">
       <div className=''>
-        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-300 mb-10">
+
+        <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-300 mb-6">
           <div className="flex items-center gap-6">
             <button
               onClick={onBackToDashboard}
@@ -53,13 +54,13 @@ const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId
               aria-label="Back to dashboard"
               title="Back to dashboard"
             >
-              <ArrowBigLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+              <ArrowBigLeft className="w-5 h-5" />
             </button>
-            <div className="flex flex-col gap-2">
-              <h5 className="text-2xl font-bold text-blue-600">
+            <div className="">
+              <h5 className="text-2xl font-medium text-blue-600">
                 Curriculum Management System
               </h5>
-              <p className="text-gray-600">
+              <p className="text-gray-500 text-sm">
                 Review and validate curriculum requirements, course mappings, and academic compliance for the institution
               </p>
             </div>

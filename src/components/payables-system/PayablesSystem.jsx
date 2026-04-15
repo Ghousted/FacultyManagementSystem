@@ -12,9 +12,11 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgePlus,  Search, ChevronUp, ChevronDown, ChevronsUpDown, Funnel, X, Printer, Pencil, Delete, History, ArrowBigLeft, Settings2, Download, Receipt, Trash } from 'lucide-react';
 import Logo from '../../assets/logo.png';
-import ReceiptModal from './ReceiptModal';
+import ReceiptModal, { printReceiptDirect } from './ReceiptModal';
 import { db } from '../../firebase';
 import { generateReceiptNumber, createReceiptRecord } from '../../utils/receiptService';
+    import toast from 'react-hot-toast';
+
 
 const PayablesSystem = ({ onBackToDashboard }) => {
   const { currentUser } = useAuth();
@@ -63,9 +65,36 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   const [stagedPayments, setStagedPayments] = useState({}); // { payableId: paidAmount }
   const [confirmLoading, setConfirmLoading] = useState(false);
   // Per-payable payment mode and reference (not yet persisted)
-  const [stagedPaymentModes, setStagedPaymentModes] = useState({}); // { payableId: 'cash'|'gcash'|'bank' }
+  const [stagedPaymentModes, setStagedPaymentModes] = useState({}); // { payableId: ['cash','gcash'] }
   const [stagedPaymentReferences, setStagedPaymentReferences] = useState({}); // { payableId: reference }
   const [stagedVouchers, setStagedVouchers] = useState({}); // { payableId: { enabled, amount, description } }
+
+  // Helpers for multi-mode handling
+  const normalizeModesValue = (v) => {
+    if (!v) return ['cash'];
+    if (Array.isArray(v)) return v.map(s => String(s).trim().toLowerCase()).filter(Boolean);
+    return String(v).split(/[,|\\/&;+]+|\s+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+  };
+
+  const getModesFor = (payableId) => normalizeModesValue(stagedPaymentModes?.[payableId]);
+
+  const hasMode = (payableId, mode) => getModesFor(payableId).includes(String(mode).toLowerCase());
+
+  const toggleMode = (payableId, mode) => {
+    setStagedPaymentModes(prev => {
+      const current = normalizeModesValue(prev?.[payableId]);
+      const m = String(mode).toLowerCase();
+      const exists = current.includes(m);
+      const next = exists ? current.filter(x => x !== m) : [...current, m];
+      return { ...prev, [payableId]: next };
+    });
+  };
+
+  const normalizeModeForStore = (mode) => {
+    if (!mode) return 'cash';
+    if (Array.isArray(mode)) return mode.length === 1 ? mode[0] : mode.join(',');
+    return String(mode);
+  };
   
   // Individual student payable states
   const [individualPayableDialogOpen, setIndividualPayableDialogOpen] = useState(false);
@@ -96,6 +125,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   // Receipt modal state
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
+  const [receiptAutoPrint, setReceiptAutoPrint] = useState(false);
 
   // Payables view controls (inside Student modal)
   const [payablesFilter, setPayablesFilter] = useState('all'); // all | unpaid | partially_paid | fully_paid | individual
@@ -513,7 +543,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           currentPaid,
           newPayment: newPaymentAmount,
           newTotalPaid,
-          mode: stagedPaymentModes?.[payableId] || 'cash',
+          mode: stagedPaymentModes?.[payableId] || ['cash'],
           reference: stagedPaymentReferences?.[payableId] || ''
         });
       }
@@ -553,7 +583,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
         const updateObj = {
           [`studentPayments.${studentId}.paidAmount`]: newTotalPaid,
           [`studentPayments.${studentId}.status`]: newStatus,
-          [`studentPayments.${studentId}.lastPaymentMode`]: mode || 'cash',
+          [`studentPayments.${studentId}.lastPaymentMode`]: normalizeModeForStore(mode) || 'cash',
           [`studentPayments.${studentId}.lastPaymentReference`]: reference || '',
           [`studentPayments.${studentId}.voucherAmount`]: Math.max(0, Number(voucherAmount || 0)),
           [`studentPayments.${studentId}.voucherDescription`]: (voucherDescription || '').trim()
@@ -586,7 +616,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           previousPaid,
           totalPaid: totalPaidAfter,
           balance: computedBalanceAfter,
-          mode: mode || 'cash',
+          mode: normalizeModeForStore(mode) || 'cash',
           reference: reference || '',
           otherPayables,
           totalOtherBalance,
@@ -604,7 +634,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             balance: Math.max(0, effectivePayableAmount - totalPaidAfter),
             voucherAmount: Math.max(0, Number(voucherAmount || 0)),
             voucherDescription: (voucherDescription || '').trim(),
-            mode: mode || 'cash',
+            mode: normalizeModeForStore(mode) || 'cash',
             reference: reference || ''
           });
 
@@ -612,7 +642,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             studentId,
             payableId,
             amount: newPayment,
-            mode: mode || 'cash',
+            mode: normalizeModeForStore(mode) || 'cash',
             reference: reference || '',
             description: `Payment for ${change.type}`,
             date: paymentDate.toISOString(),
@@ -695,8 +725,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           previousPaid: receiptLineItems.reduce((sum, item) => sum + Math.max(0, Number(item.previousBalance || 0)), 0),
           totalPaid: receiptLineItems.reduce((sum, item) => sum + Number(item.payment || 0), 0),
           balance: receiptLineItems.reduce((sum, item) => sum + Math.max(0, Number(item.balance || 0)), 0),
-          mode: receiptModes.length === 1 ? receiptModes[0] : '',
-          reference: receiptReferences.length === 1 ? receiptReferences[0] : '',
+          mode: receiptModes.length === 1 ? receiptModes[0] : receiptModes,
+          reference: receiptReferences.length === 1 ? receiptReferences[0] : receiptReferences.join(', '),
           items: receiptLineItems.map((item) => ({
             payableId: item.payableId,
             description: item.description,
@@ -726,7 +756,9 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       await loadPayables();
 
       if (lastReceiptPreview) {
+        // Use the modal auto-print behavior (same as OtherDepartmentPayables)
         setReceiptData(lastReceiptPreview);
+        setReceiptAutoPrint(true);
         setReceiptModalOpen(true);
       }
     } catch (error) {
@@ -928,8 +960,8 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       totalPaid: totalPayment,
       balance: totalBalance,
       items: receiptItems,
-      mode: modes.length === 1 ? modes[0] : '',
-      reference: references.length === 1 ? references[0] : '',
+      mode: modes.length === 1 ? modes[0] : modes,
+      reference: references.length === 1 ? references[0] : references.join(', '),
       otherPayables,
       totalOtherBalance,
       receivedBy:  ''
@@ -1015,11 +1047,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           {[1, 2, 3, 4].map(year => (
             <button
               key={year}
-              className={`
-                px-3 py-1.5 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
+              className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
                 ${tabValue === year - 1 
-                  ? 'bg-blue-600 text-white border-blue-700 scale-105'
-                  : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                  ? 'bg-blue-100 text-blue-600'
+                  : 'text-gray-800 hover:bg-gray-100'
                 }
                 hover:border-blue-600
               `}
@@ -1030,17 +1061,16 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           ))}
 
           <button
-            className={`
-              px-3 py-1.5 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
+            className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
               ${tabValue === 4
-                ? 'bg-blue-600 text-white border-blue-700 scale-105'
-                : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                ? 'bg-blue-100 text-blue-600'
+                : 'text-gray-800 hover:bg-gray-100'
               }
               hover:border-blue-600
             `}
             onClick={() => setTabValue(4)}
           >
-            Irregular Students
+            Irregulars
           </button>
         </div>
 
@@ -1053,11 +1083,11 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               placeholder="Search students by name..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-1.5 border border-gray-300 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-10 pr-4 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-</div>
+          </div>
           <button
-            className="px-3 py-1.5 bg-green-600 cursor-pointer  text-sm text-white rounded-full hover:bg-green-700 "
+            className="px-3 py-1.5 bg-blue-600 cursor-pointer  text-sm text-white rounded-lg hover:bg-blue-700 "
             onClick={handleAddPayable}
           >
             <BadgePlus className='w-4 h-4 inline-flex mr-1 mb-0.5' />
@@ -1178,65 +1208,65 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           } else {
             // List view
             return (
-              <div className="bg-white border border-gray-300 rounded-lg shadow-lg overflow-hidden">
+              <div className="bg-white border border-gray-300 rounded-xl shadow-lg overflow-hidden">
                 <table className="w-full table-auto">
                  <thead className="bg-blue-600 text-white text-sm">
-  <tr>
-    {/* Student ID */}
-    <th
-      className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[20%]"
-      onClick={() => setSortBy(sortBy === 'id-asc' ? 'id-desc' : 'id-asc')}
-    >
-      <div className="flex items-center gap-2">
-        <span>Student ID</span>
-        {sortBy === 'id-asc' ? (
-          <ChevronUp className="w-4 h-4" />
-        ) : sortBy === 'id-desc' ? (
-          <ChevronDown className="w-4 h-4" />
-        ) : (
-          <ChevronsUpDown className="w-4 h-4 opacity-70" />
-        )}
-      </div>
-    </th>
+                  <tr>
+                    {/* Student ID */}
+                    <th
+                      className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[20%]"
+                      onClick={() => setSortBy(sortBy === 'id-asc' ? 'id-desc' : 'id-asc')}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>Student No.</span>
+                        {sortBy === 'id-asc' ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : sortBy === 'id-desc' ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronsUpDown className="w-4 h-4 opacity-70" />
+                        )}
+                      </div>
+                    </th>
 
-    {/* Student Name */}
-    <th
-      className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[40%]"
-      onClick={() => setSortBy(sortBy === 'name-asc' ? 'name-desc' : 'name-asc')}
-    >
-      <div className="flex items-center gap-2">
-        <span>Student Name</span>
-        {sortBy === 'name-asc' ? (
-          <ChevronUp className="w-4 h-4" />
-        ) : sortBy === 'name-desc' ? (
-          <ChevronDown className="w-4 h-4" />
-        ) : (
-          <ChevronsUpDown className="w-4 h-4 opacity-70" />
-        )}
-      </div>
-    </th>
+                    {/* Student Name */}
+                    <th
+                      className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[40%]"
+                      onClick={() => setSortBy(sortBy === 'name-asc' ? 'name-desc' : 'name-asc')}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>Student Name</span>
+                        {sortBy === 'name-asc' ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : sortBy === 'name-desc' ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronsUpDown className="w-4 h-4 opacity-70" />
+                        )}
+                      </div>
+                    </th>
 
-    {/* Total Balance */}
-    <th
-      className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[20%]"
-      onClick={() => setSortBy(sortBy === 'balance-asc' ? 'balance-desc' : 'balance-asc')}
-    >
-      <div className="flex items-center gap-2">
-        <span>Total Balance</span>
-        {sortBy === 'balance-asc' ? (
-          <ChevronUp className="w-4 h-4" />
-        ) : sortBy === 'balance-desc' ? (
-          <ChevronDown className="w-4 h-4" />
-        ) : (
-          <ChevronsUpDown className="w-4 h-4 opacity-70" />
-        )}
-      </div>
-    </th>
+                    {/* Total Balance */}
+                    <th
+                      className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[20%]"
+                      onClick={() => setSortBy(sortBy === 'balance-asc' ? 'balance-desc' : 'balance-asc')}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>Total Balance</span>
+                        {sortBy === 'balance-asc' ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : sortBy === 'balance-desc' ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronsUpDown className="w-4 h-4 opacity-70" />
+                        )}
+                      </div>
+                    </th>
 
-    {/* Status */}
-    <th className="p-3 text-center w-[20%]">Status</th>
-  </tr>
-</thead>
+                    {/* Status */}
+                    <th className="p-3 text-center w-[20%]">Status</th>
+                  </tr>
+                </thead>
                   <tbody className='text-sm'>
                     {filteredStudents.map((student, index) => {
                       const totalBalance = calculateTotalBalance(student.id);
@@ -1295,7 +1325,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   // Global header handles sign out now
 
   return (
-    <div className="p-4">
+    <div className="">
       {!currentUser && (
         <div className="mx-3 mb-2 p-4 bg-blue-50 border border-blue-200 rounded text-blue-800">
           Please sign in to access the Payables System
@@ -1307,7 +1337,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       
       {currentUser ? (
         <div className=" max-w-7xl mx-auto">
-        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-300 mb-10">
+        <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-300 mb-6">
             <div className="flex items-center gap-6">
               <button
                 onClick={onBackToDashboard}
@@ -1316,11 +1346,11 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
               </button>
               <div className="flex flex-col ">
-              <h5 className="text-2xl font-bold text-blue-600">
-                  Payables Management System
+              <h5 className="text-2xl font-medium text-blue-600">
+                  CCS Payables System
                 </h5>
-                <p className=" text-gray-600">
-                  Manage invoices, track payments, and handle financial transactions for the institution
+                <p className=" text-gray-500 text-sm">
+                  Manage student payables, record payments, and track outstanding balances
                 </p>
               </div>
             </div>
@@ -1513,10 +1543,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             setSelectedStudentModal(null);
             setStagedPayments({});
           }}></div>
-          <div className="bg-white rounded-2xl shadow-lg max-w-2xl w-full max-h-160 relative z-10 flex flex-col overflow-hidden">
-            <div className="flex items-center px-6 py-4 justify-between shadow-b shadow-2xs  sticky top-0 z-20 bg-blue-100">
+          <div className="bg-white rounded-2xl shadow-lg max-w-2xl w-full max-h-[70vh] relative z-10 flex flex-col overflow-hidden">
+            <div className="flex items-center px-6 py-4 justify-between shadow-b shadow-2xs  sticky top-0 z-20 bg-blue-50">
               <div>
-                <h2 className="text-xl font-bold">
+                <h2 className="text-lg font-medium">
                   {selectedStudentModal?.name}
                   {selectedStudentModal?.isIrregular && (
                     <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 ml-2">
@@ -1524,20 +1554,20 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                     </span>
                   )}
                 </h2>
-                <p className="text-sm text-gray-600">
+                <p className="text-xs text-gray-600">
                   {selectedStudentModal?.isIrregular 
                     ? `Irregular Student (${selectedStudentModal.yearLevel === 1 ? '1st' : selectedStudentModal.yearLevel === 2 ? '2nd' : selectedStudentModal.yearLevel === 3 ? '3rd' : '4th'} Year Level) `
-                    : `${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year Student `
+                    : `${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year `
                   }
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  className="px-2 py-1.5 text-sm bg-green-600 cursor-pointer text-white rounded-full hover:bg-green-700 disabled:opacity-50"
+                  className="px-2 py-1.5 text-sm bg-blue-600 cursor-pointer text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                   onClick={handleAddIndividualPayable}
                 >
-                  <BadgePlus className='w-4 h-4 inline-flex mr-1 mb-0.5' />
-                  Add Previous Balance
+                  <BadgePlus className='w-4 h-4 inline-flex mr-1.5 mb-0.5' />
+                  Add Prev. Balance
                 </button>
                
               </div>
@@ -1547,10 +1577,10 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               <div className="flex flex-col md:flex-row gap-2 md:items-center md:justify-between">
                 <div className="flex-1 flex items-center gap-2">
                   <div className="relative w-full md:max-w-sm">
-                    <i className="bi bi-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
                       type="text"
-                      className="w-full pl-9 pr-3 py-1.5 border text-sm border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full pl-9 pr-3 py-1.5 border text-sm border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="Search payables by type..."
                       value={payablesSearch}
                       onChange={(e) => setPayablesSearch(e.target.value)}
@@ -1561,7 +1591,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                <div className="flex items-center gap-2">
                     <Funnel className="w-4 h-4 text-gray-600" />
                     <select
-                      className="px-2 py-1.5 border border-gray-300 rounded-full focus-outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      className="px-2 py-1.5 border border-gray-300 rounded-lg focus-outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                       value={payablesFilter}
                       onChange={(e) => setPayablesFilter(e.target.value)}
                     >
@@ -1613,7 +1643,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   const effectivePayableAmount = Math.max(0, Number(payable.amount || 0) - voucher.amount);
                   const remaining = Math.max(0, effectivePayableAmount - totalPaid);
                   return (
-                    <div key={payable.id} className="border border-gray-200 rounded-xl shadow p-4 bg-white">
+                    <div key={payable.id} className="border border-gray-200 rounded-lg shadow p-4 bg-white">
                       <div className="flex items-center justify-between mb-4">
                         <div className="flex-1">
                           <div className="flex items-center gap-1 mb-1">
@@ -1636,8 +1666,6 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                         <span className={`inline-flex mr-1 items-center px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(studentPayment.status) === 'success' ? 'bg-green-100 text-green-800 border border-green-300' : getStatusColor(studentPayment.status) === 'warning' ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' : 'bg-red-100 text-red-800 border border-red-300'}`}>
                           {getStatusLabel(studentPayment.status)}
                         </span>
-
-                       
 
                       </div>
                       <div>
@@ -1780,15 +1808,20 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                           onWheel={(e) => e.currentTarget.blur()}
                           onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
                         />
-                        <input
-                          type="text"
-                          className={`w-2/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${((stagedPaymentModes?.[payable.id] || 'cash') === 'cash') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          placeholder="Reference (e.g., receipt number)"
-                          value={stagedPaymentReferences?.[payable.id] || ''}
-                          onChange={(e) => setStagedPaymentReferences(prev => ({ ...prev, [payable.id]: e.target.value }))}
-                          disabled={(stagedPaymentModes?.[payable.id] || 'cash') === 'cash'}
-                        />
-                     
+                        {(() => {
+                          const modeVal = String(stagedPaymentModes?.[payable.id] || 'cash').toLowerCase();
+                          const requiresReference = modeVal === 'gcash' || modeVal.includes('bank');
+                          return (
+                            <input
+                              type="text"
+                              className={`w-2/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${!requiresReference ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              placeholder="Reference (e.g., receipt number)"
+                              value={stagedPaymentReferences?.[payable.id] || ''}
+                              onChange={(e) => setStagedPaymentReferences(prev => ({ ...prev, [payable.id]: e.target.value }))}
+                              disabled={!requiresReference}
+                            />
+                          );
+                        })()}
                       </div>
                       
                       </div>
@@ -1914,13 +1947,13 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                   setStagedPayments({});
                   setStagedVouchers({});
                 }}
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Close
               </button>
               <button 
                 onClick={handleShowSummary} 
-                className="px-4 py-1.5 rounded-full text-sm cursor-pointer bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-1.5 rounded-lg text-sm cursor-pointer bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={(Object.keys(stagedPayments).length === 0 && Object.keys(stagedVouchers).length === 0) || confirmLoading}
               >
                 {confirmLoading ? 'Confirming...' : 'Confirm Changes'}
@@ -1933,150 +1966,155 @@ const PayablesSystem = ({ onBackToDashboard }) => {
 
       {/* Summary Modal */}
       {summaryModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => setSummaryModalOpen(false)}></div>
-          <div className="bg-white rounded-2xl shadow-md p-8 max-w-2xl w-full max-h-140 overflow-y-auto relative z-10">
-            <div className="flex items-center justify-between ">
-              <h2 className="text-xl font-bold">Confirm Payment Changes</h2>
-              <button
-                onClick={() => setSummaryModalOpen(false)}
-                className="text-gray-400 hover:text-red-600 cursor-pointer transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            {selectedStudentModal && (
-              <p className="text-sm text-gray-600 mb-4">
-                For: {selectedStudentModal.name}
-              </p>
-            )}
-            <div className="mb-4">
-              {summaryData.changes.length === 0 ? (
-                <p className="text-gray-600">
-                  No changes to confirm.
-                </p>
-              ) : (
-                <div>
-  {summaryData.changes.map((change) => {
-    const totalAmount = Number(change.amount || 0);
-    const originalAmount = Number(change.originalAmount || change.amount || 0);
-    const voucherAmount = Number(change.voucherAmount || 0);
-    const prevPaid = Number(change.currentPaid || 0);
-    const newPaid = Number(change.newTotalPaid || 0);
-    const newPayment = Number(change.newPayment || 0);
+  <div className="fixed inset-0 z-50 flex items-center justify-center">
+    {/* Backdrop */}
+    <div
+      className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50"
+      onClick={() => setSummaryModalOpen(false)}
+    />
 
-    const prevBalance = totalAmount - prevPaid;
-    const newBalance = totalAmount - newPaid;
+    {/* MODAL WRAPPER (keeps rounded corners clean) */}
+    <div className="relative z-10 w-full max-w-lg max-h-[60vh] flex flex-col bg-white rounded-2xl shadow-md overflow-hidden">
 
-    return (
-      <div key={change.payableId} className="border border-gray-200 rounded-2xl p-4 mb-2 shadow-lg bg-white">
-        {/* Header: description/type and status */}
-        <div className="flex justify-between items-start mb-4">
-          <div>
-            <h4 className="text-lg font-semibold">{change.type}</h4>
-
-          </div>
-          <div className="text-right">
-            <div
-              className={`inline-flex items-center justify-center text-xs font-medium px-2 py-0.5 rounded-full border
-              ${
-                newPayment > 0
-                  ? 'bg-green-100 text-green-700 border-green-300'
-                  : 'bg-gray-100 text-gray-500 border-gray-200'
-              }`}
-            >
-              {newPayment > 0 ? 'Paid' : 'No Payment'}
-            </div>
-          </div>
-        </div>
-
-        
-
-        <div className='flex items-start justify-between'>
-          {/* Payment Mode Checkboxes */}
-        <div className=" flex items-center gap-4 text-xs">
-          <label className="inline-flex items-center gap-2">
-            <input type="checkbox" disabled checked={(change.mode || 'cash') === 'cash'} />
-            <span className="ml-1">CASH</span>
-          </label>
-          <label className="inline-flex items-center gap-2">
-            <input type="checkbox" disabled checked={(change.mode || '') === 'gcash'} />
-            <span className="ml-1">GCASH</span>
-          </label>
-          <label className="inline-flex items-center gap-2">
-            <input type="checkbox" disabled checked={(change.mode || '') === 'bank' || (change.mode || '').toLowerCase().includes('bank')} />
-            <span className="ml-1">BANK TRANSFER</span>
-          </label>
-        </div>
-
-        <div className="text-xs text-right">
-          <div>
-            Price: <span className="font-semibold">₱{originalAmount.toLocaleString()}</span>
-          </div>
-          {voucherAmount > 0 && (
-            <div className="text-emerald-700">
-              Voucher: -₱{voucherAmount.toLocaleString()}
-            </div>
-          )}
-          <div>
-            Net Price: <span className="font-semibold">₱{totalAmount.toLocaleString()}</span>
-          </div>
-        </div>
-
-        </div>
-        
-        {(change.reference || change.voucherDescription) && (
-          <div className="mt-1.5  space-y-0.5">
-            {change.reference && <p className="text-xs text-gray-500">Ref #: <span className="font-mono">{change.reference}</span></p>}
-            {change.voucherDescription && <p className="text-xs text-gray-500">Voucher: <span className="font-medium">{change.voucherDescription}</span></p>}
-          </div>
+      {/* HEADER (fixed, not scrollable) */}
+      <div className="p-4 border-b border-gray-200 bg-white">
+        <h2 className="text-xl font-bold">Confirm Payment Changes</h2>
+        {selectedStudentModal && (
+          <p className="text-sm text-gray-600">
+            For: {selectedStudentModal.name}
+          </p>
         )}
-
-        <div className="border-t border-gray-200 mt-0.5"></div>
-
-        {/* Three-column financial snapshot: previous balance, amount paid now, current balance */}
-        <div className="grid grid-cols-3 gap-4 text-xs">
-          <div>
-            <p className="text-gray-500 mb-1">Previous Balance</p>
-            <p className={prevBalance > 0 ? 'text-red-700 font-semibold' : 'text-green-700 font-semibold'}>₱ {prevBalance.toLocaleString()}</p>
-          </div>
-
-          <div className="text-center">
-            <p className="text-gray-500 mb-1">Current Payment</p>
-            <p className="text-sm  text-blue-700 font-semibold">₱ {newPayment.toLocaleString()}</p>
-          </div>
-
-          <div className="text-right">
-            <p className="text-gray-500 mb-1">Balance</p>
-            <p className={newBalance > 0 ? 'text-red-700 font-semibold' : 'text-green-700 font-semibold'}>₱ {newBalance.toLocaleString()}</p>
-          </div>
-        </div>
       </div>
-    );
-  })}
 
+      {/* SCROLLABLE CONTENT AREA */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        
 
-</div>
-              )}
-            </div>
-            <div className="flex gap-2 justify-end mt-4">
-              <button
-                onClick={() => setSummaryModalOpen(false)}
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+        {summaryData.changes.length === 0 ? (
+          <p className="text-gray-600">No changes to confirm.</p>
+        ) : (
+          summaryData.changes.map((change) => {
+            const totalAmount = Number(change.amount || 0);
+            const originalAmount = Number(change.originalAmount || change.amount || 0);
+            const voucherAmount = Number(change.voucherAmount || 0);
+            const prevPaid = Number(change.currentPaid || 0);
+            const newPaid = Number(change.newTotalPaid || 0);
+            const newPayment = Number(change.newPayment || 0);
+
+            const prevBalance = totalAmount - prevPaid;
+            const newBalance = totalAmount - newPaid;
+
+            return (
+              <div
+                key={change.payableId}
+                className="border border-gray-200 rounded-lg p-4 shadow bg-white"
               >
-                Cancel
-              </button>
-              <button
-                onClick={handleFinalConfirm}
-                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
-                disabled={confirmLoading}
-              >
-                {confirmLoading ? 'Confirming...' : 'Confirm  Changes'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                {/* Header */}
+                <div className="flex justify-between items-start mb-4">
+                  <h4 className="text-lg font-semibold">{change.type}</h4>
+
+                  <div
+                    className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full border ${
+                      newPayment > 0
+                        ? "bg-green-100 text-green-700 border-green-300"
+                        : "bg-gray-100 text-gray-500 border-gray-200"
+                    }`}
+                  >
+                    {newPayment > 0 ? "Paid" : "No Payment"}
+                  </div>
+                </div>
+
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-4 text-xs">
+                    {(() => {
+                      const changeModes = normalizeModesValue(change.mode);
+                      return (
+                        <>
+                          <label className="inline-flex items-center gap-2">
+                            <input type="checkbox" disabled checked={changeModes.includes('cash')} />
+                            CASH
+                          </label>
+                          <label className="inline-flex items-center gap-2">
+                            <input type="checkbox" disabled checked={changeModes.includes('gcash')} />
+                            GCASH
+                          </label>
+                          <label className="inline-flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              disabled
+                              checked={changeModes.some(m => m.includes('bank'))}
+                            />
+                            BANK TRANSFER
+                          </label>
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  <div className="text-xs text-right">
+                    <div>
+                      Price: <b>₱{originalAmount.toLocaleString()}</b>
+                    </div>
+                    {voucherAmount > 0 && (
+                      <div className="text-emerald-700">
+                        Voucher: -₱{voucherAmount.toLocaleString()}
+                      </div>
+                    )}
+                   
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-200 my-2" />
+
+                <div className="grid grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <p className="text-gray-500">Previous</p>
+                    <p className={prevBalance > 0 ? "text-red-700 font-semibold" : "text-green-700 font-semibold"}>
+                      ₱{prevBalance.toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="text-center">
+                    <p className="text-gray-500">Payment</p>
+                    <p className="text-blue-700 font-semibold">
+                      ₱{newPayment.toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="text-right">
+                    <p className="text-gray-500">Balance</p>
+                    <p className={newBalance > 0 ? "text-red-700 font-semibold" : "text-green-700 font-semibold"}>
+                      ₱{newBalance.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* FOOTER (fixed) */}
+      <div className="flex gap-2 justify-end p-4 border-t border-gray-200 bg-white">
+        <button
+          onClick={() => setSummaryModalOpen(false)}
+          className="px-4 py-1.5 rounded-lg cursor-pointer text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+
+        <button
+          onClick={handleFinalConfirm}
+          disabled={confirmLoading}
+          className="px-4 py-1.5 rounded-lg  cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {confirmLoading ? "Confirming..." : "Confirm Changes"}
+        </button>
+      </div>
+
+    </div>
+  </div>
+)}
 
       {/* Individual Student Payable Dialog */}
       {individualPayableDialogOpen && (
@@ -2349,7 +2387,16 @@ const PayablesSystem = ({ onBackToDashboard }) => {
         </div>
       )}
       {receiptModalOpen && (
-        <ReceiptModal open={receiptModalOpen} onClose={() => setReceiptModalOpen(false)} receiptData={receiptData} />
+        <ReceiptModal
+          open={receiptModalOpen}
+          onClose={() => {
+            setReceiptModalOpen(false);
+            setReceiptData(null);
+            setReceiptAutoPrint(false);
+          }}
+          receiptData={receiptData}
+          autoPrint={receiptAutoPrint}
+        />
       )}
 
       {showScrollTop && (

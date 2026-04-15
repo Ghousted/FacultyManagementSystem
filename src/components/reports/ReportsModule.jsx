@@ -515,8 +515,8 @@ const ReportsModule = ({ onBackToDashboard }) => {
   };
 
   return (
-    <div className="mt-6">
-      <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-300 mb-6">
+    <div className="">
+      <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-300 mb-6">
         <div className="flex items-center gap-6">
           <button
             onClick={onBackToDashboard}
@@ -527,8 +527,8 @@ const ReportsModule = ({ onBackToDashboard }) => {
                       <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
           </button>
           <div className="flex flex-col">
-            <h2 className="text-2xl font-bold text-blue-700">Dean's List Reports</h2>
-            <p className="text-gray-600">
+            <h2 className="text-2xl font-medium text-blue-700">Dean's List Reports</h2>
+            <p className="text-gray-600 text-sm">
               View detailed reports of students who have achieved academic excellence this semester, including GPA breakdowns and honors.
             </p>
           </div>
@@ -541,10 +541,10 @@ const ReportsModule = ({ onBackToDashboard }) => {
               <button
                 key={tab.value}
                 onClick={() => setTabYear(idx)}
-                className={`px-3 py-1 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+                className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
                   ${ tabYear === idx
-                    ? 'bg-blue-600 text-white border-blue-700 scale-105'
-                    : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                    ? 'bg-blue-100 text-blue-600'
+                    : 'text-gray-800 hover:bg-gray-100'
                 }`}
                 style={{ boxShadow: '0 2px 12px 0 rgba(30, 64, 175, 0.10)' }}
                 title={tab.label}

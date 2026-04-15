@@ -5,7 +5,7 @@ import { doc, deleteDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { FileText } from 'lucide-react';
 import CurriculumPreview from './CurriculumPReview';
-import { X, ChevronUp, ChevronDown, ChevronsUpDown, Pencil, Trash, Printer, BadgePlus, Check , Search, ArrowBigLeft } from 'lucide-react';
+import { X, ChevronUp, ChevronDown, MoreVertical, ChevronsUpDown, Pencil, Trash, Printer, BadgePlus, Check , Search, ArrowBigLeft } from 'lucide-react';
 
 const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const { currentUser, isOnline } = useAuth();
@@ -15,15 +15,14 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  
-  // Curriculum form state
+  const [openMenuId, setOpenMenuId] = useState(null);
+
   const [curriculumForm, setCurriculumForm] = useState({
     name: '',
     description: '',
     yearLevels: [1, 2, 3, 4]
   });
   
-  // Course form state
   const [courseForm, setCourseForm] = useState({
     courseCode: '',
     courseTitle: '',
@@ -33,14 +32,12 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     equivalentSubjectId: ''
   });
   
-  // Dialog states
   const [curriculumDialogOpen, setCurriculumDialogOpen] = useState(false);
   const [courseDialogOpen, setCourseDialogOpen] = useState(false);
   const [selectedYear, setSelectedYear] = useState(1);
   const [selectedSemester, setSelectedSemester] = useState(1);
   const [tabValue, setTabValue] = useState(0);
 
-  // Menu and modal states
   const [menuAnchorEl, setMenuAnchorEl] = useState(null);
   const [selectedCurriculumForMenu, setSelectedCurriculumForMenu] = useState(null);
   const [editCurriculumDialogOpen, setEditCurriculumDialogOpen] = useState(false);
@@ -52,12 +49,9 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const [pdfOpen, setPdfOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewCurriculumId, setPreviewCurriculumId] = useState(null);
-  // Render a print-only preview element (hidden on screen, visible only during printing)
   const [printOnlyOpen, setPrintOnlyOpen] = useState(false);
-  // Sorting state
   const [sortField, setSortField] = useState('courseCode');
   const [sortDirection, setSortDirection] = useState('asc');
-  // Per-semester table filters (1,2,3)
   const [tableFilters, setTableFilters] = useState({ 1: '', 2: '', 3: '' });
   const handleFilterChange = (semester, value) => setTableFilters(prev => ({ ...prev, [semester]: value }));
   const getTotalUnitsByYearAndSemester = (year, semester) => {
@@ -65,7 +59,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     return list.reduce((sum, c) => sum + (parseFloat(c.units ?? 0) || 0), 0);
   };
 
-  // Editing states
   const [editingCourse, setEditingCourse] = useState(null);
   const [editingData, setEditingData] = useState({});
   const [editingEquivalents, setEditingEquivalents] = useState([]);
@@ -76,24 +69,20 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     3: { courseCode: '', courseTitle: '', units: '', prerequisites: [], isAvailable: true }
   });
 
-  // Prerequisite selection modal state
   const [prereqModalOpen, setPrereqModalOpen] = useState(false);
   const [prereqTarget, setPrereqTarget] = useState({ type: null, courseId: null, year: null, semester: null });
   const [tempSelectedPrereqs, setTempSelectedPrereqs] = useState([]);
   const [prereqViewYear, setPrereqViewYear] = useState(1);
   const [prereqSearchTerm, setPrereqSearchTerm] = useState('');
 
-  // Equivalent selection modal state
   const [equivModalOpen, setEquivModalOpen] = useState(false);
   const [equivTarget, setEquivTarget] = useState({ type: null, courseId: null, year: null, semester: null });
   const [tempSelectedEquivs, setTempSelectedEquivs] = useState([]);
   const [equivSelectedCurriculumId, setEquivSelectedCurriculumId] = useState(null);
   const [equivSearchTerm, setEquivSearchTerm] = useState('');
-  // Equivalents modal sorting state
   const [equivSortField, setEquivSortField] = useState('courseCode');
   const [equivSortDirection, setEquivSortDirection] = useState('asc');
 
-  // Equivalent subject selection state
   const [selectedEquivalent, setSelectedEquivalent] = useState([]);
   const [allCourses, setAllCourses] = useState([]);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -103,7 +92,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       setError('Please sign in to access curriculum data');
       return;
     }
-    
     setLoading(true);
     setError('');
     const result = await getCurriculums(isOnline);
@@ -222,7 +210,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     };
   }, []);
 
-  // Auto-hide snackbar to mimic previous MUI behavior
   useEffect(() => {
     if (snackbarOpen) {
       const t = setTimeout(() => setSnackbarOpen(false), 6000);
@@ -230,7 +217,24 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     }
   }, [snackbarOpen]);
 
-  // When printOnlyOpen becomes true, wait briefly for the preview to render then trigger print
+  useEffect(() => {
+    if (openMenuId === null) return;
+
+    const handleOutsideMenuClick = (event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-curriculum-menu]')) return;
+      setOpenMenuId(null);
+    };
+
+    document.addEventListener('mousedown', handleOutsideMenuClick);
+    document.addEventListener('touchstart', handleOutsideMenuClick, { passive: true });
+
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideMenuClick);
+      document.removeEventListener('touchstart', handleOutsideMenuClick);
+    };
+  }, [openMenuId]);
+
   useEffect(() => {
     if (!printOnlyOpen) return;
     const timer = setTimeout(() => {
@@ -245,7 +249,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     return () => clearTimeout(timer);
   }, [printOnlyOpen]);
 
-  // Helper function to show snackbar messages
   const showMessage = (message, severity = 'success') => {
     setSnackbarMessage(message);
     setSnackbarSeverity(severity);
@@ -274,7 +277,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     }
   };
 
-  // Menu handlers
   const handleMenuOpen = (event, curriculum) => {
     event.stopPropagation();
     setMenuAnchorEl(event.currentTarget);
@@ -287,6 +289,10 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   };
 
   const handleEditCurriculum = () => {
+    if (!selectedCurriculumForMenu) {
+      // Optionally show a message or just return silently
+      return;
+    }
     setEditingCurriculumData({
       name: selectedCurriculumForMenu.name,
       description: selectedCurriculumForMenu.description,
@@ -363,10 +369,9 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       }
       
       setDeleteCurriculumDialogOpen(false);
-      // Clear the menu state after successful deletion
       setSelectedCurriculumForMenu(null);
       await loadCurriculums();
-      await loadAllCourses(); // Reload all courses since some may have been deleted
+      await loadAllCourses(); 
     } catch (error) {
       showMessage('Failed to delete curriculum: ' + error.message, 'error');
     } finally {
@@ -410,7 +415,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setLoading(true);
     setError('');
     try {
-      // If equivalentSubjectId is not set but equivalents are selected, generate a new id
       let eqId = courseForm.equivalentSubjectId;
       if (!eqId && selectedEquivalent && selectedEquivalent.length > 0) {
         eqId = 'EQ_' + Math.random().toString(36).substr(2, 9);
@@ -447,7 +451,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       isAvailable: course.isAvailable !== undefined ? course.isAvailable : true,
       equivalentSubjectId: course.equivalentSubjectId || ''
     });
-    // Set the current equivalents for editing
     const currentEquivalents = allCourses.filter(c => 
       c.equivalentSubjectId && 
       c.equivalentSubjectId === course.equivalentSubjectId && 
@@ -457,10 +460,8 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setHasChanges(false);
   };
 
-  // Open prerequisites modal for editing an existing course
   const openPrereqModalForEditing = (course) => {
     setPrereqTarget({ type: 'editing', courseId: course.id, year: course.yearLevel, semester: course.semester });
-    // If we are currently editing this course we should prefer the in-memory editingData so changes persist
     if (editingCourse === course.id && editingData && Array.isArray(editingData.prerequisites)) {
       setTempSelectedPrereqs(editingData.prerequisites || []);
     } else {
@@ -471,7 +472,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setPrereqModalOpen(true);
   };
 
-  // Open prerequisites modal for the new-course row (table)
   const openPrereqModalForNewCourse = (year, semester) => {
     setPrereqTarget({ type: 'new', courseId: null, year, semester });
     setTempSelectedPrereqs(newCourseData[semester]?.prerequisites || []);
@@ -480,7 +480,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setPrereqModalOpen(true);
   };
 
-  // Open prerequisites modal for the Add Course form modal
   const openPrereqModalForForm = () => {
     setPrereqTarget({ type: 'form', courseId: null, year: selectedYear, semester: selectedSemester });
     setTempSelectedPrereqs(courseForm.prerequisites || []);
@@ -507,7 +506,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setPrereqModalOpen(false);
   };
 
-  // Equivalent modals
   const openEquivModalForEditing = (course) => {
     setEquivTarget({ type: 'editing', courseId: course.id, year: course.yearLevel, semester: course.semester });
     setTempSelectedEquivs(editingEquivalents || []);
@@ -528,7 +526,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const saveEquivsFromModal = () => {
     if (equivTarget.type === 'editing') {
       setEditingEquivalents(tempSelectedEquivs);
-      // ensure editingData has an equivalentSubjectId
       const eqId = editingData.equivalentSubjectId || (tempSelectedEquivs.length > 0 ? 'EQ_' + Math.random().toString(36).substr(2, 9) : '');
       setEditingData(prev => ({ ...prev, equivalentSubjectId: eqId }));
       setHasChanges(true);
@@ -555,21 +552,17 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setError('');
     try {
       const batch = writeBatch(db);
-      
-      // Update the main course
       const courseRef = doc(db, 'courses', editingCourse);
       batch.update(courseRef, {
         ...editingData,
         updatedAt: new Date()
       });
       
-      // Update equivalent subjects if any are selected
       if (editingEquivalents.length > 0) {
         const selectedEquivalentCourses = allCourses.filter(c => 
           editingEquivalents.includes(c.courseCode) && c.id !== editingCourse
         );
         
-        // Update all selected equivalent courses to have the same equivalentSubjectId
         selectedEquivalentCourses.forEach(equivalentCourse => {
           const equivalentRef = doc(db, 'courses', equivalentCourse.id);
           batch.update(equivalentRef, {
@@ -747,8 +740,9 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   };
 
   const renderCurriculumList = () => (
-    <div className="max-w-7xl mx-auto">
-      <div className=" bg-white text-black p-6 rounded-2xl mb-10 flex items-center justify-between border border-gray-300 shadow-lg">
+    <div className="">
+
+      <div className=" bg-white text-black p-8 rounded-2xl mb-10 flex items-center justify-between border border-gray-300 shadow-lg">
         <div className="flex items-center gap-6">
           <button
             onClick={onBack}
@@ -758,71 +752,89 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
           >
             <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
           </button>
-            <div className="flex flex-col ">
-              <h2 className="text-2xl font-bold text-blue-600">
-              Curriculum Maker</h2>
-          <p className="text-gray-600">Select a curriculum to manage courses</p></div>         
+          <div className="flex flex-col ">
+            <h2 className="text-2xl font-medium text-blue-600">Curriculum Maker</h2>
+            <p className="text-gray-500 text-sm">
+              Create and manage your curriculum. Click on a curriculum to view and edit its courses.
+            </p>
+          </div>         
         </div>
         <button
           onClick={() => setCurriculumDialogOpen(true)}
-          className="inline-flex  cursor-pointer items-center text-sm gap-2 bg-green-600 text-white px-4 py-2 rounded-full hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300 focus:ring-offset-2 focus:ring-offset-white"
+          className="inline-flex  cursor-pointer items-center text-sm gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700"
         >
           <BadgePlus className="w-4 h-4" />
           <span>Add  Curriculum</span>
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {curriculums.map((curriculum) => (
-          <div
-            key={curriculum.id}
-            onClick={() => setSelectedCurriculum(curriculum)}
-            className={`relative px-4 py-8 rounded-2xl border transition shadow-sm cursor-pointer hover:shadow-lg hover:-translate-y-0.5 ${
-              selectedCurriculum?.id === curriculum.id
-                ? 'border-blue-600 bg-blue-50'
-                : 'border-gray-200 bg-white hover:border-blue-400'
-            }`}
-          >
-           
-           <div className='flex items-start justify-between'>
-             <div>
-              <p
-              className="text-xs font-medium text-gray-500  uppercase tracking-wide"
-            >
-              Curriculum
-            </p>
-            <h3 className="text-lg font-bold mb-6 pr-8">{curriculum.name}</h3>
-             </div>
-             <div className='flex items-start gap-1'>
-                <button
-              className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-                  onClick={(e) => { e.stopPropagation(); setSelectedCurriculumForMenu(curriculum); handleEditCurriculum(); }}
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-                <button
-              className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-                  onClick={(e) => { e.stopPropagation(); setSelectedCurriculumForMenu(curriculum); handleDeleteCurriculumClick(); }}
-                >
-                  <Trash className="w-4 h-4" />
-                </button>
-             </div>
-           </div>
-
-            <div className="flex flex-wrap gap-2">
-              {curriculum.yearLevels.map((year) => (
-                <span
-                  key={year}
-                  className="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 text-xs"
-                >
-                  Year {year}
-                </span>
-              ))}
+       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      {curriculums.map((curriculum) => (
+        <div
+          key={curriculum.id}
+          onClick={() => setSelectedCurriculum(curriculum)}
+          className={`relative px-4 py-8 rounded-xl border transition shadow-sm cursor-pointer hover:shadow-lg hover:-translate-y-0.5 ${
+            selectedCurriculum?.id === curriculum.id
+              ? "border-blue-600 bg-blue-50"
+              : "border-gray-300 bg-white hover:border-blue-400"
+          }`}
+        >
+          {/* Header */}
+          <div className="flex items-start justify-between h-18">
+            <div>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                Curriculum
+              </p>
+              <h3 className="text-lg font-semibold text-blue-800  pr-8">{curriculum.name}</h3>
             </div>
-           
+
+            {/* 3 dots button */}
+            <div className="relative" data-curriculum-menu>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpenMenuId((prev) => (prev === curriculum.id ? null : curriculum.id));
+                }}
+                className="p-1.5 rounded-full text-gray-700 hover:bg-gray-200 cursor-pointer"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+              {/* Dropdown */}
+              {openMenuId === curriculum.id && (
+                <div
+                  className="absolute right-0 mt-2 w-32 bg-white border border-gray-300 rounded-lg shadow-lg z-10"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => {
+                      setSelectedCurriculumForMenu(curriculum);
+                      handleEditCurriculum();
+                      setOpenMenuId(null);
+                    }}
+                    className="rounded-t-lg gap-2 text-left  cursor-pointer w-full px-3 py-1.5 text-sm hover:bg-gray-100"
+                  >
+                    Edit
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setSelectedCurriculumForMenu(curriculum);
+                      handleDeleteCurriculumClick();
+                      setOpenMenuId(null);
+                    }}
+                    className="rounded-t-lg gap-2 text-left  cursor-pointer w-full px-3 py-1.5 text-sm hover:bg-gray-100"
+                  >
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        ))}
-      </div>
+          
+        </div>
+      ))}
+    </div>
 
       {curriculums.length === 0 && (
         <div className="text-center py-8">
@@ -854,376 +866,369 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       <div>
     
 
-      <div className="mb-3 flex flex-wrap gap-2 text-sm">
+      <div className="mb-6 flex flex-wrap gap-2 text-sm">
         {[1, 2, 3, 4].map((year, idx) => (
           <button
             key={year}
             onClick={() => { setTabValue(idx); setSelectedYear(year); }}
-                className={`px-3 py-1  rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+            className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
                       ${tabValue === idx 
-                        ? 'bg-blue-600 text-white border-blue-700 scale-105'
-                        : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                        ? 'bg-blue-100 text-blue-600'
+                        : 'text-gray-800 hover:bg-gray-100'
                       }`}
           >
             {yearLabels[idx]}
           </button>
         ))}
-
         <button
           onClick={() => { setTabValue(4); setSelectedYear('irregular'); }}
-          className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
-                      ${tabValue === 4 
-                        ? 'bg-blue-600 text-white border-blue-700 scale-105'
-                    : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
-                      }`}
+          className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
+                    ${tabValue === 4 
+                      ? 'bg-blue-100 text-blue-600'
+                      : 'text-gray-800 hover:bg-gray-100'
+                    }`}
         >
-          Irregular Students
+          Irregulars
         </button>
       </div>
 
       <div>
-          {([1, 2, selectedYear === 3 ? 3 : null].filter(Boolean)).map((semester) => (
-            <div key={semester} className="mt-4 mb-8">
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <h3 className="text-lg font-semibold text-blue-700">{semLabel(semester)} Semester</h3>
-                <div className="relative w-full max-w-xs">
-                  <input
-                    className="w-full px-3 py-1.5 text-sm rounded-full border border-gray-300 focus:ring-2 focus:ring-blue-200 focus:border-blue-400 "
-                    placeholder="Search code or title"
-                    value={tableFilters[semester] || ''}
-                    onChange={(e) => handleFilterChange(semester, e.target.value)}
-                  />
-                </div>
-              </div>
+        {([1, 2, selectedYear === 3 ? 3 : null].filter(Boolean)).map((semester) => (
+          <div key={semester} className="mt-4 mb-8">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <h3 className="font-semibold text-blue-700">{semLabel(semester)} Semester</h3>
+          
+            </div>
 
-              <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="sticky top-0 z-10 bg-blue-700 text-white">
-                       <th className="p-2 w-[15%] text-left" aria-sort={sortField === 'courseCode' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                        <button 
-                          title="Sort by Course Code" 
-                          onClick={() => handleSort('courseCode')} 
-                          className="inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          <span>Course Code</span>
-                          {sortField === 'courseCode' ? (
-                            <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
-                          ) : (
-                            <ChevronsUpDown className="w-4 opacity-80" />
-                          )}
-                        </button>
-                      </th>
-                      <th className="p-2 w-[35%] text-left" aria-sort={sortField === 'courseTitle' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                        <button title="Sort by Course Title" onClick={() => handleSort('courseTitle')} className="inline-flex items-center gap-1">
-                          <span>Course Title</span>
-                          {sortField === 'courseTitle' ? (
-                            <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
-                          ) : (
-                            <ChevronsUpDown className="w-4 opacity-80" />
-                          )}
-                        </button>
-                      </th>
-                      <th className="p-2 w-[5%] text-left" aria-sort={sortField === 'units' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
-                        <button title="Sort by Units" onClick={() => handleSort('units')} className="inline-flex items-center gap-1">
-                          <span>Units</span>
-                          {sortField === 'units' ? (
-                            <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
-                          ) : (
-                            <ChevronsUpDown className="w-4 opacity-80" />
-                          )}
-                        </button>
-                      </th>
-                      <th className="p-2 w-[20%] text-left">Prerequisites</th>
-                      <th className="p-2 w-[20%] text-left">Equivalent Subjects</th>
-                      <th className="p-2 w-[10%] text-left">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-white text-sm">Major</span>
-                        </div>
-                      </th>
-                      <th className="p-2 w-[15%] text-left">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={areAllAvailable(selectedYear, semester)}
-                            onChange={(e) => handleSelectAllAvailable(selectedYear, semester, e.target.checked)}
-                            className="h-4 w-4 accent-blue-600"
-                          />
-                          <span className="font-semibold text-white text-sm">Available</span>
-                        </div>
-                      </th>
-                      <th className="p-2 w-[15%] text-left">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      const list = getSortedCoursesByYearAndSemester(selectedYear, semester);
-                      const q = (tableFilters[semester] || '').toLowerCase().trim();
-                      const filtered = q
-                        ? list.filter((c) =>
-                            (c.courseCode || '').toLowerCase().includes(q) ||
-                            (c.courseTitle || '').toLowerCase().includes(q)
-                          )
-                        : list;
-                      return filtered.map((course) => {
-                      const isEditing = editingCourse === course.id;
-                      const data = isEditing ? editingData : course;
-                      const equivalents = allCourses.filter(
-                        (c) => c.equivalentSubjectId && c.equivalentSubjectId === data.equivalentSubjectId && c.id !== course.id
-                      );
+            <div className="overflow-x-auto rounded-xl border border-gray-200">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="sticky top-0 z-10 bg-blue-500 text-white">
+                      <th className="px-4 py-2 w-[10%] text-left" aria-sort={sortField === 'courseCode' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                      <button 
+                        title="Sort by Course Code" 
+                        onClick={() => handleSort('courseCode')} 
+                        className="inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>Code</span>
+                        {sortField === 'courseCode' ? (
+                          <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
+                        ) : (
+                          <ChevronsUpDown className="w-4 opacity-80" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-4 py-2 w-[35%] text-left" aria-sort={sortField === 'courseTitle' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                      <button title="Sort by Course Title" onClick={() => handleSort('courseTitle')} className="inline-flex items-center gap-1">
+                        <span>Course Description</span>
+                        {sortField === 'courseTitle' ? (
+                          <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
+                        ) : (
+                          <ChevronsUpDown className="w-4 opacity-80" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-4 py-2 w-[5%] text-left" aria-sort={sortField === 'units' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                      <button title="Sort by Units" onClick={() => handleSort('units')} className="inline-flex items-center gap-1">
+                        <span>Units</span>
+                        {sortField === 'units' ? (
+                          <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
+                        ) : (
+                          <ChevronsUpDown className="w-4 opacity-80" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-4 py-2 w-[15%] text-left">Prerequisites</th>
+                    <th className="px-4 py-2 w-[20%] text-left">Equivalent Subjects</th>
+                    <th className="px-4 py-2 w-[5%] text-left">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-white text-sm">Major</span>
+                      </div>
+                    </th>
+                    <th className="p-2 w-[10%] text-left">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={areAllAvailable(selectedYear, semester)}
+                          onChange={(e) => handleSelectAllAvailable(selectedYear, semester, e.target.checked)}
+                          className="h-4 w-4 accent-blue-600"
+                        />
+                        <span className="font-semibold text-white text-sm">Available</span>
+                      </div>
+                    </th>
+                    <th className="px-4 py-2 w-[10%] text-left">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const list = getSortedCoursesByYearAndSemester(selectedYear, semester);
+                    const q = (tableFilters[semester] || '').toLowerCase().trim();
+                    const filtered = q
+                      ? list.filter((c) =>
+                          (c.courseCode || '').toLowerCase().includes(q) ||
+                          (c.courseTitle || '').toLowerCase().includes(q)
+                        )
+                      : list;
+                    return filtered.map((course) => {
+                    const isEditing = editingCourse === course.id;
+                    const data = isEditing ? editingData : course;
+                    const equivalents = allCourses.filter(
+                      (c) => c.equivalentSubjectId && c.equivalentSubjectId === data.equivalentSubjectId && c.id !== course.id
+                    );
 
-                      return (
-                        <tr key={course.id} className={`${isEditing ? 'bg-amber-50' : 'hover:bg-gray-100'} odd:bg-white even:bg-gray-50 border-t border-gray-300`}> 
-                          <td className="p-2 align-top">
-                            {isEditing ? (
-                              <input
-                                className="w-28 border border-gray-300 rounded px-2 py-1"
-                                value={data.courseCode}
-                                onChange={(e) => handleInputChange('courseCode', e.target.value)}
-                              />
-                            ) : (
-                              <span className="font-semibold text-blue-700">{course.courseCode}</span>
-                            )}
-                          </td>
-                          <td className="p-2 align-top">
-                            {isEditing ? (
-                              <input
-                                className="w-full border border-gray-300 rounded px-2 py-1"
-                                value={data.courseTitle}
-                                onChange={(e) => handleInputChange('courseTitle', e.target.value)}
-                              />
-                            ) : (
-                              <span>{course.courseTitle}</span>
-                            )}
-                          </td>
-                          <td className="p-2 align-top text-center">
-                            {isEditing ? (
-                              <input
-                                type="number"
-                                className="w-16 border border-gray-300 rounded px-2 py-1"
-                                value={data.units}
-                                onChange={(e) => handleInputChange('units', e.target.value)}
-                              />
-                            ) : (
-                              <span className="font-medium text-gray-800">
-                                {course.units}
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-2 align-top">
-                            {isEditing ? (
-                              <div>
-                                <button
-                                  onClick={() => openPrereqModalForEditing(course)}
-                                  className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-                                >
-                                  {(editingData.prerequisites || []).length > 0 ? (editingData.prerequisites || []).join(', ') : 'Select Prerequisites'}
-                                </button>
-                              </div>
-                            ) : data.prerequisites.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {data.prerequisites.map((pr) => (
-                                  <span key={pr} className="px-2 py-0.5 bg-gray-100 rounded-full text-xs text-gray-700">
-                                    {pr}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-gray-500">None</span>
-                            )}
-                          </td>
-                          <td className="p-2 align-top">
-                            {isEditing ? (
-                              <div>
-                                <button
-                                  onClick={() => openEquivModalForEditing(course)}
-                                  className="p-1.5 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-                                >
-                                  {(editingEquivalents || []).length > 0 ? (editingEquivalents || []).join(', ') : 'Select Equivalent Subjects'}
-                                </button>
-                              </div>
-                            ) : equivalents.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {equivalents.map((eq) => (
-                                  <span key={eq.id} className="px-2 py-0.5 bg-gray-100 rounded-full text-xs text-gray-700">
-                                    {eq.courseCode}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-gray-500">None</span>
-                            )}
-                          </td>
-                          <td className="p-2 align-top">
-                            {isEditing ? (
-                              <input
-                                type="checkbox"
-                                checked={data.isMajor || false}
-                                onChange={(e) => handleInputChange('isMajor', e.target.checked)}
-                                className="h-4 w-4 accent-purple-600"
-                              />
-                            ) : (
-                              <input type="checkbox" checked={course.isMajor === true} disabled className="h-4 w-4 accent-purple-600" />
-                            )}
-                          </td>
-                          <td className="p-2 align-top">
-                            {isEditing ? (
-                              <input
-                                type="checkbox"
-                                checked={data.isAvailable}
-                                onChange={(e) => handleInputChange('isAvailable', e.target.checked)}
-                                className="h-4 w-4 accent-blue-600"
-                              />
-                            ) : (
-                              <input type="checkbox" checked={course.isAvailable !== false} disabled className="h-4 w-4 accent-blue-600" />
-                            )}
-                          </td>
-                          <td className="p-2 align-top">
-                            <div className="flex items-center gap-2">
-                              {isEditing ? (
-                                <button
-                                  onClick={hasChanges ? handleSaveCourse : handleCancelEdit}
-                                  disabled={loading}
-                                  className={`p-1 rounded text-xs font-medium border ${
-                                    hasChanges ? 'bg-green-600 text-white border-green-600 hover:bg-green-700' : 'bg-blue-500 hover:bg-blue-600 text-white border-blue-600'
-                                  }`}
-                                >
-                                  {hasChanges ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleEditCourse(course)}
-                                  className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-                                  title="Edit course"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </button>
-                              )}
+                    return (
+                      <tr key={course.id} className={`${isEditing ? 'bg-amber-50' : 'hover:bg-gray-100'} odd:bg-white even:bg-gray-50 border-t border-gray-300`}> 
+                        <td className="px-4 py-2 w-[10%] align-top">
+                          {isEditing ? (
+                            <input
+                              className="w-28 border border-gray-300 rounded px-2 py-1"
+                              value={data.courseCode}
+                              onChange={(e) => handleInputChange('courseCode', e.target.value)}
+                            />
+                          ) : (
+                            <span className="font-semibold text-blue-700">{course.courseCode}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 w-[35%] align-top">
+                          {isEditing ? (
+                            <input
+                              className="w-full border border-gray-300 rounded px-2 py-1"
+                              value={data.courseTitle}
+                              onChange={(e) => handleInputChange('courseTitle', e.target.value)}
+                            />
+                          ) : (
+                            <span>{course.courseTitle}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 w-[5%] align-top text-center">
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              className="w-16 border border-gray-300 rounded px-2 py-1"
+                              value={data.units}
+                              onChange={(e) => handleInputChange('units', e.target.value)}
+                            />
+                          ) : (
+                            <span className="font-medium text-gray-800">
+                              {course.units}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 w-[15%] align-top">
+                          {isEditing ? (
+                            <div>
                               <button
-                                onClick={() => handleDeleteCourse(course.id)}
-                                disabled={loading}
-                                className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-                                title="Delete course"
+                                onClick={() => openPrereqModalForEditing(course)}
+                        className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
                               >
-                                <Trash className="w-4 h-4" />
+                                {(editingData.prerequisites || []).length > 0 ? (editingData.prerequisites || []).join(', ') : 'Select Prerequisites'}
                               </button>
                             </div>
+                          ) : data.prerequisites.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {data.prerequisites.map((pr) => (
+                                <span key={pr} className="px-2 py-0.5 bg-gray-100 rounded-full text-xs text-gray-700">
+                                  {pr}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-500">None</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 w-[20%] align-top">
+                          {isEditing ? (
+                            <div>
+                              <button
+                                onClick={() => openEquivModalForEditing(course)}
+                        className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
+                              >
+                                {(editingEquivalents || []).length > 0 ? (editingEquivalents || []).join(', ') : 'Select Equivalent Subjects'}
+                              </button>
+                            </div>
+                          ) : equivalents.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {equivalents.map((eq) => (
+                                <span key={eq.id} className="px-2 py-0.5 bg-gray-100 rounded-full text-xs text-gray-700">
+                                  {eq.courseCode}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-500">None</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 w-[5%] align-top">
+                          {isEditing ? (
+                            <input
+                              type="checkbox"
+                              checked={data.isMajor || false}
+                              onChange={(e) => handleInputChange('isMajor', e.target.checked)}
+                              className="h-4 w-4 accent-purple-600"
+                            />
+                          ) : (
+                            <input type="checkbox" checked={course.isMajor === true} disabled className="h-4 w-4 accent-purple-600" />
+                          )}
+                        </td>
+                        <td className="px-2 py-2 w-[10%] align-top">
+                          {isEditing ? (
+                            <input
+                              type="checkbox"
+                              checked={data.isAvailable}
+                              onChange={(e) => handleInputChange('isAvailable', e.target.checked)}
+                              className="h-4 w-4 accent-blue-600"
+                            />
+                          ) : (
+                            <input type="checkbox" checked={course.isAvailable !== false} disabled className="h-4 w-4 accent-blue-600" />
+                          )}
+                        </td>
+                        <td className="px-4 py-2 w-[10%] align-top">
+                          <div className="flex items-center gap-2">
+                            {isEditing ? (
+                              <button
+                                onClick={hasChanges ? handleSaveCourse : handleCancelEdit}
+                                disabled={loading}
+                                className={`p-1 rounded-full text-xs cursor-pointer font-medium  ${
+                                  hasChanges ? 'bg-green-50 text-green-600 hover:bg-green-100' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                                }`}
+                              >
+                                {hasChanges ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleEditCourse(course)}
+                                className="p-1 rounded-full text-gray-700  hover:bg-blue-100 cursor-pointer"
+                                title="Edit course"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteCourse(course.id)}
+                              disabled={loading}
+                                className="p-1 rounded-full text-gray-700  hover:bg-blue-100 cursor-pointer"
+                              title="Delete course"
+                            >
+                              <Trash className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  });})()}
+
+                  {/* New Course Row */}
+                  <tr className="bg-blue-50">
+                    <td className="px-4 py-2 w-[10%]">
+                      <input
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-0"                          
+                        placeholder="Code"
+                        value={newCourseData[semester]?.courseCode || ''}
+                        onChange={(e) => handleNewCourseInputChange('courseCode', e.target.value, semester)}
+                      />
+                    </td>
+                    <td className="px-4 py-2 w-[35%]">
+                      <input
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-0"                          
+                        placeholder="Course Description"
+                        value={newCourseData[semester]?.courseTitle || ''}
+                        onChange={(e) => handleNewCourseInputChange('courseTitle', e.target.value, semester)}
+                      />
+                    </td>
+                    <td className="px-4 py-2 w-[5%]">
+                      <input
+                        type="number"
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-0"                          
+                        placeholder="Units"
+                        value={newCourseData[semester]?.units || ''}
+                        onChange={(e) => handleNewCourseInputChange('units', e.target.value, semester)}
+                      />
+                    </td>
+                    <td className="px-4 py-2 w-[15%]">
+                      <button
+                        onClick={() => openPrereqModalForNewCourse(selectedYear, semester)}
+                        className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
+                      >
+                        {(newCourseData[semester]?.prerequisites || []).length > 0 ? (newCourseData[semester].prerequisites || []).join(', ') : 'Select Prerequisites'}
+                      </button>
+                    </td>
+                    <td className="px-4 py-2 w-[20%]">
+                      <button
+                        onClick={() => openEquivModalForNewCourse(semester)}
+                        className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
+                      >
+                        {(selectedEquivalent || []).length > 0 ? (selectedEquivalent || []).join(', ') : 'Select Equivalent Subjects '}
+                      </button>
+                    </td>
+                    <td className="px-4 py-2 w-[5%]">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-purple-600"
+                        checked={newCourseData[semester]?.isMajor ?? false}
+                        onChange={(e) => handleNewCourseInputChange('isMajor', e.target.checked, semester)}
+                      />
+                    </td>
+                        <td className="px-2 py-2 w-[10%] ">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-blue-600"
+                        checked={newCourseData[semester]?.isAvailable ?? true}
+                        onChange={(e) => handleNewCourseInputChange('isAvailable', e.target.checked, semester)}
+                      />
+                    </td>
+                    <td className="px-4 py-2 w-[10%]">
+                      <button
+                        onClick={() => handleAddNewCourse(semester)}
+                        disabled={
+                          loading ||
+                          !newCourseData[semester]?.courseCode ||
+                          !newCourseData[semester]?.courseTitle ||
+                          !newCourseData[semester]?.units
+                        }
+                        
+                        className="px-3 py-1 flex cursor-pointer items-center gap-1 rounded-lg text-xs font-medium bg-blue-600 text-white border border-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <BadgePlus className="w-4 h-4 inline" />
+                        Add
+                      </button>
+                    </td>
+                  </tr>
+
+                  {(() => {
+                    const base = getCoursesByYearAndSemester(selectedYear, semester);
+                    const q = (tableFilters[semester] || '').toLowerCase().trim();
+                    const filtered = q
+                      ? base.filter((c) =>
+                          (c.courseCode || '').toLowerCase().includes(q) ||
+                          (c.courseTitle || '').toLowerCase().includes(q)
+                        )
+                      : base;
+                    if (filtered.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={7} className="text-center text-gray-500 py-2">
+                            {base.length === 0
+                              ? `No courses in ${selectedYear === 1 ? '1st' : selectedYear === 2 ? '2nd' : selectedYear === 3 ? '3rd' : '4th'} Year, ${semLabel(semester)} Semester`
+                              : `No matches for "${tableFilters[semester]}"`}
                           </td>
                         </tr>
                       );
-                    });})()}
-
-                    {/* New Course Row */}
-                    <tr className="bg-blue-50">
-                      <td className="p-2">
-                        <input
-                          className="w-28 border border-gray-300 rounded px-2 py-1"
-                          placeholder="Course Code"
-                          value={newCourseData[semester]?.courseCode || ''}
-                          onChange={(e) => handleNewCourseInputChange('courseCode', e.target.value, semester)}
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          className="w-full border border-gray-300 rounded px-2 py-1"
-                          placeholder="Course Title"
-                          value={newCourseData[semester]?.courseTitle || ''}
-                          onChange={(e) => handleNewCourseInputChange('courseTitle', e.target.value, semester)}
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          className="w-16 border border-gray-300 rounded px-2 py-1"
-                          placeholder="Units"
-                          value={newCourseData[semester]?.units || ''}
-                          onChange={(e) => handleNewCourseInputChange('units', e.target.value, semester)}
-                        />
-                      </td>
-                      <td className="p-2">
-                        <button
-                          onClick={() => openPrereqModalForNewCourse(selectedYear, semester)}
-                          className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
-                        >
-                          {(newCourseData[semester]?.prerequisites || []).length > 0 ? (newCourseData[semester].prerequisites || []).join(', ') : 'Select Prerequisites'}
-                        </button>
-                      </td>
-                      <td className="p-2">
-                        <button
-                          onClick={() => openEquivModalForNewCourse(semester)}
-                          className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
-                        >
-                          {(selectedEquivalent || []).length > 0 ? (selectedEquivalent || []).join(', ') : 'Select Equivalent Subjects '}
-                        </button>
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-purple-600"
-                          checked={newCourseData[semester]?.isMajor ?? false}
-                          onChange={(e) => handleNewCourseInputChange('isMajor', e.target.checked, semester)}
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-blue-600"
-                          checked={newCourseData[semester]?.isAvailable ?? true}
-                          onChange={(e) => handleNewCourseInputChange('isAvailable', e.target.checked, semester)}
-                        />
-                      </td>
-                      <td className="p-2">
-                        <button
-                          onClick={() => handleAddNewCourse(semester)}
-                          disabled={
-                            loading ||
-                            !newCourseData[semester]?.courseCode ||
-                            !newCourseData[semester]?.courseTitle ||
-                            !newCourseData[semester]?.units
-                          }
-                          
-                          className="px-3 py-1 flex cursor-pointer items-center gap-1 rounded-lg text-xs font-medium bg-green-600 text-white border border-green-600 disabled:opacity-50"
-                        >
-                          <BadgePlus className="w-4 h-4 inline" />
-                          Add
-                        </button>
-                      </td>
-                    </tr>
-
-                    {(() => {
-                      const base = getCoursesByYearAndSemester(selectedYear, semester);
-                      const q = (tableFilters[semester] || '').toLowerCase().trim();
-                      const filtered = q
-                        ? base.filter((c) =>
-                            (c.courseCode || '').toLowerCase().includes(q) ||
-                            (c.courseTitle || '').toLowerCase().includes(q)
-                          )
-                        : base;
-                      if (filtered.length === 0) {
-                        return (
-                          <tr>
-                            <td colSpan={7} className="text-center text-gray-500 py-2">
-                              {base.length === 0
-                                ? `No courses in ${selectedYear === 1 ? '1st' : selectedYear === 2 ? '2nd' : selectedYear === 3 ? '3rd' : '4th'} Year, ${semLabel(semester)} Semester`
-                                : `No matches for "${tableFilters[semester]}"`}
-                            </td>
-                          </tr>
-                        );
-                      }
-                      return null;
-                    })()}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-blue-50">
-                      <td className="p-2 text-right font-medium" colSpan={2}>Total Units</td>
-                      <td className="p-2 font-semibold text-center text-blue-700">
-                        {getTotalUnitsByYearAndSemester(selectedYear, semester)}
-                      </td>
-                      <td colSpan={5}></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+                    }
+                    return null;
+                  })()}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-blue-50">
+                    <td className="p-2 text-right font-medium" colSpan={2}>Total Units</td>
+                    <td className="p-2 font-semibold text-center text-blue-700">
+                      {getTotalUnitsByYearAndSemester(selectedYear, semester)}
+                    </td>
+                    <td colSpan={5}></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            
             </div>
           ))}
         </div>
@@ -1266,10 +1271,13 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                     </button>
 
                     <div>
-                      <div className="text-base text-gray-700">Curriculum</div>
                       <div className="text-2xl font-semibold text-blue-600">
                         {selectedCurriculum?.name}
                       </div>
+                      <div className="text-sm text-gray-500">
+                        Manage and edit courses for this curriculum.
+                      </div>
+
                     </div>
                   </div>
 
@@ -1282,7 +1290,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                         setPreviewCurriculumId(selectedCurriculum?.id || '');
                         setPrintOnlyOpen(true);
                       }}
-                      className="inline-flex items-center text-sm gap-2 bg-green-600 text-white px-4 py-2 rounded-full cursor-pointer hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300 focus:ring-offset-2 focus:ring-offset-white"
+                      className="inline-flex items-center text-sm gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl cursor-pointer hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white"
                     >
                       <Printer className="w-4 h-4" />
                       Print Curriculum 
@@ -1406,7 +1414,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       {curriculumDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setCurriculumDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-lg bg-white rounded-2xl shadow-lg p-8">
+          <div className="relative z-10 w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
             <div className="text-lg font-semibold mb-4">Create New Curriculum</div>
             <div className="space-y-3">
               <div>
@@ -1429,7 +1437,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                 />
               </div>
             </div>
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="mt-8 flex justify-end gap-2">
               <button
                 onClick={() => setCurriculumDialogOpen(false)}
                 className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
@@ -1554,7 +1562,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                 <label className="block text-sm text-gray-600 mb-1">Prerequisites (comma-separated)</label>
                 <button
                   onClick={openPrereqModalForForm}
-                  className="w-full text-left border border-gray-300 rounded px-3 py-2 bg-white hover:bg-gray-50"
+                        className="px-4 py-1 border rounded-lg border-blue-500 w-full text-xs cursor-pointer text-blue-600 hover:bg-blue-100"
                 >
                   {(courseForm.prerequisites || []).length > 0 ? (courseForm.prerequisites || []).join(', ') : 'Select Prerequisites'}
                 </button>
@@ -1586,33 +1594,27 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* Overlay */}
           <div
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
             onClick={() => setPrereqModalOpen(false)}
           ></div>
 
           {/* Modal */}
-          <div className="relative z-10 w-full max-w-2xl bg-white rounded-lg shadow-xl max-h-[85vh] overflow-auto">
+          <div className="relative z-10 w-full max-w-2xl bg-white rounded-lg shadow-xl max-h-[70vh] overflow-hidden flex flex-col">
             {/* Header */}
-            <div className="sticky top-0 z-20 bg-white flex items-center justify-between py-3 px-5 border-b border-gray-200 shadow-sm">
+            <div className="z-20 bg-white flex items-center justify-between px-8 py-4 border-b border-gray-200 shadow-sm">
               <h3 className="text-xl font-semibold text-gray-800">Select Prerequisites</h3>
-              <button
-                onClick={() => setPrereqModalOpen(false)}
-                className="p-1 text-gray-500 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-md"
-                aria-label="Close modal"
-              >
-                <X className="w-5 h-5" />
-              </button>
+             
             </div>
 
             {/* Content */}
-            <div className="p-5 space-y-4 pb-20">
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
               <div className="flex items-center gap-3">
                 <div>
-                  <label className="block text-xs text-gray-600 mb-1">Filter Year</label>
+                  <label className="block text-xs text-gray-600 mb-1">Filter Year Level</label>
                   <select
                     value={prereqViewYear}
                     onChange={(e) => setPrereqViewYear(parseInt(e.target.value, 10))}
-                    className="px-2 py-1.5 text-sm rounded-lg border border-gray-300 cursor-pointer focus-outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    className="px-2 py-1.5 w-32 text-sm rounded-lg border border-gray-300 cursor-pointer focus-outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                   >
                     {/* build options dynamically from available years */}
                     {(() => {
@@ -1633,7 +1635,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                     value={prereqSearchTerm}
                     onChange={(e) => setPrereqSearchTerm(e.target.value)}
                     placeholder="Search across all years"
-                    className="w-full px-2 py-1.5 text-sm rounded-lg border border-gray-300 cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-2 py-1.5 text-sm rounded-lg border border-gray-300  focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -1696,11 +1698,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
 
                 return (
                   <div className="space-y-6">
-                    {warnMessage && (
-                      <div className="text-sm text-yellow-800 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
-                        {warnMessage}
-                      </div>
-                    )}
+                  
                     {years.map((year) => (
                       <div key={year} className="">
                         {([1, 2, 3]).filter((sem) => grouped[year] && grouped[year][sem]).map((sem) => {
@@ -1717,59 +1715,96 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                                   {sem === 1 ? '1st' : sem === 2 ? '2nd' : 'Summer'} Semester
                                 </h5>
                               </div>
-                              <div className="overflow-x-auto">
-                                <table className="min-w-full text-xs border border-gray-200 rounded-lg">
-                                  <thead className="bg-blue-500 text-white">
-                                    <tr>
-                                      <th className="p-1.5 text-left w-12">
-                                         <input
-                                            type="checkbox"
-                                            checked={allChecked}
-                                            onChange={(e) => {
-                                              if (e.target.checked) setTempSelectedPrereqs(prev => Array.from(new Set([...prev, ...codes])));
-                                              else setTempSelectedPrereqs(prev => prev.filter(x => !codes.includes(x)));
-                                            }}
-                                            className="h-4 w-4 accent-blue-600 rounded focus:ring-blue-500"
-                                          />
-                                      </th>
-                                      <th className="p-1.5 text-left">Code</th>
-                                      <th className="p-1.5 text-left">Title</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                  {list.map((c) => (
-                                    <tr
-                                      key={c.id}
-                                      className="border-b border-gray-300 hover:bg-gray-50 transition-colors cursor-pointer"
-                                      onClick={(e) => {
-                                        if (e.target && e.target.closest && e.target.closest('input')) return;
-                                        const code = c.courseCode;
-                                        if (!code) return;
-                                        setTempSelectedPrereqs(prev => prev.includes(code) ? prev.filter(x => x !== code) : Array.from(new Set([...prev, code])));
-                                      }}
-                                    >
-                                      <td colSpan="3" className="p-0">
-                                        <label htmlFor={`checkbox-${c.id}`} className="flex items-center p-1.5">
+                             <div className="overflow-x-auto rounded-xl border border-gray-300 shadow-sm">
+                              <table className="min-w-full text-sm">
+                                
+                                {/* HEADER */}
+                                <thead className="bg-blue-500 text-white text-xs uppercase tracking-wide">
+                                  <tr>
+                                    <th className="px-3 py-2 w-[5%]">
+                                      <input
+                                        type="checkbox"
+                                        checked={allChecked}
+                                        onChange={(e) => {
+                                          if (e.target.checked)
+                                            setTempSelectedPrereqs(prev =>
+                                              Array.from(new Set([...prev, ...codes]))
+                                            );
+                                          else
+                                            setTempSelectedPrereqs(prev =>
+                                              prev.filter(x => !codes.includes(x))
+                                            );
+                                        }}
+                                        className="h-4 w-4 accent-white"
+                                      />
+                                    </th>
+                                    <th className="px-3 py-2 text-left w-[15%]">Code</th>
+                                    <th className="px-3 py-2 text-left w-[60%]">Title</th>
+                                    <th className="px-3 py-2 text-left w-[10%]">Units</th>
+                                  </tr>
+                                </thead>
+
+                                {/* BODY */}
+                                <tbody>
+                                  {list.map((c) => {
+                                    const isSelected = tempSelectedPrereqs.includes(c.courseCode);
+
+                                    return (
+                                      <tr
+                                        key={c.id}
+                                        className={`border-b border-gray-300 last:border-b-0  text-sm transition cursor-pointer
+                                          ${isSelected ? "bg-blue-50" : "hover:bg-gray-50"}
+                                        `}
+                                        onClick={(e) => {
+                                          if (e.target.closest("input")) return;
+                                          const code = c.courseCode;
+                                          if (!code) return;
+
+                                          setTempSelectedPrereqs(prev =>
+                                            prev.includes(code)
+                                              ? prev.filter(x => x !== code)
+                                              : [...prev, code]
+                                          );
+                                        }}
+                                      >
+                                        {/* CHECKBOX */}
+                                        <td className="px-3 py-2">
                                           <input
                                             type="checkbox"
-                                            id={`checkbox-${c.id}`}
-                                            checked={tempSelectedPrereqs.includes(c.courseCode)}
+                                            checked={isSelected}
                                             onChange={(e) => {
-                                              if (e.target.checked) setTempSelectedPrereqs(prev => Array.from(new Set([...prev, c.courseCode])));
-                                              else setTempSelectedPrereqs(prev => prev.filter(x => x !== c.courseCode));
+                                              if (e.target.checked)
+                                                setTempSelectedPrereqs(prev => [...prev, c.courseCode]);
+                                              else
+                                                setTempSelectedPrereqs(prev =>
+                                                  prev.filter(x => x !== c.courseCode)
+                                                );
                                             }}
-                                            className="h-4 w-4 accent-blue-600 rounded focus:ring-blue-500 mr-3"
+                                            className="h-4 w-4 accent-blue-600"
                                           />
-                                          <span className="font-medium text-blue-700 w-20">{c.courseCode}</span>
-                                          <span className="text-gray-700">{c.courseTitle}</span>
-                                        </label>
-                                      </td>
-                                    </tr>
-                                  ))}
+                                        </td>
+
+                                        {/* CODE */}
+                                        <td className="px-3 py-2 font-semibold text-blue-700">
+                                          {c.courseCode}
+                                        </td>
+
+                                        {/* TITLE */}
+                                        <td className="px-3 py-2 text-gray-700">
+                                          {c.courseTitle}
+                                        </td>
+
+                                        {/* UNITS */}
+                                        <td className="px-3 py-2 text-gray-600">
+                                          {c.units}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
                                 </tbody>
-                                </table>
-                              </div>
+                              </table>
                             </div>
+                                                        </div>
                           );
                         })}
                       </div>
@@ -1780,7 +1815,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
             </div>
 
             {/* Footer */}
-            <div className="sticky bottom-0 z-10 bg-white flex justify-end gap-3 py-3 px-5 border-t border-gray-200">
+            <div className="bg-white flex justify-end gap-3 py-3 px-5 border-t border-gray-200">
               <button
                 onClick={() => setPrereqModalOpen(false)}
                 className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
@@ -1802,14 +1837,12 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       {equivModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 backdrop-blur-[2px] bg-black/40" onClick={() => setEquivModalOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-2xl bg-white rounded-lg shadow p-4 max-h-[80vh] overflow-auto">
-            <div className="flex items-center justify-between mb-2">
+          <div className="relative z-10 w-full max-w-2xl bg-white rounded-lg shadow-xl max-h-[70vh] overflow-hidden flex flex-col">
+            <div className="z-20 bg-white flex items-center justify-between px-5 py-4 border-b border-gray-200 shadow-sm">
               <div className="text-lg font-semibold">Select Equivalent Subjects</div>
-              <button onClick={() => setEquivModalOpen(false)} className="text-gray-600 cursor-pointer hover:text-red-800 bg-gray-100 rounded-full p-1">
-                <X className="w-5 h-5" />
-              </button>
+            
             </div>
-              <div className="space-y-3 pb-20">
+              <div className="min-h-0 flex-1 overflow-y-auto space-y-3 p-4">
               <div className="flex items-center gap-3">
                 <div>
                   <label className="block text-xs text-gray-600 mb-1">Curriculum</label>
@@ -1951,7 +1984,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                 );
               })()}
             </div>
-            <div className="sticky bottom-0 z-10 bg-white flex justify-end gap-3 py-3 px-5 border-t border-gray-200">
+            <div className="bg-white flex justify-end gap-3 py-3 px-5 border-t border-gray-200">
               <button
                 onClick={() => setEquivModalOpen(false)}
                 className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"

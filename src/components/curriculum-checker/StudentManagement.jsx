@@ -54,7 +54,7 @@ const StudentManagement = ({ onBack }) => {
   // Grade management state
   const [studentGrades, setStudentGrades] = useState({});
   const [editingGrades, setEditingGrades] = useState({});
-  const [irregularSubjects, setIrregularSubjects] = useState({ sem1: [], sem2: [] });
+  const [irregularSubjects, setIrregularSubjects] = useState({ sem1: [], sem2: [], sem3: [] });
   const [subjectPickerOpen, setSubjectPickerOpen] = useState(false);
   const [subjectPickerSemester, setSubjectPickerSemester] = useState(1);
   const [subjectPickerCurriculumFilter, setSubjectPickerCurriculumFilter] = useState('all');
@@ -224,7 +224,7 @@ const StudentManagement = ({ onBack }) => {
     if (selectedStudent) {
       loadStudentCourses(selectedStudent.curriculumId);
       loadStudentGrades(selectedStudent.id);
-      setIrregularSubjects(selectedStudent.irregularSubjects || { sem1: [], sem2: [] });
+      setIrregularSubjects({ sem1: [], sem2: [], sem3: [], ...(selectedStudent.irregularSubjects || {}) });
     }
   }, [selectedStudent]);
 
@@ -314,7 +314,7 @@ const StudentManagement = ({ onBack }) => {
     const result = await addStudent({
       ...studentForm,
       curriculumId: studentForm.isIrregular ? null : studentForm.curriculumId,
-      irregularSubjects: studentForm.isIrregular ? { sem1: [], sem2: [] } : undefined
+      irregularSubjects: studentForm.isIrregular ? { sem1: [], sem2: [], sem3: [] } : undefined
     });
     if (result.success) {
       setSuccess('Student added successfully!');
@@ -427,7 +427,9 @@ const StudentManagement = ({ onBack }) => {
         yearLevel: editingData.yearLevel,
         curriculumId: editingData.isIrregular ? null : (editingData.curriculumId || ''),
         isIrregular: editingData.isIrregular,
-        irregularSubjects: editingData.isIrregular ? (selectedStudent?.irregularSubjects || { sem1: [], sem2: [] }) : null,
+        irregularSubjects: editingData.isIrregular
+          ? { sem1: [], sem2: [], sem3: [], ...(selectedStudent?.irregularSubjects || {}) }
+          : null,
         updatedAt: new Date()
       };
 
@@ -832,10 +834,10 @@ const StudentManagement = ({ onBack }) => {
           <button
             key={year}
             onClick={() => setStudentListTab(idx + 1)}
-            className={`px-3 py-1  rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
+            className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
               ${studentListTab === idx + 1
-                ? 'bg-blue-600 text-white border-blue-700 '
-                : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+               ? 'bg-blue-100 text-blue-600'
+                    : 'text-gray-800 hover:bg-gray-100'
               }
             `}
           >
@@ -845,10 +847,10 @@ const StudentManagement = ({ onBack }) => {
 
         <button
           onClick={() => setStudentListTab(5)}
-          className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer
+            className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
               ${studentListTab === 5
-              ? 'bg-blue-600 text-white border-blue-700'
-              : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+              ? 'bg-blue-100 text-blue-600'
+                    : 'text-gray-800 hover:bg-gray-100'
             }
           `}
         >
@@ -863,7 +865,7 @@ const StudentManagement = ({ onBack }) => {
   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
   
   <input
-    className="w-full border text-sm border-gray-300 rounded-full pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+    className="w-full border text-sm border-gray-300 rounded-lg pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
     placeholder="Search students name..."
     value={searchTerm}
     onChange={(e) => setSearchTerm(e.target.value)}
@@ -871,28 +873,28 @@ const StudentManagement = ({ onBack }) => {
 </div>
 
   {selectedIds.length > 0 && (
-        <div className="flex items-center  gap-2">
-          <div className="text-xs text-gray-700">{selectedIds.length} selected</div>
-          <div className="flex items-center gap">
-            <button
-              onClick={() => {
-                const first = students.find(s => s.id === selectedIds[0]);
-                setMultiEditYear(first ? first.yearLevel : 1);
-                setMultiEditOpen(true);
-              }}
-              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setMultiDeleteOpen(true)}
-              className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-            >
-              <Trash className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
+    <div className="flex items-center  gap-2">
+      <div className="text-xs text-gray-700">{selectedIds.length} selected</div>
+      <div className="flex items-center gap">
+        <button
+          onClick={() => {
+            const first = students.find(s => s.id === selectedIds[0]);
+            setMultiEditYear(first ? first.yearLevel : 1);
+            setMultiEditOpen(true);
+          }}
+          className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+        >
+          <Pencil className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setMultiDeleteOpen(true)}
+          className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+        >
+          <Trash className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  )}
 
 </div>
      </div>
@@ -1255,7 +1257,10 @@ const StudentManagement = ({ onBack }) => {
 
     const currentYear = courseTab + 1;
     const scholarshipEligibility = calculateScholarshipEligibility(currentYear);
-    const isThirdYearTab = courseTab === 2;
+    const hasSummerInCurrentYear = studentCourses.some(
+      (course) => Number(course.yearLevel) === currentYear && Number(course.semester) === 3
+    );
+    const semestersForCurrentYear = hasSummerInCurrentYear ? [1, 2, 3] : [1, 2];
 
     if (selectedStudent.isIrregular) {
       return (
@@ -1279,7 +1284,7 @@ const StudentManagement = ({ onBack }) => {
             ))}
           </div>
 
-          {[1, 2, currentYear === 3 ? 3 : null].filter(Boolean).map((semester) => {
+          {semestersForCurrentYear.map((semester) => {
             const semKey = `sem${semester}`;
             const semSubjects = (irregularSubjects[semKey] || []).filter(s => Number(s.yearLevel || currentYear) === currentYear);
             return (
@@ -1444,11 +1449,11 @@ const StudentManagement = ({ onBack }) => {
             <button
               key={year}
               onClick={() => setCourseTab(idx)}
-              className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+                className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
 
                 ${courseTab === idx
-                  ? 'bg-blue-600 text-white border-blue-700 scale-105'
-                    : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                  ? 'bg-blue-100 text-blue-600'
+                    : 'text-gray-800 hover:bg-gray-100'
                 }
               `}
             >
@@ -1459,7 +1464,7 @@ const StudentManagement = ({ onBack }) => {
 
 
         <div className="flex-1 flex flex-col">
-          {[1, 2, isThirdYearTab ? 3 : null].filter(Boolean).map((semester) => (
+          {semestersForCurrentYear.map((semester) => (
             <div key={semester} className="flex-1 flex flex-col mb-3">
               <div className="text-lg font-semibold text-blue-700 mb-2">
                 {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
@@ -1468,17 +1473,17 @@ const StudentManagement = ({ onBack }) => {
   <table className="min-w-full text-sm">
     <thead className="bg-blue-700 text-white">
       <tr>
-        <th className="px-2 py-1.5 w-[12%] text-left cursor-pointer" onClick={() => handleSort('courseCode')}>
-          Course Code {sortBy === 'courseCode' && (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />)}
+        <th className="px-4 py-1.5 w-[12%] text-left cursor-pointer" onClick={() => handleSort('courseCode')}>
+           Code {sortBy === 'courseCode' && (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />)}
         </th>
-        <th className="px-2 py-1.5 w-[35%] text-left cursor-pointer" onClick={() => handleSort('courseTitle')}>
-          Course Title {sortBy === 'courseTitle' && (sortOrder === 'asc' ? '↑' : '↓')}
+        <th className="px-4 py-1.5 w-[35%] text-left cursor-pointer" onClick={() => handleSort('courseTitle')}>
+          Course Description {sortBy === 'courseTitle' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
-          <th className="px-2 py-1.5 w-[8%] text-center cursor-pointer" onClick={() => handleSort('units')}>
+          <th className="px-4 py-1.5 w-[8%] text-center cursor-pointer" onClick={() => handleSort('units')}>
             Units {sortBy === 'units' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
-        <th className="px-2 py-1.5 w-[20%] text-left">Prerequisites</th>
-        <th className="px-2 py-1.5 w-[10%] text-left">Grade</th>
+        <th className="px-4 py-1.5 w-[20%] text-left">Prerequisites</th>
+        <th className="px-4 py-1.5 w-[10%] text-left">Grade</th>
       </tr>
     </thead>
 
@@ -1506,14 +1511,14 @@ const StudentManagement = ({ onBack }) => {
         })
         .map((course) => (
           <tr key={course.id} className="border-t border-gray-300 hover:bg-gray-50">
-            <td className="px-2 py-1.5">
+            <td className="px-4 py-1.5">
               <span className="font-semibold text-blue-700">{course.courseCode}</span>
             </td>
-            <td className="px-2 py-1.5">
+            <td className="px-4 py-1.5">
               <span>{course.courseTitle}</span>
             </td>
-            <td className="px-2 py-1.5 text-center">{course.units}</td>
-            <td className="px-2 py-1.5">
+            <td className="px-4 py-1.5 text-center">{course.units}</td>
+            <td className="px-4 py-1.5">
               {course.prerequisites.length > 0 ? (
                 <div className="flex flex-wrap gap-1">
                   {course.prerequisites.slice(0, 2).map((prereq) => (
@@ -1540,7 +1545,7 @@ const StudentManagement = ({ onBack }) => {
               )}
             </td>
 
-            <td className="px-2 py-1.5">
+            <td className="px-4 py-1.5">
               <select
                 className="border border-gray-300 rounded px-2 py-1 text-sm"
                 value={editingGrades[course.courseCode] || ''}
@@ -1608,7 +1613,7 @@ const StudentManagement = ({ onBack }) => {
 
   return (
     <div id="student-management-root" className="">
-      <div className="bg-white text-black p-6 rounded-2xl mb-6 flex items-center justify-between border border-gray-300 shadow-lg">
+      <div className="bg-white text-black p-8 rounded-2xl mb-6 flex items-center justify-between border border-gray-300 shadow-lg">
   
   {/* LEFT SIDE */}
   <div id="back-button-container" className="flex items-center gap-6">
@@ -1634,8 +1639,8 @@ const StudentManagement = ({ onBack }) => {
         <div className="flex  gap-40">
           <div>
           
-            <div className="text-blue-600 font-medilum text-xl">{selectedStudent.name}</div>
-            <div className="text-gray-600">
+            <div className="text-blue-600 font-medilum text-2xl">{selectedStudent.name}</div>
+            <div className="text-gray-500 text-sm">
               {selectedStudent.yearLevel === 1
                 ? "1st"
                 : selectedStudent.yearLevel === 2
@@ -1713,10 +1718,10 @@ const StudentManagement = ({ onBack }) => {
         </div>
       ) : (
         <>
-          <div className="text-2xl font-bold text-blue-600">
+          <div className="text-2xl font-medium text-blue-600">
             Student Management
           </div>
-          <div className="text-gray-600">
+          <div className="text-gray-500 text-sm">
             Manage students and track their curriculum progress
           </div>
         </>
@@ -1743,7 +1748,7 @@ const StudentManagement = ({ onBack }) => {
         });
         setStudentDialogOpen(true);
       }}
-      className="inline-flex items-center text-sm gap-2 cursor-pointer bg-green-600 text-white px-3 py-2 rounded-full hover:bg-green-700"
+      className="inline-flex items-center text-sm gap-2 cursor-pointer bg-blue-600 text-white px-3 py-2 rounded-xl hover:bg-blue-700"
     >
       <BadgePlus className="w-4 h-4" />
       <span>Add Student</span>

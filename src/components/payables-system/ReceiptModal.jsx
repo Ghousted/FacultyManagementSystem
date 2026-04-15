@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import Logo from '../../assets/logo.png';
 import {Printer, X } from 'lucide-react';
 
@@ -127,10 +128,21 @@ const ReceiptLayout = ({ label, receiptData }) => {
   const totalCurrentBalanceNum = receiptItems.reduce((sum, item) => sum + item.balance, 0);
   const totalVoucherAmountNum = receiptItems.reduce((sum, item) => sum + item.voucherAmount, 0);
 
-  const modeNormalized = String(mode || '').trim().toLowerCase();
-  const isCash = modeNormalized === 'cash';
-  const isGCash = modeNormalized === 'gcash';
-  const isBankTransfer = modeNormalized === 'bank transfer' || modeNormalized === 'bank' || modeNormalized === 'bank_transfer';
+  const normalizeModeValue = (m) => {
+    if (!m) return [];
+    if (Array.isArray(m)) return m.map((s) => String(s).trim().toLowerCase()).filter(Boolean);
+    const str = String(m || '');
+    return str
+      .split(/[,|\/&;+]+|\s+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+  };
+
+  const modes = new Set(normalizeModeValue(mode));
+  const isCash = modes.has('cash');
+  const isGCash = modes.has('gcash') || modes.has('g-cash') || modes.has('g cash');
+  const isBankTransfer =
+    modes.has('bank transfer') || modes.has('bank') || modes.has('bank_transfer') || modes.has('bank-transfer') || modes.has('banktransfer');
   const showReference = isGCash || isBankTransfer;
   const otherPayablesList = Array.isArray(otherPayables) ? otherPayables : [];
   const otherBalanceTotalNum = toNumber(totalOtherBalance);
@@ -337,7 +349,7 @@ const ReceiptLayout = ({ label, receiptData }) => {
   );
 };
 
-export default function ReceiptModal({ open, onClose, receiptData }) {
+export default function ReceiptModal({ open, onClose, receiptData, autoPrint = false }) {
   if (!receiptData) return null;
 
   const handlePrint = async () => {
@@ -364,6 +376,24 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
       alert('Failed to print receipt. Please try again.');
     }
   };
+
+  // Auto-print when requested and close the modal afterwards
+  React.useEffect(() => {
+    if (!open || !autoPrint || !receiptData) return undefined;
+
+    let mounted = true;
+    (async () => {
+      try {
+        await handlePrint();
+      } finally {
+        if (mounted) onClose();
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [open, autoPrint, receiptData, onClose]);
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -508,4 +538,102 @@ export default function ReceiptModal({ open, onClose, receiptData }) {
       </div>
     </Modal>
   );
+}
+
+// Print receipt directly without showing the modal UI.
+// This creates an offscreen container, renders the receipt layout into it,
+// waits for fonts and images, triggers the print dialog, then cleans up.
+export async function printReceiptDirect(receiptData) {
+  if (!receiptData) return;
+
+  try {
+    await document.fonts.ready;
+  } catch (e) {
+    // ignore
+  }
+  const container = document.createElement('div');
+  container.className = 'modal-container';
+  container.id = '__receipt-print-container';
+  // keep it visually offscreen but present in DOM
+  container.style.position = 'fixed';
+  container.style.left = '-9999px';
+  container.style.top = '0';
+  document.body.appendChild(container);
+
+  // replicate the print styles used by the ReceiptModal so printing shows only this modal
+  const style = document.createElement('style');
+  style.setAttribute('data-generated-by', 'printReceiptDirect');
+  style.textContent = `
+    @media print {
+      @page { size: 100mm 150mm; margin: 0; }
+      body > *:not(.modal-container) { display: none !important; }
+      .modal-backdrop { display: none !important; }
+      .modal-container { position: static !important; display: block !important; padding: 0 !important; margin: 0 !important; visibility: visible !important; }
+      .modal-dialog { position: static !important; max-width: none !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; overflow: visible !important; background: #fff !important; }
+      .receipt-modal-content { max-height: none !important; overflow: visible !important; padding: 0 !important; margin: 0 !important; background: #fff !important; }
+      #receipt-preview { display: block !important; padding: 0 !important; margin: 0 auto !important; width: 100mm !important; max-width: 100mm !important; height: auto !important; min-height: 0 !important; }
+      .receipt-copy { box-shadow: none !important; border: 1px solid #cbd5e1 !important; border-radius: 0 !important; padding: 4mm !important; width: 150mm !important; max-width: 150mm !important; height: 100mm !important; min-height: 100mm !important; box-sizing: border-box !important; font-size: 9px !important; line-height: 1.15 !important; margin: 0 !important; }
+    }
+  `;
+  container.appendChild(style);
+
+  // Use React 18 createRoot if available
+  let root = null;
+  try {
+    root = createRoot(container);
+    root.render(
+      <div>
+        <div className="modal-backdrop" />
+        <div className="modal-dialog">
+          <div className="receipt-modal-content">
+            <div id="receipt-preview" className="receipt-preview-stack">
+              <ReceiptLayout label="CCS COPY" receiptData={receiptData} />
+              <ReceiptLayout label="STUDENT'S COPY" receiptData={receiptData} />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  } catch (err) {
+    // Fallback for older ReactDOM API
+    const fallback = require('react-dom');
+    fallback.render(
+      React.createElement('div', null,
+        React.createElement('div', { className: 'modal-backdrop' }),
+        React.createElement('div', { className: 'modal-dialog' },
+          React.createElement('div', { className: 'receipt-modal-content' },
+            React.createElement('div', { id: 'receipt-preview', className: 'receipt-preview-stack' },
+              React.createElement(ReceiptLayout, { label: 'CCS COPY', receiptData }),
+              React.createElement(ReceiptLayout, { label: "STUDENT'S COPY", receiptData })
+            )
+          )
+        )
+      ),
+      container
+    );
+  }
+
+  // Wait a short tick for images to start loading
+  await new Promise((r) => setTimeout(r, 150));
+
+  const imgs = Array.from(container.querySelectorAll('img'));
+  await Promise.all(imgs.map((img) => (img.complete ? Promise.resolve() : new Promise((res) => { img.onload = res; img.onerror = res; }))));
+
+  try {
+    window.print();
+  } catch (err) {
+    console.error('Print failed:', err);
+    throw err;
+  } finally {
+    if (root && root.unmount) root.unmount();
+    else {
+      try {
+        const fallback = require('react-dom');
+        fallback.unmountComponentAtNode(container);
+      } catch (e) {
+        // ignore
+      }
+    }
+    container.remove();
+  }
 }

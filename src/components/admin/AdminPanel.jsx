@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase';
+import { ArrowBigLeft } from 'lucide-react';
 
 const AdminPanel = () => {
   const { role, updateRole } = useAuth();
@@ -89,7 +90,7 @@ const AdminPanel = () => {
 
   if (role !== 'admin') {
     return (
-      <div className="p-4 max-w-7xl mx-auto">
+      <div className="">
         <div className="mb-4">
           <button onClick={goBack} className="px-4 py-2 bg-blue-600 text-white rounded-full hover:bg-blue-700">Back</button>
         </div>
@@ -102,59 +103,63 @@ const AdminPanel = () => {
   }
 
   return (
-    <div className="p-4 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between gap-3 mb-10 border border-gray-300 rounded-2xl p-6 bg-white shadow-lg">
+    <div className="">
+      <div className="flex items-center justify-between gap-3 mb-6 border border-gray-300 rounded-2xl p-8 bg-white shadow-lg">
         <div className="flex items-center gap-6">
-          <button onClick={goBack} className="px-4 py-2 text-sm font-medium text-white rounded-full bg-blue-600 hover:bg-blue-700">Back</button>
-          <div>
+          <button
+              onClick={goBack}
+              className="group flex items-center gap-2 bg-blue-600 text-white p-2 cursor-pointer rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+              aria-label="Back to dashboard"
+              title="Back to dashboard"
+            >
+              <ArrowBigLeft className="w-5 h-5" />
+            </button>          <div>
             <h1 className="text-2xl font-bold text-blue-600">Admin Panel</h1>
             <span className="text-sm text-gray-500">User Role Management</span>
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-300 shadow-sm">
-        <div className="px-8 py-4 border-b border-gray-300 flex flex-col sm:flex-row sm:items-center gap-8">
-          <div className="flex-1 display flex gap-2">
-             <div className="flex items-center gap-2">
-          <button onClick={fetchUsers} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-gray-200 hover:bg-gray-300 cursor-pointer text-gray-700">
-            <i className="bi bi-arrow-clockwise" aria-hidden="true"></i>
-          </button>
-        </div>
-            <div className="relative">
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by email or ID..."
-                className="w-full sm:w-100 rounded-lg border border-gray-300 px-3 py-1.5"
-              />
-            </div>
-          </div>
-          <div className="text-sm text-gray-500">{filteredUsers.length} {filteredUsers.length === 1 ? 'user' : 'users'}</div>
-        </div>
+      <div className="rounded-xl border border-gray-300 shadow-sm">
 
         {error && (
           <div className="px-4 pt-4">
-            <div className="rounded-md border border-red-200 bg-red-50 text-red-700 px-4 py-2">{error}</div>
+            <div className="rounded-md border border-red-200 bg-red-50 text-red-700 px-4 py-2">
+              {error}
+            </div>
           </div>
         )}
 
-        {/* Table / List */}
-        <div className="p-2">
+        <div className="rounded-xl overflow-x-auto">
           {loading ? (
-            <ul className="divide-y divide-gray-300">
-              {Array.from({ length: 5 }).map((_, idx) => (
-                <li key={idx} className="flex items-center justify-between gap-3 p-3">
-                  <div className="flex items-center gap-3">
-                    <div>
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="bg-blue-100 text-left">
+                  <th className="px-6 py-3">Email / ID</th>
+                  <th className="px-6 py-3">Username</th>
+                  <th className="px-6 py-3">Role</th>
+                  <th className="px-6 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 5 }).map((_, idx) => (
+                  <tr key={idx} className="border-t">
+                    <td className="px-6 py-4">
                       <div className="h-3 w-40 bg-gray-200 rounded animate-pulse mb-2" />
+                    </td>
+                    <td className="px-6 py-4">
                       <div className="h-3 w-24 bg-gray-200 rounded animate-pulse" />
-                    </div>
-                  </div>
-                  <div className="h-8 w-20 bg-gray-200 rounded animate-pulse" />
-                </li>
-              ))}
-            </ul>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="h-5 w-16 bg-gray-200 rounded-full animate-pulse" />
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="h-8 w-20 bg-gray-200 rounded animate-pulse ml-auto" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : (
             <>
               {filteredUsers.length === 0 ? (
@@ -163,29 +168,45 @@ const AdminPanel = () => {
                   <p className="text-sm">Try adjusting your search or refresh the list.</p>
                 </div>
               ) : (
-                <ul className="divide-y divide-gray-200">
-                  {filteredUsers.map((user) => (
-                    <li key={user.id} className="flex items-center justify-between gap-3 px-6 py-4">
-                      <div className="flex items-center gap-3 min-w-0">
-                      
-                        <div className="min-w-0">
-                          <p className="font-medium truncate max-w-[420px]">{user.email || user.id}</p>
-                          <div className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ring-1 ${roleBadgeClasses(user.role)}`}>
-                            <span className="align-middle">{user.role || 'admin'}</span>
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-100 text-left">
+                      <th className="px-6 py-3">Email / ID</th>
+                      <th className="px-6 py-3">Username</th>
+                      <th className="px-6 py-3">Role</th>
+                      <th className="px-6 py-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredUsers.map((user) => (
+                      <tr key={user.id} className="border-t hover:bg-gray-50 transition">
+                        <td className="px-6 py-4 max-w-[420px] truncate font-medium">
+                          {user.email || user.id}
+                        </td>
+                        <td className="px-6 py-4 text-gray-500 max-w-[420px] truncate">
+                          {user.userName}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div
+                            className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ring-1 ${roleBadgeClasses(
+                              user.role
+                            )}`}
+                          >
+                            {user.role || 'admin'}
                           </div>
-                        </div>
-                      </div>
-                      <div className="shrink-0">
-                        <button
-                          onClick={() => handleEditRole(user)}
-                          className="inline-flex items-center gap-2 px-4 cursor-pointer py-1.5 text-sm rounded-md text-white bg-blue-600 hover:bg-blue-700 "
-                        >
-                           Edit
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            onClick={() => handleEditRole(user)}
+                            className="inline-flex items-center gap-2 px-4 py-1.5 text-sm rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                          >
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
             </>
           )}

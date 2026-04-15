@@ -201,14 +201,14 @@ const CurriculumCheckerMain = ({ onBack }) => {
   const handlePrintStudentPDF = (student, studentCurriculum, summerCourses = []) => {
     if (!student || !studentCurriculum) return;
     const firstYearCourses = studentCurriculum.courses.filter(c => c.yearLevel === 1);
-    const firstYearSummerCourses = summerCourses.filter(c => c.yearLevel === 1 && c.semester === 3);
+    const availableSummerCourses = summerCourses.filter(c => c.semester === 3);
     setPreviewTarget({
       student,
       studentCurriculum: {
         ...studentCurriculum,
         courses: firstYearCourses
       },
-      summerCourses: firstYearSummerCourses
+      summerCourses: availableSummerCourses
     });
     setPrintOnlyOpen(true);
   };
@@ -487,10 +487,10 @@ const CurriculumCheckerMain = ({ onBack }) => {
           {[1, 2, 3, 4].map(year => (
             <button
               key={year}
-                className={`px-3 py-1 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+                className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
                   ${tabValue === year - 1
-                    ? 'bg-blue-600 text-white border-blue-700 scale-105'
-                    : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                     ? 'bg-blue-100 text-blue-600'
+                    : 'text-gray-800 hover:bg-gray-100'
                   }`}
               onClick={() => setTabValue(year - 1)}
             >
@@ -498,14 +498,14 @@ const CurriculumCheckerMain = ({ onBack }) => {
             </button>
           ))}
           <button
-            className={`px-3 py-1 font-semibold rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+                className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
               ${tabValue === 4 
-                ? 'bg-blue-600 text-white border-blue-700 scale-105'
-                : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                 ? 'bg-blue-100 text-blue-600'
+                    : 'text-gray-800 hover:bg-gray-100'
               }`}
             onClick={() => setTabValue(4)}
           >
-            Irregular Students
+            Irregulars
           </button>
         </div>
         <div className="w-full sm:max-w-90">
@@ -520,7 +520,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
               placeholder="Search students by name..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full text-sm sm:w-90 border border-gray-300 rounded-full pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+              className="w-full text-sm sm:w-90 border border-gray-300 rounded-lg pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
             />
           </div>
         </div>
@@ -602,25 +602,29 @@ const CurriculumCheckerMain = ({ onBack }) => {
               </th>
             </tr>
           </thead>
-          <tbody>
-            {sortedStudents.map((student) => (
-             <tr
-              id={`student-row-${student.id}`}
-              key={student.id}
-              onClick={() => handleStudentSelect(student)}
-              className="odd:bg-white even:bg-gray-100 hover:bg-gray-200 cursor-pointer"
-            >
-                <td className="px-2 py-1.5 border-b border-gray-300 w-[12%]">{student.studentNumber}</td>
-                <td className="px-2 py-1.5 border-b border-gray-300 w-[20%]">{student.name}</td>
-                <td className="px-2 py-1.5 border-b border-gray-300 w-[18%]">{student.email}</td>
-                <td className="px-2 py-1.5 border-b border-gray-300 w-[10%]">{student.contactNumber}</td>
-                <td className="px-2 py-1.5 border-b border-gray-300 w-[20%]">
-                  <span>{student.curriculumName || student.curriculumId || 'Not Set'}</span>
-                </td>
-                <td className="px-2 py-1.5 border-b border-gray-300 w-[15%]">{student.completedCourses?.length || 0}</td>
-              </tr>
-            ))}
-          </tbody>
+         <tbody>
+  {sortedStudents.map((student) => (
+    <tr
+      id={`student-row-${student.id}`}
+      key={student.id}
+      onClick={() => handleStudentSelect(student)}
+      className={`border-b border-gray-300 last:border-b-0 
+        odd:bg-white even:bg-gray-50 
+        hover:bg-gray-100 cursor-pointer transition`}
+    >
+      <td className="px-3 py-2 w-[12%]">{student.studentNumber}</td>
+      <td className="px-3 py-2 w-[20%]">{student.name}</td>
+      <td className="px-3 py-2 w-[18%]">{student.email}</td>
+      <td className="px-3 py-2 w-[10%]">{student.contactNumber}</td>
+      <td className="px-3 py-2 w-[20%]">
+        <span>{student.curriculumName || student.curriculumId || 'Not Set'}</span>
+      </td>
+      <td className="px-3 py-2 w-[15%]">
+        {student.completedCourses?.length || 0}
+      </td>
+    </tr>
+  ))}
+</tbody>
         </table>
       </div>
 
@@ -678,7 +682,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
               onClick={() => handlePrintStudentPDF(
                 student,
                 studentCurriculum,
-                processedCourses.filter(c => c.yearLevel === 3 && c.semester === 3)
+                processedCourses.filter(c => c.semester === 3)
               )}
               className="inline-flex items-center text-sm gap-2 bg-green-600 cursor-pointer text-white px-2 py-1.5 rounded-full hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300"
             >
@@ -743,7 +747,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
                               ? '1st'
                               : semester === 2
                               ? '2nd'
-                              : `Summer (${yearLabel} Year)`}{' '}
+                              : `Summer `}{' '}
                             Semester
                           </h5>
                           <div className="border border-gray-300 rounded-lg overflow-hidden">
@@ -758,75 +762,102 @@ const CurriculumCheckerMain = ({ onBack }) => {
                                   <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[15%]">Grade</th>
                                 </tr>
                               </thead>
-                              <tbody>
-                                {processedCourses
-                                  .filter(course => course.yearLevel === year && course.semester === semester)
-                                  .map((course) => {
-                                    const failed = isCourseFailed(student, course.courseCode);
-                                    const incomplete = isCourseIncomplete(student, course.courseCode);
-                                    return (
-                                      <tr key={course.id} className="transition-colors">
-                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[10%]">
-                                          <span className="text-blue-700 font-semibold">{course.courseCode}</span>
-                                        </td>
-                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[30%]">{course.courseTitle}</td>
-                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[10%]">{course.units}</td>
-                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[20%]">
-                                          {course.prerequisites.length > 0 ? (
-                                            <div className="flex flex-wrap gap-1">
-                                              {course.prerequisites.map(prereq => {
-                                                const isPrereqMet = student.completedCourses?.includes(prereq) &&
-                                                  !isCourseFailed(student, prereq) &&
-                                                  !isCourseIncomplete(student, prereq);
-                                                return (
-                                                  <span
-                                                    key={prereq}
-                                                    className={`px-2 py-0.5 text-xs rounded-full border
-                                                                ${isPrereqMet
-                                                                  ? 'bg-green-50 text-green-700 border-green-200'
-                                                                  : 'bg-red-50 text-red-700 border-red-200'
-                                                                }`
-                                                              }
-                                                  >
-                                                    {prereq}
-                                                  </span>
-                                                );
-                                              })}
-                                            </div>
-                                          ) : (
-                                            <span className="text-gray-500">None</span>
-                                          )}
-                                        </td>
-                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[15%]">
-                                          <span className={`inline-block px-2 py-0.5 text-xs rounded-full border ${getStatusColor(course.status)}`}>
-                                            {getStatusLabel(course.status, course, student)}
-                                          </span>
-                                        </td>
-                                        <td className="px-2 py-1.5 border-b border-gray-300 w-[15%]">
-                                          {student.grades && student.grades[course.courseCode] ? (
-                                            (() => {
-                                              const val = student.grades[course.courseCode];
-                                              const cls =
-                                                val === 'INC' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                                val === 'CRED' ? 'bg-green-50 text-green-700 border-green-200' :
-                                                parseFloat(val) >= 5.0 ? 'bg-red-50 text-red-700 border-red-200' :
-                                                parseFloat(val) <= 2.1 ? 'bg-green-50 text-green-700 border-green-200' :
-                                                parseFloat(val) <= 2.5 ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                                                'bg-red-50 text-red-700 border-red-200';
-                                              return (
-                                                <span className={`inline-block px-2 py-0.5 text-xs rounded-full border ${cls}`}>
-                                                  {val}
-                                                </span>
-                                              );
-                                            })()
-                                          ) : (
-                                            <span className="text-gray-500">Not Graded</span>
-                                          )}
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                              </tbody>
+                             <tbody>
+  {processedCourses
+    .filter(course => course.yearLevel === year && course.semester === semester)
+    .map((course) => {
+      const failed = isCourseFailed(student, course.courseCode);
+      const incomplete = isCourseIncomplete(student, course.courseCode);
+
+      return (
+        <tr
+          key={course.id}
+          className="border-b border-gray-200 last:border-b-0 
+                     hover:bg-gray-50 transition"
+        >
+          {/* CODE */}
+          <td className="px-3 py-2 w-[10%]">
+            <span className="text-blue-700 font-semibold">
+              {course.courseCode}
+            </span>
+          </td>
+
+          {/* TITLE */}
+          <td className="px-3 py-2 w-[30%]">
+            {course.courseTitle}
+          </td>
+
+          {/* UNITS */}
+          <td className="px-3 py-2 w-[10%]">
+            {course.units}
+          </td>
+
+          {/* PREREQS */}
+          <td className="px-3 py-2 w-[20%]">
+            {course.prerequisites.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {course.prerequisites.map(prereq => {
+                  const isPrereqMet =
+                    student.completedCourses?.includes(prereq) &&
+                    !isCourseFailed(student, prereq) &&
+                    !isCourseIncomplete(student, prereq);
+
+                  return (
+                    <span
+                      key={prereq}
+                      className={`px-2 py-0.5 text-xs rounded-full border
+                        ${isPrereqMet
+                          ? 'bg-green-50 text-green-700 border-green-200'
+                          : 'bg-red-50 text-red-700 border-red-200'
+                        }`}
+                    >
+                      {prereq}
+                    </span>
+                  );
+                })}
+              </div>
+            ) : (
+              <span className="text-gray-500">None</span>
+            )}
+          </td>
+
+          {/* STATUS */}
+          <td className="px-3 py-2 w-[15%]">
+            <span
+              className={`inline-block px-2 py-0.5 text-xs rounded-full border ${getStatusColor(course.status)}`}
+            >
+              {getStatusLabel(course.status, course, student)}
+            </span>
+          </td>
+
+          {/* GRADE */}
+          <td className="px-3 py-2 w-[15%]">
+            {student.grades && student.grades[course.courseCode] ? (
+              (() => {
+                const val = student.grades[course.courseCode];
+
+                const cls =
+                  val === 'INC' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                  val === 'CRED' ? 'bg-green-50 text-green-700 border-green-200' :
+                  parseFloat(val) >= 5.0 ? 'bg-red-50 text-red-700 border-red-200' :
+                  parseFloat(val) <= 2.1 ? 'bg-green-50 text-green-700 border-green-200' :
+                  parseFloat(val) <= 2.5 ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                  'bg-red-50 text-red-700 border-red-200';
+
+                return (
+                  <span className={`inline-block px-2 py-0.5 text-xs rounded-full border ${cls}`}>
+                    {val}
+                  </span>
+                );
+              })()
+            ) : (
+              <span className="text-gray-500">Not Graded</span>
+            )}
+          </td>
+        </tr>
+      );
+    })}
+</tbody>
                             </table>
                           </div>
                         </div>
