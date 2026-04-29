@@ -1,8 +1,10 @@
+
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { ArrowBigLeft } from 'lucide-react';
+import { archiveAndPromoteStudents } from '../../models/curriculumModels';
 
 const AdminPanel = () => {
   const { role, updateRole } = useAuth();
@@ -14,6 +16,9 @@ const AdminPanel = () => {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState(null);
+  // Archive & Promote state
+  const [archiveModalOpen, setArchiveModalOpen] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(false);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -107,21 +112,28 @@ const AdminPanel = () => {
       <div className="flex items-center justify-between gap-3 mb-6 border border-gray-300 rounded-2xl p-8 bg-white shadow-lg">
         <div className="flex items-center gap-6">
           <button
-              onClick={goBack}
-              className="group flex items-center gap-2 bg-blue-600 text-white p-2 cursor-pointer rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
-              aria-label="Back to dashboard"
-              title="Back to dashboard"
-            >
-              <ArrowBigLeft className="w-5 h-5" />
-            </button>          <div>
+            onClick={goBack}
+            className="group flex items-center gap-2 bg-blue-600 text-white p-2 cursor-pointer rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+            aria-label="Back to dashboard"
+            title="Back to dashboard"
+          >
+            <ArrowBigLeft className="w-5 h-5" />
+          </button>
+          <div>
             <h1 className="text-2xl font-bold text-blue-600">Admin Panel</h1>
             <span className="text-sm text-gray-500">User Role Management</span>
           </div>
         </div>
+        {/* Archive & Promote Button */}
+        <button
+          onClick={() => setArchiveModalOpen(true)}
+          className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
+        >
+          Archive & Promote
+        </button>
       </div>
 
       <div className="rounded-xl border border-gray-300 shadow-sm">
-
         {error && (
           <div className="px-4 pt-4">
             <div className="rounded-md border border-red-200 bg-red-50 text-red-700 px-4 py-2">
@@ -129,7 +141,6 @@ const AdminPanel = () => {
             </div>
           </div>
         )}
-
         <div className="rounded-xl overflow-x-auto">
           {loading ? (
             <table className="min-w-full text-sm">
@@ -212,6 +223,44 @@ const AdminPanel = () => {
           )}
         </div>
       </div>
+
+      {/* Archive & Promote Modal */}
+      {archiveModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div className="bg-white rounded-xl p-6 shadow-xl max-w-md w-full">
+            <h2 className="text-lg font-bold mb-2">Archive & Promote Students</h2>
+            <p className="mb-4">This will archive all 4th year students and promote others. Continue?</p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setArchiveModalOpen(false)}
+                className="px-4 py-2 bg-gray-200 rounded"
+                disabled={archiveLoading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setArchiveLoading(true);
+                  const now = new Date();
+                  const startYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+                  const endYear = startYear + 1;
+                  const result = await archiveAndPromoteStudents(startYear, endYear);
+                  setArchiveLoading(false);
+                  setArchiveModalOpen(false);
+                  setToast({
+                    type: result.success ? 'success' : 'error',
+                    message: result.message
+                  });
+                }}
+                className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
+                disabled={archiveLoading}
+              >
+                {archiveLoading ? 'Processing...' : 'Continue'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal */}
       {editingUser && (

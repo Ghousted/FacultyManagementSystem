@@ -1,3 +1,72 @@
+import { writeBatch } from 'firebase/firestore';
+// Archive and promote students (batch archiving, promotion, payables logic)
+export const archiveAndPromoteStudents = async (batchStartYear, batchEndYear) => {
+  const batchName = `batch_${batchStartYear}_${batchEndYear}`;
+  const studentsRef = collection(db, 'students');
+  const archivesRef = doc(db, 'archives', batchName);
+
+  // 1. Get all students
+  const studentsSnapshot = await getDocs(studentsRef);
+  const allStudents = studentsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+
+  // 2. Filter 4th year regular students
+  const toArchive = allStudents.filter(s => s.yearLevel === 4 && !s.isIrregular);
+
+  if (toArchive.length === 0) {
+    return { success: false, message: 'No 4th year regular students to archive.' };
+  }
+
+  // 3. Check if batch already exists
+  const archiveDoc = await getDoc(archivesRef);
+  let archivedStudents = [];
+  if (archiveDoc.exists()) {
+    archivedStudents = archiveDoc.data().students || [];
+    // Prevent duplicate student ids in archive
+    const archivedIds = new Set(archivedStudents.map(s => s.id));
+    toArchive.forEach(s => {
+      if (!archivedIds.has(s.id)) archivedStudents.push(s);
+    });
+  } else {
+    archivedStudents = [...toArchive];
+  }
+
+  // 4. Prepare batch write
+  const batch = writeBatch(db);
+
+  // 5. Archive students
+  batch.set(archivesRef, { students: archivedStudents }, { merge: true });
+
+  // 6. Remove archived students from active collection
+  toArchive.forEach(s => {
+    batch.delete(doc(db, 'students', s.id));
+  });
+
+  // 7. Promote eligible students and handle payables
+  allStudents.forEach(s => {
+    if (s.yearLevel < 4 && !s.isIrregular) {
+      // Move unpaid payables to previousPayables
+      const payables = Array.isArray(s.payables) ? s.payables : [];
+      const unpaid = payables.filter(p => p.status !== 'paid');
+      const paid = payables.filter(p => p.status === 'paid');
+      const previousPayables = Array.isArray(s.previousPayables) ? s.previousPayables : [];
+      const newPrevious = unpaid.map(p => ({ ...p, status: 'previous' }));
+      batch.update(doc(db, 'students', s.id), {
+        yearLevel: Math.min((s.yearLevel || 1) + 1, 4),
+        payables: paid,
+        previousPayables: [...previousPayables, ...newPrevious],
+        updatedAt: new Date().toISOString()
+      });
+    }
+  });
+
+  // 8. Commit batch
+  try {
+    await batch.commit();
+    return { success: true, message: `Archived ${toArchive.length} students and promoted others.` };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+};
 import { 
   collection, 
   addDoc, 

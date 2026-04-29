@@ -3,8 +3,10 @@ import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAll
 import { useAuth } from '../../contexts/AuthContext';
 import { Printer, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
 import CurriculumPreview from './CurriculumPReview';
+import ViewArchivedClasses from './ViewArchivedClasses';
 
 const CurriculumCheckerMain = ({ onBack }) => {
+    const [showArchivedPanel, setShowArchivedPanel] = useState(false);
   const { currentUser } = useAuth();
   const [students, setStudents] = useState([]);
   const [filteredStudents, setFilteredStudents] = useState([]);
@@ -480,7 +482,30 @@ const CurriculumCheckerMain = ({ onBack }) => {
             <p className="text-gray-600">Select a student to check their curriculum status</p>
           </div>
         </div>
+        <button
+          className="ml-auto px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+          onClick={() => setShowArchivedPanel(true)}
+        >
+          View Archived Classes
+        </button>
       </div>
+      {/* Archived Classes Panel */}
+      {showArchivedPanel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="relative w-full max-w-5xl mx-auto bg-white rounded-2xl shadow-xl border border-gray-300 p-4 overflow-y-auto max-h-[90vh]">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-blue-700">Archived Classes</h2>
+              <button
+                className="px-3 py-1.5 rounded bg-gray-200 hover:bg-gray-300 text-gray-700"
+                onClick={() => setShowArchivedPanel(false)}
+              >
+                Close
+              </button>
+            </div>
+            <ViewArchivedClasses />
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-between items-center mb-4">
         <div className="flex gap-2 text-sm">

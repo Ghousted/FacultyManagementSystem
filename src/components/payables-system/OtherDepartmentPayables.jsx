@@ -1,3 +1,5 @@
+// The Add Previous Balance Modal must be rendered inside the return statement of OtherDepartmentPayables, after all useState hooks.
+// All import statements must be at the very top of the file
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   addDoc,
@@ -27,7 +29,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import { createReceiptRecord, generateReceiptNumber } from '../../utils/receiptService';
 import ReceiptModal from './ReceiptModal';
 
+// ...existing code...
 const emptyDepartmentForm = { name: '', code: '' };
+// Removed all invalid top-level useState and hook calls. All hooks must be inside the OtherDepartmentPayables function.
+
+// All hooks and handlers must be inside the OtherDepartmentPayables function below.
 const emptyStudentForm = { name: '', course: '', yearLevel: '1', block: '' };
 const emptyPayableForm = { title: '', amount: '' };
 const emptyPaymentForm = {
@@ -67,125 +73,18 @@ const toDateLabel = (rawValue) => {
   });
 };
 
-const buildOtherPayablesForReceipt = (studentId, excludedPayableId) => {
-  // This function can be customized to return other payables for the receipt
-  // For now, return empty array and zero
-  return {
-    otherPayables: [],
-    totalOtherBalance: 0
-  };
-};
-
 const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
+    // Add Previous Balance state and handler (must be inside component)
+    const [individualPayableDialogOpen, setIndividualPayableDialogOpen] = useState(false);
+    const [individualPayableForm, setIndividualPayableForm] = useState({ type: '', amount: '', yearLevel: '' });
+    const [selectedStudentForIndividualPayable, setSelectedStudentForIndividualPayable] = useState(null);
 
-
-
-
-    // getStudentTotalBalance is now defined below with individual charges support. Remove duplicate declaration if present.
-    // getStudentTotalBalance is now defined below with individual charges support. Remove duplicate declaration if present.
+    const openAddPreviousBalanceModal = (student) => {
+      setSelectedStudentForIndividualPayable(student);
+      setIndividualPayableForm({ type: '', amount: '', yearLevel: '' });
+      setIndividualPayableDialogOpen(true);
+    };
   const { currentUser } = useAuth();
-
-  // Individual charges state (by userId/studentId)
-  // Backend: collection('otherDept-individualCharges') with userId, studentId, title, amount
-  const [individualCharges, setIndividualCharges] = useState({}); // { [studentId]: [{ id, title, amount }] }
-  const [individualChargeModalOpen, setIndividualChargeModalOpen] = useState(false);
-  const [individualChargeForm, setIndividualChargeForm] = useState({ title: '', amount: '' });
-  const [editingIndividualChargeId, setEditingIndividualChargeId] = useState('');
-
-  // Helper to get charges for a student
-  const getIndividualChargesForStudent = (studentId) => {
-    return individualCharges[studentId] || [];
-  };
-
-  // Load individual charges for a student from Firestore
-  const loadIndividualChargesForStudent = useCallback(async (studentId) => {
-    if (!currentUser?.uid || !studentId) return;
-    try {
-      const chargesRef = collection(db, 'otherDept-individualCharges');
-      const q = query(
-        chargesRef,
-        where('studentId', '==', studentId)
-      );
-      const snapshot = await getDocs(q);
-      const charges = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      console.log('Loaded individual charges for student', studentId, charges);
-      setIndividualCharges((prev) => ({ ...prev, [studentId]: charges }));
-    } catch (err) {
-      showError('Failed to load individual charges.');
-    }
-  }, [currentUser?.uid]);
-
-  // Open modal to add individual charge
-  const openIndividualChargeModal = () => {
-    setIndividualChargeForm({ title: '', amount: '' });
-    setEditingIndividualChargeId('');
-    setIndividualChargeModalOpen(true);
-  };
-
-  // Open modal to edit individual charge
-  const handleEditIndividualCharge = (charge) => {
-    setIndividualChargeForm({ title: charge.title, amount: String(charge.amount) });
-    setEditingIndividualChargeId(charge.id);
-    setIndividualChargeModalOpen(true);
-  };
-
-  // Add or update an individual charge for a student (Firestore)
-  const handleSaveIndividualCharge = async (event) => {
-    event.preventDefault();
-    if (!selectedStudentForPayment || !currentUser?.uid) return;
-    const { title, amount } = individualChargeForm;
-    if (!title.trim() || !amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-      showError('Please enter a valid charge type and amount.');
-      return;
-    }
-    setLoading(true);
-    try {
-      const chargesRef = collection(db, 'otherDept-individualCharges');
-      if (editingIndividualChargeId) {
-        // Update existing
-        await updateDoc(doc(db, 'otherDept-individualCharges', editingIndividualChargeId), {
-          title: title.trim(),
-          amount: Number(amount),
-          updatedAt: new Date().toISOString(),
-        });
-        showSuccess('Charge updated.');
-      } else {
-        // Add new
-        await addDoc(chargesRef, {
-          studentId: selectedStudentForPayment.id,
-          title: title.trim(),
-          amount: Number(amount),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-        showSuccess('Charge added.');
-      }
-      await loadIndividualChargesForStudent(selectedStudentForPayment.id);
-      setIndividualChargeModalOpen(false);
-      setIndividualChargeForm({ title: '', amount: '' });
-      setEditingIndividualChargeId('');
-    } catch (err) {
-      showError('Failed to save individual charge.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Delete an individual charge (Firestore)
-  const handleDeleteIndividualCharge = async (chargeId) => {
-    if (!selectedStudentForPayment || !currentUser?.uid) return;
-    setLoading(true);
-    try {
-      await deleteDoc(doc(db, 'otherDept-individualCharges', chargeId));
-      await loadIndividualChargesForStudent(selectedStudentForPayment.id);
-      showSuccess('Charge deleted.');
-    } catch (err) {
-      showError('Failed to delete individual charge.');
-    } finally {
-      setLoading(false);
-    }
-  };
-  // getStudentTotalBalance is now defined below with individual charges support. Remove duplicate declaration if present.
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -363,6 +262,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         getDocs(
           query(
             paymentsRef,
+            where('userId', '==', currentUser.uid),
             where('departmentId', '==', selectedDepartmentId)
           )
         )
@@ -642,7 +542,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
     }
   };
 
-  const openStudentPaymentModal = async (student) => {
+  const openStudentPaymentModal = (student) => {
     setSelectedStudentForPayment(student);
     setPayablesSearch('');
     setPayablesFilter('all');
@@ -656,7 +556,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
     setTransactionPayable(null);
     setTransactionPayments([]);
     setStudentPaymentModalOpen(true);
-    await loadIndividualChargesForStudent(student.id);
   };
 
   const closeStudentPaymentModal = () => {
@@ -762,15 +661,222 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
     setLoading(true);
     clearStatus();
     try {
-      // ...existing code for deleting payables/payments...
-    } catch (err) {
-      showError('Failed to delete payable.');
+      const paymentSnapshot = await getDocs(
+        query(collection(db, 'otherDept-payment'), where('payableId', '==', payableId))
+      );
+
+      const deletePromises = paymentSnapshot.docs.map((paymentDoc) => deleteDoc(doc(db, 'otherDept-payment', paymentDoc.id)));
+      deletePromises.push(deleteDoc(doc(db, 'otherDept-payables', payableId)));
+
+      await Promise.all(deletePromises);
+      showSuccess('Payable deleted.');
+      await loadDepartmentData();
+    } catch (deleteError) {
+      showError(`Failed to delete payable: ${deleteError.message}`);
     } finally {
       setLoading(false);
     }
+  };
 
-    // END Individual Charges Section
+  const getPaymentConfirmationDraft = () => {
+    if (!currentUser?.uid || !selectedDepartmentId) {
+      showError('Select a department first.');
+      return null;
+    }
 
+    if (!paymentForm.studentId || !paymentForm.payableId || !paymentForm.amount) {
+      showError('Student, payable, and payment amount are required.');
+      return null;
+    }
+
+    const amount = numberOrZero(paymentForm.amount);
+    const voucherAmount = numberOrZero(paymentForm.voucherAmount);
+
+    if (amount <= 0) {
+      showError('Payment amount must be greater than zero.');
+      return null;
+    }
+
+    if (voucherAmount > 0 && !paymentForm.voucherDescription.trim()) {
+      showError('Voucher description is required when voucher amount is provided.');
+      return null;
+    }
+
+    const payable = payablesById[paymentForm.payableId];
+    if (!payable) {
+      showError('Selected payable does not exist.');
+      return null;
+    }
+
+    const student = studentsById[paymentForm.studentId];
+    if (!student) {
+      showError('Selected student does not exist.');
+      return null;
+    }
+
+    const totalPayableAmount = numberOrZero(payable.amount);
+    const previousSettled = payments
+      .filter((payment) => payment.studentId === paymentForm.studentId && payment.payableId === paymentForm.payableId && payment.id !== editingPaymentId)
+      .reduce((sum, payment) => sum + numberOrZero(payment.amount) + numberOrZero(payment.voucherAmount), 0);
+
+    const newSettled = amount + voucherAmount;
+    if (previousSettled + newSettled > totalPayableAmount + 0.0001) {
+      showError('Payment plus voucher exceeds remaining balance.');
+      return null;
+    }
+
+    const remainingBalance = Math.max(0, totalPayableAmount - (previousSettled + newSettled));
+    const nowIso = new Date().toISOString();
+
+    return {
+      payload: {
+        userId: currentUser.uid,
+        departmentId: selectedDepartmentId,
+        studentId: paymentForm.studentId,
+        payableId: paymentForm.payableId,
+        amount,
+        mode: paymentForm.mode,
+        voucherAmount,
+        voucherDescription: paymentForm.voucherDescription.trim(),
+        reference: paymentForm.reference.trim(),
+        date: nowIso,
+        updatedAt: nowIso
+      },
+      student,
+      payable,
+      totalPayableAmount,
+      previousSettled,
+      remainingBalance,
+      settledAmount: newSettled
+    };
+  };
+
+  const getBatchPaymentConfirmationDrafts = () => {
+    if (!currentUser?.uid || !selectedDepartmentId) {
+      showError('Select a department first.');
+      return null;
+    }
+
+    // Collect drafts from paymentFormByPayable for the selected student
+    if (!selectedStudentForPayment) {
+      showError('Select a student first.');
+      return null;
+    }
+
+    const drafts = Object.keys(paymentFormByPayable || {})
+      .map((payableId) => {
+        const per = paymentFormByPayable[payableId] || {};
+        if (!per.amount) return null;
+        const amount = numberOrZero(per.amount);
+        const voucherAmount = numberOrZero(per.voucherAmount);
+        if (amount <= 0) return null;
+
+        const payable = payablesById[payableId];
+        if (!payable) return null;
+
+        const previousSettled = payments
+          .filter((payment) => payment.studentId === selectedStudentForPayment.id && payment.payableId === payableId && payment.id !== editingPaymentId)
+          .reduce((sum, payment) => sum + numberOrZero(payment.amount) + numberOrZero(payment.voucherAmount), 0);
+
+        const totalPayableAmount = numberOrZero(payable.amount);
+        const newSettled = amount + voucherAmount;
+        if (previousSettled + newSettled > totalPayableAmount + 0.0001) {
+          // Skip invalid overpayments; caller may show error
+          return { error: `Payment for ${payable.title} exceeds remaining balance.` };
+        }
+
+        const remainingBalance = Math.max(0, totalPayableAmount - (previousSettled + newSettled));
+
+        return {
+          payload: {
+            userId: currentUser.uid,
+            departmentId: selectedDepartmentId,
+            studentId: selectedStudentForPayment.id,
+            payableId,
+            amount,
+            mode: per.mode || 'cash',
+            voucherAmount,
+            voucherDescription: (per.voucherDescription || '').trim(),
+            reference: (per.reference || '').trim(),
+            date: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          student: selectedStudentForPayment,
+          payable,
+          totalPayableAmount,
+          previousSettled,
+          remainingBalance,
+          settledAmount: newSettled
+        };
+      })
+      .filter(Boolean);
+
+    if (!drafts || drafts.length === 0) {
+      showError('Enter payment amounts for one or more payables before confirming.');
+      return null;
+    }
+
+    // Check for any drafts with error
+    const draftWithError = drafts.find((d) => d && d.error);
+    if (draftWithError) {
+      showError(draftWithError.error);
+      return null;
+    }
+
+    return drafts;
+  };
+
+  const buildOtherPayablesForReceipt = (studentId, excludedPayableId) => {
+    const otherPayables = payables
+      .filter((payable) => payable.id !== excludedPayableId)
+      .map((payable) => ({
+        payableId: payable.id,
+        type: payable.title || 'Payable',
+        remainingBalance: getStudentPayableBalance(studentId, payable.id)
+      }))
+      .filter((payable) => payable.remainingBalance > 0)
+      .sort((a, b) => b.remainingBalance - a.remainingBalance);
+
+    return {
+      otherPayables,
+      totalOtherBalance: otherPayables.reduce((sum, payable) => sum + payable.remainingBalance, 0)
+    };
+  };
+
+  const buildReceiptPreview = (draft) => {
+    const { otherPayables, totalOtherBalance } = buildOtherPayablesForReceipt(draft.student.id, draft.payable.id);
+    const paymentDate = draft.payload.date || new Date().toISOString();
+
+    return {
+      receiptNumber: draft.receiptNumber || '—',
+      studentName: draft.student.name || '—',
+      date: toDateLabel(paymentDate),
+      course: draft.student.course || '',
+      yearLevel: draft.student.yearLevel || '',
+      description: draft.payable.title || 'Payment',
+      amount: draft.payload.amount,
+      price: draft.totalPayableAmount,
+      previousPaid: draft.previousSettled,
+      totalPaid: draft.payload.amount,
+      balance: draft.remainingBalance,
+      mode: draft.payload.mode,
+      reference: draft.payload.reference,
+      items: [
+        {
+          payableId: draft.payable.id,
+          description: draft.payable.title || 'Payment',
+          price: draft.totalPayableAmount,
+          previousBalance: Math.max(0, draft.totalPayableAmount - draft.previousSettled),
+          payment: draft.payload.amount,
+          balance: draft.remainingBalance,
+          voucherAmount: draft.payload.voucherAmount,
+          voucherDescription: draft.payload.voucherDescription
+        }
+      ],
+      otherPayables,
+      totalOtherBalance,
+      receivedBy: ''
+    };
   };
 
   const buildCombinedReceiptPreview = (drafts, receiptNumber) => {
@@ -1073,8 +1179,14 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
     setTransactionModalOpen(true);
   }, [getStudentPayablePayments, selectedStudentForPayment]);
 
+  // Get all payables for a student (department-wide and individual)
+  const getStudentPayables = (studentId) => {
+    return payables.filter((p) => !p.studentId || p.studentId === studentId);
+  };
+
   const getStudentTotalBalance = (studentId) => {
-    return payables.reduce((sum, payable) => {
+    const studentPayables = getStudentPayables(studentId);
+    return studentPayables.reduce((sum, payable) => {
       return sum + getStudentPayableBalance(studentId, payable.id);
     }, 0);
   };
@@ -1103,7 +1215,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
     if (status === 'partially_paid') return 'Partially Paid';
     return 'Unpaid';
   };
-
 
   return (
     <div className="">
@@ -1277,26 +1388,27 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                       <td className="px-3 py-1.5 w-[15%]">{student.course || '-'}</td>
                       <td className="px-3 py-1.5 w-[10%]">{student.yearLevel}</td>
                       <td className="px-3 py-1.5 w-[10%]">{student.block}</td>
-                      <td className="px-3 py-1.5 w-[20%] text-right font-semibold">{formatPeso(getStudentTotalBalance(student.id) + getIndividualChargesForStudent(student.id).reduce((sum, c) => sum + Number(c.amount || 0), 0))}</td>
+                      <td className="px-3 py-1.5 w-[20%] text-right font-semibold">{formatPeso(getStudentTotalBalance(student.id))}</td>
                       <td className="px-3 py-2 w-[15%] text-right">
               <div
                 className="flex justify-end items-center gap-1"
                 onClick={(event) => event.stopPropagation()}
               >
                 <button
-                            type="button"
-                            onClick={() => handleEditStudent(student)}
-                            className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-                        >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteStudent(student.id)}
-                            className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4" /> 
-                          </button>
+                  type="button"
+                  onClick={() => handleEditStudent(student)}
+                  className="p-1 rounded-full text-gray-700 hover:bg-gray-300 cursor-pointer"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteStudent(student.id)}
+                  className="p-1 rounded-full text-gray-700 hover:bg-gray-300 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+               
   </div>
 </td>
                     </tr>
@@ -1342,7 +1454,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                 className="block text-sm font-medium text-slate-700"
               >
                 Department Name 
-              </label> 
+              </label>
               <input
                 type="text"
                 placeholder="Department Name (e.g. College of Computer Studies)"
@@ -1370,14 +1482,14 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                 <button
                   type="button"
                   onClick={closeDepartmentModal}
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                  className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                  className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   {editingDepartmentId ? 'Update' : 'Create'}
                 </button>
@@ -1569,73 +1681,8 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         </div>
       )}
 
-     
-      
-    
+      {studentPaymentModalOpen && selectedStudentForPayment && (
 
-      {/* Individual Charge Modal (reusable, only one instance) */}
-      {individualChargeModalOpen && (
-        <div className="fixed inset-0 z-200 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
-            onClick={() => setIndividualChargeModalOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="relative w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl p-6">
-            <h4 className="text-lg font-semibold text-slate-800 mb-1">
-              {editingIndividualChargeId ? 'Edit Individual Charge' : 'Add Individual Charge'}
-            </h4>
-            <p className='text-sm mt-2 mb-6'>
-              This charge applies only to <strong>{selectedStudentForPayment?.name || 'the student'}</strong> and will not affect other students in the department.
-            </p>
-            <form onSubmit={handleSaveIndividualCharge} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Type of Charge
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Library Fine"
-                  value={individualChargeForm.title}
-                  onChange={(event) => setIndividualChargeForm((prev) => ({ ...prev, title: event.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Amount
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="e.g. 500"
-                  value={individualChargeForm.amount}
-                  onChange={(event) => setIndividualChargeForm((prev) => ({ ...prev, amount: event.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="flex justify-end gap-2 mt-8">
-                <button
-                  type="button"
-                  onClick={() => setIndividualChargeModalOpen(false)}
-                  className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
-                >
-                  {editingIndividualChargeId ? 'Update Charge' : 'Add Charge'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-      {selectedStudentForPayment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
@@ -1645,262 +1692,24 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
           <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-lg max-h-[90vh] z-10 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 sticky top-0 z-20 bg-blue-50 border-b border-gray-200">
               <div>
-                <h4 className="text-lg font-bold text-slate-800">{selectedStudentForPayment.name}</h4>
+                <h4 className="text-lg font-bold">{selectedStudentForPayment.name}</h4>
                 <p className="text-xs text-slate-600">
-                    {selectedStudentForPayment.course || '-'} {selectedStudentForPayment.yearLevel}
-                    {selectedStudentForPayment.yearLevel === '1' && 'ST'}
-                    {selectedStudentForPayment.yearLevel === '2' && 'ND'}
-                    {selectedStudentForPayment.yearLevel === '3' && 'RD'}
-                    {selectedStudentForPayment.yearLevel === '4' && 'TH'} Year - Block {selectedStudentForPayment.block}
-                    </p>
+                  {selectedStudentForPayment.course || '-'} {selectedStudentForPayment.yearLevel}
+                  {selectedStudentForPayment.yearLevel === '1' && 'ST'}
+                  {selectedStudentForPayment.yearLevel === '2' && 'ND'}
+                  {selectedStudentForPayment.yearLevel === '3' && 'RD'}
+                  {selectedStudentForPayment.yearLevel === '4' && 'TH'} Year - Block {selectedStudentForPayment.block}
+                </p>
               </div>
-               <button
-              type="button"
-              onClick={openIndividualChargeModal}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm cursor-pointer border border-blue-600 text-blue-600 hover:bg-blue-100"
-            >
-              Add Individual Charge
-            </button>
+              <button
+                className="ml-4 px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-blue-50 font-medium shadow-sm"
+                onClick={() => openAddPreviousBalanceModal(selectedStudentForPayment)}
+              >
+                + Add Prev. Balance
+              </button>
             </div>
 
             <div className="space-y-4 px-6 py-4 overflow-y-auto flex-1 min-h-0">
-              {/* Individual Charges Section */}
-              <div className="mb-4">
-                <h5 className="font-semibold text-slate-700 mb-2">Individual Charges</h5>
-                <div className="flex flex-col gap-3">
-                  {getIndividualChargesForStudent(selectedStudentForPayment.id).length === 0 ? (
-                    <div className="text-gray-400 italic">No individual charges.</div>
-                  ) : (
-                    getIndividualChargesForStudent(selectedStudentForPayment.id).map((charge) => {
-                      // Per-charge payment state (mode, voucher, etc.)
-                      const per = paymentFormByPayable[charge.id] || {};
-                      const selectedMode = per.mode || 'cash';
-                      const voucherEnabled = Number(per.voucherAmount || 0) > 0;
-                      // Payment amount and reference
-                      const enteredAmount = per.amount || '';
-                      const enteredReference = per.reference || '';
-                      // Print and history logic should match payables
-                      const latestTransaction = (charge.transactions && charge.transactions[0]) || null;
-                      return (
-                        <div
-                          key={charge.id}
-                          className="border rounded-xl shadow p-4 bg-white border-blue-300 flex flex-col gap-2"
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex-1">
-                              <h4 className="text-base font-bold">{charge.title}</h4>
-                              <p className="text-sm text-blue-700 font-semibold">{formatPeso(charge.amount)}</p>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleEditIndividualCharge(charge)}
-                                className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
-                                title="Edit individual charge"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteIndividualCharge(charge.id)}
-                                className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
-                                title="Delete individual charge"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!latestTransaction) {
-                                    showError('No transactions to print yet.');
-                                    return;
-                                  }
-                                  handlePrintExistingPayment(latestTransaction);
-                                }}
-                                className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
-                                title="Print latest receipt"
-                              >
-                                <Printer className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => openIndividualChargeHistoryModal(charge)}
-                                className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
-                                title="View payment history"
-                              >
-                                <History className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                          {/* Mode of Payment */}
-                          <div className="text-xs mb-1">
-                            <span className="mr-2">Mode of Payment:</span>
-                            <label className="mr-2 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`individualPaymentMode-${charge.id}`}
-                                value="cash"
-                                checked={selectedMode === 'cash'}
-                                onChange={() => {
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [charge.id]: { ...(prev[charge.id] || {}), mode: 'cash' }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, mode: 'cash' }));
-                                  }
-                                }}
-                              /> Cash
-                            </label>
-                            <label className="mr-2 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`individualPaymentMode-${charge.id}`}
-                                value="gcash"
-                                checked={selectedMode === 'gcash'}
-                                onChange={() => {
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [charge.id]: { ...(prev[charge.id] || {}), mode: 'gcash' }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, mode: 'gcash' }));
-                                  }
-                                }}
-                              /> GCash
-                            </label>
-                            <label className="mr-2 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`individualPaymentMode-${charge.id}`}
-                                value="bank transfer"
-                                checked={selectedMode === 'bank transfer'}
-                                onChange={() => {
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [charge.id]: { ...(prev[charge.id] || {}), mode: 'bank transfer' }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, mode: 'bank transfer' }));
-                                  }
-                                }}
-                              /> Bank Transfer
-                            </label>
-                          </div>
-                          {/* Payment Amount and Reference */}
-                          <div className="flex items-center gap-2 mt-2">
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              placeholder="New Payment Amount"
-                              value={enteredAmount}
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                setPaymentFormByPayable((prev) => ({
-                                  ...prev,
-                                  [charge.id]: { ...(prev[charge.id] || {}), amount: value }
-                                }));
-                                if (isSelected) {
-                                  setPaymentForm((prev) => ({ ...prev, amount: value }));
-                                }
-                              }}
-                              className="w-1/3 flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Reference (e.g., receipt number)"
-                              value={enteredReference}
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                setPaymentFormByPayable((prev) => ({
-                                  ...prev,
-                                  [charge.id]: { ...(prev[charge.id] || {}), reference: value }
-                                }));
-                                if (isSelected) {
-                                  setPaymentForm((prev) => ({ ...prev, reference: value }));
-                                }
-                              }}
-                              disabled={selectedMode === 'cash'}
-                              className={`w-2/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${selectedMode === 'cash' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            />
-                          </div>
-                          {/* Voucher Section */}
-                          <div className="w-full mt-2">
-                            <div className="flex items-center gap-2 mb-1 text-xs">
-                              <span>Apply Voucher:</span>
-                              <input
-                                type="checkbox"
-                                checked={voucherEnabled}
-                                onChange={(event) => {
-                                  if (event.target.checked) {
-                                    setPaymentFormByPayable((prev) => ({
-                                      ...prev,
-                                      [charge.id]: { ...(prev[charge.id] || {}), voucherAmount: (prev[charge.id] && prev[charge.id].voucherAmount) || '0' }
-                                    }));
-                                    if (isSelected) {
-                                      setPaymentForm((prev) => ({ ...prev, voucherAmount: (prev.voucherAmount || '0') }));
-                                    }
-                                    return;
-                                  }
-
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [charge.id]: { ...(prev[charge.id] || {}), voucherAmount: '', voucherDescription: '' }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, voucherAmount: '', voucherDescription: '' }));
-                                  }
-                                }}
-                              />
-                            </div>
-                            <div className="flex gap-2">
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                placeholder="Amount"
-                                value={per.voucherAmount || ''}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [charge.id]: { ...(prev[charge.id] || {}), voucherAmount: value }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, voucherAmount: value }));
-                                  }
-                                }}
-                                disabled={!voucherEnabled}
-                                className={`w-1/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${!voucherEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              />
-                              <input
-                                type="text"
-                                placeholder="e.g. Scholarship, Promo"
-                                value={per.voucherDescription || ''}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [charge.id]: { ...(prev[charge.id] || {}), voucherDescription: value }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, voucherDescription: value }));
-                                  }
-                                }}
-                                disabled={!voucherEnabled}
-                                className={`w-2/3 px-2 py-1.5 text-sm border rounded-lg ${!voucherEnabled ? 'opacity-50 cursor-not-allowed border-gray-300' : 'border-gray-300'}`}
-                              />
-                            </div>
-                          </div>
-                        
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
               <div className="flex flex-col md:flex-row gap-2 md:items-center md:justify-between">
                 <div className="relative w-full md:max-w-sm">
                   <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1929,7 +1738,8 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
               </div>
 
               {(() => {
-                const visiblePayables = payables
+                const studentPayables = getStudentPayables(selectedStudentForPayment.id);
+                const visiblePayables = studentPayables
                   .filter((payable) => {
                     const normalizedSearch = payablesSearch.trim().toLowerCase();
                     if (!normalizedSearch) return true;
@@ -2034,14 +1844,12 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  if (!latestTransaction) {
-                                    showError('No transactions to delete yet.');
-                                    return;
-                                  }
-                                  handleDeletePayment(latestTransaction.id);
+                                  const confirmed = window.confirm('Delete this payable and all related payments? This cannot be undone.');
+                                  if (!confirmed) return;
+                                  handleDeletePayable(payable.id);
                                 }}
-                                className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
-                                title="Delete latest transaction"
+                                className="p-1.5 cursor-pointer rounded-full text-red-600 hover:bg-red-100"
+                                title="Delete this payable"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -2191,6 +1999,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                                 disabled={!voucherEnabled}
                                 className={`w-1/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${!voucherEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                               />
+
                               <input
                                 type="text"
                                 placeholder="e.g. Scholarship, Promo"
@@ -2514,7 +2323,108 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
           </div>
         </div>
       )}
-
+        {/* Add Previous Balance Modal */}
+  {individualPayableDialogOpen && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => setIndividualPayableDialogOpen(false)}></div>
+      <div className="bg-white rounded-lg px-8 py-6 max-w-md w-full overflow-y-auto relative z-10">
+        <h2 className="font-bold mb-2">Add Previous Balance / Custom Charge</h2>
+        {selectedStudentForIndividualPayable && (
+          <p className="text-sm text-gray-600 mb-6">For: {selectedStudentForIndividualPayable.name}</p>
+        )}
+        <div className="space-y-4">
+          <label className="block text-sm font-medium mb-1">Charge Type</label>
+          <input
+            type="text"
+            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+            placeholder="Payable Type (e.g., Previous Balance, Custom Fee, etc.)"
+            value={individualPayableForm.type}
+            onChange={e => setIndividualPayableForm(prev => ({ ...prev, type: e.target.value }))}
+          />
+          <label className="block text-sm font-medium mb-1">Amount</label>
+          
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+            placeholder="Amount"
+            value={individualPayableForm.amount}
+            onChange={e => setIndividualPayableForm(prev => ({ ...prev, amount: e.target.value }))}
+            onWheel={e => e.currentTarget.blur()}
+            onKeyDown={e => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
+          />
+          <div>
+            <label className="block text-sm font-medium mb-1">Year Level (when the charge was incurred)</label>
+            <select
+              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
+              value={individualPayableForm.yearLevel}
+              onChange={e => setIndividualPayableForm(prev => ({ ...prev, yearLevel: e.target.value }))}
+            >
+              <option value="">Select Year Level</option>
+              <option value="1">1st Year</option>
+              <option value="2">2nd Year</option>
+              <option value="3">3rd Year</option>
+              <option value="4">4th Year</option>
+            </select>
+          </div>
+          
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+            <p className="text-xs text-blue-800">
+              This will add a payable specifically for {selectedStudentForIndividualPayable?.name}. Other students will not see this charge.
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2 justify-end mt-4">
+          <button
+            onClick={() => {
+              setIndividualPayableDialogOpen(false);
+              setIndividualPayableForm({ type: '', amount: '', yearLevel: '' });
+              setSelectedStudentForIndividualPayable(null);
+            }}
+            className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={async () => {
+              if (!selectedStudentForIndividualPayable) return;
+              if (!individualPayableForm.type || !individualPayableForm.amount || !individualPayableForm.yearLevel) return;
+              setLoading(true);
+              try {
+                const payload = {
+                  userId: currentUser.uid,
+                  departmentId: selectedDepartmentId,
+                  title: individualPayableForm.type,
+                  amount: Number(individualPayableForm.amount),
+                  yearLevel: Number(individualPayableForm.yearLevel),
+                  studentId: selectedStudentForIndividualPayable.id,
+                  studentName: selectedStudentForIndividualPayable.name,
+                  isIndividual: true,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                };
+                await addDoc(collection(db, 'otherDept-payables'), payload);
+                setIndividualPayableDialogOpen(false);
+                setIndividualPayableForm({ type: '', amount: '', yearLevel: '' });
+                setSelectedStudentForIndividualPayable(null);
+                await loadDepartmentData();
+              } catch (error) {
+                showError('Failed to add previous balance: ' + error.message);
+              } finally {
+                setLoading(false);
+              }
+            }}
+            className="px-4 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={!individualPayableForm.type || !individualPayableForm.amount || !individualPayableForm.yearLevel || loading}
+          >
+            {loading ? 'Adding...' : 'Add Previous Balance'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )}
       <ReceiptModal
         open={receiptModalOpen}
         onClose={() => {

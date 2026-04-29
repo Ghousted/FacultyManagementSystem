@@ -6,7 +6,8 @@ import {
   updateStudentCourse,
   getCurriculums,
   getCoursesByCurriculum,
-  getAllCourses
+  getAllCourses,
+  archiveAndPromoteStudents
 } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
@@ -83,6 +84,9 @@ const StudentManagement = ({ onBack }) => {
   const [multiDeleteOpen, setMultiDeleteOpen] = useState(false);
   const [multiEditYear, setMultiEditYear] = useState(1);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  // Archive modal state
+  const [archiveModalOpen, setArchiveModalOpen] = useState(false);
+  const [archiveLoading, setArchiveLoading] = useState(false);
 
   const handleSort = (column) => {
     if (sortBy === column) {
@@ -827,7 +831,6 @@ const StudentManagement = ({ onBack }) => {
 
   const renderStudentList = () => (
     <div>
-     
      <div className='flex-1 flex justify-between items-center  gap-4 mb-4'>
       <div className=" flex flex-wrap gap-2  border-gray-300 text-sm">
         {[1, 2, 3, 4].map((year, idx) => (
@@ -860,43 +863,111 @@ const StudentManagement = ({ onBack }) => {
 
 
      <div className="flex items-center gap-4">
- 
-<div className="relative w-full sm:w-70">
-  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-  
-  <input
-    className="w-full border text-sm border-gray-300 rounded-lg pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-    placeholder="Search students name..."
-    value={searchTerm}
-    onChange={(e) => setSearchTerm(e.target.value)}
-  />
-</div>
+        <div className="relative w-full sm:w-70">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <input
+            className="w-full border text-sm border-gray-300 rounded-lg pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+            placeholder="Search students name..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
 
-  {selectedIds.length > 0 && (
-    <div className="flex items-center  gap-2">
-      <div className="text-xs text-gray-700">{selectedIds.length} selected</div>
-      <div className="flex items-center gap">
+        {/* Archive & Promote button for 4th year tab */}
+        {studentListTab === 4 && (
+          <button
+            onClick={() => setArchiveModalOpen(true)}
+            className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700"
+            disabled={archiveLoading}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v8m4-4H8" /></svg>
+            Archive & Promote
+          </button>
+        )}
+
         <button
+          className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
           onClick={() => {
-            const first = students.find(s => s.id === selectedIds[0]);
-            setMultiEditYear(first ? first.yearLevel : 1);
-            setMultiEditOpen(true);
+            setStudentForm({
+              name: '',
+              email: '',
+              studentNumber: '',
+              yearLevel: studentListTab === 5 ? 1 : studentListTab,
+              curriculumId: '',
+              isIrregular: studentListTab === 5,
+              contactNumber: ''
+            });
+            setStudentDialogOpen(true);
           }}
-          className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
         >
-          <Pencil className="w-4 h-4" />
+          <Plus className="w-4 h-4" />
+          Add Student
         </button>
-        <button
-          onClick={() => setMultiDeleteOpen(true)}
-          className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-        >
-          <Trash className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  )}
 
-</div>
+        {selectedIds.length > 0 && (
+          <div className="flex items-center  gap-2">
+            <div className="text-xs text-gray-700">{selectedIds.length} selected</div>
+            <div className="flex items-center gap">
+              <button
+                onClick={() => {
+                  const first = students.find(s => s.id === selectedIds[0]);
+                  setMultiEditYear(first ? first.yearLevel : 1);
+                  setMultiEditOpen(true);
+                }}
+                className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setMultiDeleteOpen(true)}
+                className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+              >
+                <Trash className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+          {/* Archive & Promote Modal */}
+          {archiveModalOpen && (
+            <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+              <div className="bg-white rounded-xl p-6 shadow-xl max-w-md w-full">
+                <h2 className="text-lg font-bold mb-2">Archive & Promote Students</h2>
+                <p className="mb-4">This will archive all 4th year students and promote others. Continue?</p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setArchiveModalOpen(false)}
+                    className="px-4 py-2 bg-gray-200 rounded"
+                    disabled={archiveLoading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setArchiveLoading(true);
+                      const now = new Date();
+                      const startYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+                      const endYear = startYear + 1;
+                      const result = await archiveAndPromoteStudents(startYear, endYear);
+                      setArchiveLoading(false);
+                      setArchiveModalOpen(false);
+                      if (result.success) {
+                        setSuccess(result.message);
+                        // Reload students after archiving
+                        loadStudents();
+                      } else {
+                        setError(result.message);
+                      }
+                    }}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
+                    disabled={archiveLoading}
+                  >
+                    {archiveLoading ? 'Processing...' : 'Continue'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
      </div>
 
 
