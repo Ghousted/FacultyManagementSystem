@@ -1,15 +1,13 @@
-
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import Logo from '../../assets/logo.png';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { ChevronDown, ChevronUp, UserCircle, ShieldCheck, LogOut, History } from 'lucide-react';
+import { ChevronDown, ChevronUp, UserCircle, ShieldCheck, LogOut } from 'lucide-react';
 
 const Header = () => {
-  const { currentUser, role, signout, updateRole } = useAuth();
+  const { currentUser, role, signout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
-  // Removed adminDialogOpen, users, editingUser, newRole state
   const [userName, setUserName] = useState("");
   const menuRef = useRef(null);
 
@@ -41,41 +39,15 @@ const Header = () => {
     }
   };
 
-
-  // Navigation handlers for admin panel and history log
+  // Navigation handlers
   const handleGoAdminPanel = () => {
     window.location.hash = '#/admin';
     setMenuOpen(false);
   };
+
   const handleGoHistoryLog = () => {
     window.location.hash = '#/history-log';
     setMenuOpen(false);
-  };
-
-  const handleEditRole = (user) => {
-    setEditingUser(user);
-    setNewRole(user.role || 'admin');
-  };
-
-  const handleSaveRole = async () => {
-    if (editingUser) {
-      const result = await updateRole(editingUser.id, newRole);
-      if (result.success) {
-        setUsers(
-          users.map((user) =>
-            user.id === editingUser.id ? { ...user, role: newRole } : user
-          )
-        );
-        setEditingUser(null);
-        setNewRole('');
-      }
-    }
-  };
-
-  const handleCloseAdminPanel = () => {
-    setAdminDialogOpen(false);
-    setEditingUser(null);
-    setNewRole('');
   };
 
   const handleGoDashboard = () => {
@@ -83,6 +55,7 @@ const Header = () => {
     window.dispatchEvent(new CustomEvent('go-dashboard'));
   };
 
+  // Close menu on outside click
   useEffect(() => {
     const onClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
@@ -114,7 +87,7 @@ const Header = () => {
         {currentUser && (
           <div className="ml-auto relative" ref={menuRef}>
             <button
-              className="flex items-center gap-2 px-3 py-2 text-sm rounded-full cursor-pointer hover:bg-blue-50 "
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-full cursor-pointer hover:bg-blue-50"
               onClick={() => setMenuOpen((v) => !v)}
             >
               <UserCircle className="text-blue-800" aria-hidden="true" />
@@ -128,27 +101,27 @@ const Header = () => {
               )}
             </button>
             {menuOpen && (
-              <div className="absolute -left-6 mt-2 w-48 bg-white border border-gray-300 rounded-lg shadow-lg z-50 overflow-hidden transition-all duration-200">
+              <div className="absolute -left-6 mt-2 w-56 bg-white border border-gray-300 rounded-lg shadow-lg z-50 overflow-hidden transition-all duration-200">
                 <div className="text-center pt-2 text-sm uppercase text-slate-600">
                   {userName}
                 </div>
-                <div className="px-4 pb-2 text-xs text-center text-gray-400 border-b border-gray-300">
+                <div className="px-4 pb-2 text-xs text-center text-gray-500 border-b border-gray-300">
                   {currentUser.email}
                 </div>
                 {role === 'admin' && (
                   <div>
                     <button
-                      className="w-full border-b border-gray-300 text-left px-4 py-1.5 text-sm cursor-pointer hover:bg-gray-100 flex items-center gap-2 transition-colors duration-200"
+                      className="w-full border-b border-gray-300 text-left px-4 py-2 text-sm cursor-pointer hover:bg-gray-100 flex items-center gap-2 transition-colors duration-200"
                       onClick={handleGoAdminPanel}
                     >
                       <ShieldCheck className="w-4 h-4" />
-                      <span>Admin Panel</span>
+                      <span>User Management</span>
                     </button>
-                   
+                    
                   </div>
                 )}
                 <button
-                  className="w-full text-left px-4 py-1.5 text-sm cursor-pointer text-red-700 hover:bg-gray-100 flex items-center gap-2 transition-colors duration-200"
+                  className="w-full text-left px-4 py-2 text-sm cursor-pointer text-red-700 hover:bg-gray-100 flex items-center gap-2 transition-colors duration-200"
                   onClick={handleSignOut}
                 >
                   <LogOut className="w-4 h-4" />

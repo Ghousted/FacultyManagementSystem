@@ -1,12 +1,14 @@
-import './App.css'
+import './App.css';
 import { useEffect, useState } from 'react';
-import { useAuth } from './contexts/AuthContext'
-import AuthContainer from './components/auth/AuthContainer'
-import Dashboard from './components/Dashboard'
-import Layout from './components/layout/Layout'
+import { useAuth } from './contexts/AuthContext';
+import AuthContainer from './components/auth/AuthContainer';
+import Dashboard from './components/Dashboard';
+import Layout from './components/layout/Layout';
 import AdminPanel from './components/admin/AdminPanel';
 import CurriculumPreview from './components/curriculum-checker/CurriculumPreview';
 import CurriculumChecker from './components/curriculum-checker/CurriculumChecker';
+// Import HistoryLog if it exists
+// import HistoryLog from './components/HistoryLog';
 
 function App() {
   const { currentUser, loading, role } = useAuth();
@@ -42,12 +44,26 @@ function App() {
   return (
     <Layout>
       {currentUser ? (
-        route === '/' ? <AdminPanel /> : route.startsWith('#/curriculum-preview') ? <CurriculumPreview /> : route.startsWith('#/curriculum-maker') ? <CurriculumChecker initialView="curriculum-maker" initialCurriculumId={curriculumMakerId} onBackToDashboard={() => { window.location.hash = '' }} /> : <Dashboard />
+        route === '#/admin' ? (
+          <AdminPanel />
+        ) : route === '#/history-log' ? (
+          <HistoryLog /> // Replace with your HistoryLog component
+        ) : route.startsWith('#/curriculum-preview') ? (
+          <CurriculumPreview />
+        ) : route.startsWith('#/curriculum-maker') ? (
+          <CurriculumChecker
+            initialView="curriculum-maker"
+            initialCurriculumId={curriculumMakerId}
+            onBackToDashboard={() => { window.location.hash = ''; }}
+          />
+        ) : (
+          <Dashboard />
+        )
       ) : (
         <AuthContainer />
       )}
     </Layout>
-  )
+  );
 }
 
-export default App
+export default App;

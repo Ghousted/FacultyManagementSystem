@@ -101,7 +101,7 @@ const AdminPanel = () => {
         </div>
         <div className="p-6 bg-white rounded-2xl border border-gray-300 shadow-lg">
           <h2 className="text-xl font-semibold text-red-600">Unauthorized</h2>
-          <p className="text-gray-600">You do not have access to the Admin Panel.</p>
+          <p className="text-gray-600">You do not have access to the User Management.</p>
         </div>
       </div>
     );
@@ -120,17 +120,13 @@ const AdminPanel = () => {
             <ArrowBigLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-blue-600">Admin Panel</h1>
-            <span className="text-sm text-gray-500">User Role Management</span>
+            <h1 className="text-2xl font-bold text-blue-600">User Management</h1>
+            <span className="text-sm text-gray-500">
+              Manage user roles and permissions for the system.
+            </span>
           </div>
         </div>
-        {/* Archive & Promote Button */}
-        <button
-          onClick={() => setArchiveModalOpen(true)}
-          className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700"
-        >
-          Archive & Promote
-        </button>
+       
       </div>
 
       <div className="rounded-xl border border-gray-300 shadow-sm">
@@ -145,8 +141,8 @@ const AdminPanel = () => {
           {loading ? (
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="bg-blue-100 text-left">
-                  <th className="px-6 py-3">Email / ID</th>
+                    <tr className="bg-blue-600 text-white text-left">
+                  <th className="px-6 py-3">Email</th>
                   <th className="px-6 py-3">Username</th>
                   <th className="px-6 py-3">Role</th>
                   <th className="px-6 py-3 text-right">Action</th>
@@ -154,7 +150,7 @@ const AdminPanel = () => {
               </thead>
               <tbody>
                 {Array.from({ length: 5 }).map((_, idx) => (
-                  <tr key={idx} className="border-t">
+                  <tr key={idx} className="border-t hover:bg-slate-50 border-gray-300 transition">
                     <td className="px-6 py-4">
                       <div className="h-3 w-40 bg-gray-200 rounded animate-pulse mb-2" />
                     </td>
@@ -181,8 +177,8 @@ const AdminPanel = () => {
               ) : (
                 <table className="min-w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-100 text-left">
-                      <th className="px-6 py-3">Email / ID</th>
+                    <tr className="bg-blue-600 text-white text-left">
+                      <th className="px-6 py-3">Email</th>
                       <th className="px-6 py-3">Username</th>
                       <th className="px-6 py-3">Role</th>
                       <th className="px-6 py-3 text-right">Action</th>
@@ -190,7 +186,7 @@ const AdminPanel = () => {
                   </thead>
                   <tbody>
                     {filteredUsers.map((user) => (
-                      <tr key={user.id} className="border-t hover:bg-gray-50 transition">
+                      <tr key={user.id} className="border-t hover:bg-slate-50 border-gray-300 transition">
                         <td className="px-6 py-4 max-w-[420px] truncate font-medium">
                           {user.email || user.id}
                         </td>
@@ -209,7 +205,7 @@ const AdminPanel = () => {
                         <td className="px-6 py-4 text-right">
                           <button
                             onClick={() => handleEditRole(user)}
-                            className="inline-flex items-center gap-2 px-4 py-1.5 text-sm rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                            className="inline-flex items-center gap-2 px-4 py-1.5 text-sm cursor-pointer rounded-md text-white bg-blue-600 hover:bg-blue-700"
                           >
                             Edit
                           </button>

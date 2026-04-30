@@ -1,13 +1,13 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { BookCheck, PhilippinePeso, ChartColumnBig } from 'lucide-react';
+import { BookCheck, PhilippinePeso, Archive } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 
 // Lazy load modules
 const CurriculumChecker = lazy(() => import('./curriculum-checker/CurriculumChecker'));
 const PayablesMain = lazy(() => import('./payables-system/PayablesMain'));
-const ReportsModule = lazy(() => import('./reports/ReportsModule'));
+const ReportsMain = lazy(() => import('./reports/ReportsMain'));
 
 const Dashboard = () => {
   const { currentUser, role } = useAuth();
@@ -162,7 +162,7 @@ const Dashboard = () => {
   if (selectedSystem === 'Reports') {
     return (
       <Suspense fallback={<p className="p-4">Loading Reports Module...</p>}>
-        <ReportsModule onBackToDashboard={handleBackToDashboard} />
+        <ReportsMain onBackToDashboard={handleBackToDashboard} />
       </Suspense>
     );
   }
@@ -225,6 +225,29 @@ const Dashboard = () => {
             </div>
           )}
 
+           {canAccessSystem('Curriculum Checker') && (
+            <div
+              className="w-full h-72 cursor-pointer transition-all duration-300 border border-gray-300 bg-white rounded-2xl hover:-translate-y-1 hover:shadow-xl hover:border-purple-600 focus-within:border-purple-600"
+              onClick={() => handleSystemSelect('Reports')}
+            >
+              <div className="text-center p-4 h-full flex flex-col justify-between">
+                <div>
+                  <div className="mx-auto w-20 h-20 mb-4 rounded-full bg-purple-50 flex items-center justify-center">
+                    <Archive className="text-purple-700 w-10 h-10" />
+                  </div>
+                  <h4 className="text-2xl font-bold mb-2 text-purple-600">Academic Records</h4>
+                  <p className="text-gray-600 leading-relaxed">
+                    Generate and manage institutional reports, including dean's lists and archived class records.
+                  </p>
+                </div>
+                <p className="text-purple-600 font-semibold mt-2 flex items-center justify-center gap-2">
+                  <span>Click to access</span>
+                  <i className="bi bi-chevron-right"></i>
+                </p>
+              </div>
+            </div>
+          )}
+
           {canAccessSystem('Payables System') && (
             <div
               className="w-full h-72 cursor-pointer transition-all duration-300 border border-gray-300 bg-white rounded-2xl hover:-translate-y-1 hover:shadow-xl hover:border-green-600 focus-within:border-green-600"
@@ -248,28 +271,7 @@ const Dashboard = () => {
             </div>
           )}
 
-          {canAccessSystem('Curriculum Checker') && (
-            <div
-              className="w-full h-72 cursor-pointer transition-all duration-300 border border-gray-300 bg-white rounded-2xl hover:-translate-y-1 hover:shadow-xl hover:border-purple-600 focus-within:border-purple-600"
-              onClick={() => handleSystemSelect('Reports')}
-            >
-              <div className="text-center p-4 h-full flex flex-col justify-between">
-                <div>
-                  <div className="mx-auto w-20 h-20 mb-4 rounded-full bg-purple-50 flex items-center justify-center">
-                    <ChartColumnBig className="text-purple-700 w-10 h-10" />
-                  </div>
-                  <h4 className="text-2xl font-bold mb-2 text-purple-600">Reports</h4>
-                  <p className="text-gray-600 leading-relaxed">
-                    View dean's list summaries, filter by year/semester, and download reports.
-                  </p>
-                </div>
-                <p className="text-purple-600 font-semibold mt-2 flex items-center justify-center gap-2">
-                  <span>Click to access</span>
-                  <i className="bi bi-chevron-right"></i>
-                </p>
-              </div>
-            </div>
-          )}
+         
         </div>
     </div>
   );

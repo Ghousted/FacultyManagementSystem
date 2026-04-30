@@ -10,9 +10,9 @@ import {
   archiveAndPromoteStudents
 } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, deleteDoc, getDoc, collection, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { BadgePlus, Pencil, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft, Plus, Funnel, X } from 'lucide-react';
+import { BadgePlus, Pencil, Folder, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft, Plus, Funnel, X, FolderArchive } from 'lucide-react';
 
 const StudentManagement = ({ onBack }) => {
   const { currentUser } = useAuth();
@@ -21,6 +21,8 @@ const StudentManagement = ({ onBack }) => {
   const [allCourses, setAllCourses] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentCourses, setStudentCourses] = useState([]);
+  // Folder selection state (year + block)
+  const [selectedFolder, setSelectedFolder] = useState(null); // { year: number, block: string, isIrregular?: boolean }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -40,8 +42,12 @@ const StudentManagement = ({ onBack }) => {
     studentNumber: '',
     yearLevel: 1,
     curriculumId: '',
+    block: '',
     isIrregular: false
   });
+
+  const [curriculumSelectError, setCurriculumSelectError] = useState('');
+  const [studentFormYearError, setStudentFormYearError] = useState('');
   
   // Dialog states
   const [studentDialogOpen, setStudentDialogOpen] = useState(false);
@@ -51,6 +57,9 @@ const StudentManagement = ({ onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingStudent, setEditingStudent] = useState(null);
   const [editingData, setEditingData] = useState({});
+  // Temporary display overrides to keep recently-updated students visible in their original folder
+  const [displayOverrides, setDisplayOverrides] = useState({});
+  const [openYearView, setOpenYearView] = useState(null);
   
   // Grade management state
   const [studentGrades, setStudentGrades] = useState({});
@@ -87,6 +96,12 @@ const StudentManagement = ({ onBack }) => {
   // Archive modal state
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
+  // Archive selected students into folder
+  const [archiveSelectedModalOpen, setArchiveSelectedModalOpen] = useState(false);
+  const [archiveFolders, setArchiveFolders] = useState([]);
+  const [selectedArchiveFolder, setSelectedArchiveFolder] = useState('');
+  const [newArchiveFolderName, setNewArchiveFolderName] = useState('');
+  const [archiving, setArchiving] = useState(false);
 
   const handleSort = (column) => {
     if (sortBy === column) {
@@ -254,6 +269,16 @@ const StudentManagement = ({ onBack }) => {
     }
   }, [success]);
 
+  // Clear selected folder when switching tabs (but keep it when students update so edits don't close the folder view)
+  useEffect(() => {
+    setSelectedFolder(null);
+  }, [studentListTab]);
+
+  // Clear temporary display overrides when user navigates between folders
+  useEffect(() => {
+    setDisplayOverrides({});
+  }, [selectedFolder]);
+
   useEffect(() => {
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 250);
@@ -282,6 +307,65 @@ const StudentManagement = ({ onBack }) => {
     }
   };
 
+  // --- Archive folders helpers ---
+  const fetchArchiveFolders = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'archives'));
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setArchiveFolders(docs);
+    } catch (err) {
+      console.error('Failed to load archive folders', err);
+    }
+  };
+
+  const archiveSelectedStudentsToFolder = async (folderName) => {
+    if (!folderName) return alert('Please choose or enter a folder name');
+    setArchiving(true);
+    try {
+      // Load selected students
+      const studentDocs = await Promise.all(selectedIds.map(id => getDoc(doc(db, 'students', id))));
+      const selectedStudentsData = studentDocs.map(snap => ({ id: snap.id, ...(snap.exists() ? snap.data() : {}) }));
+
+      const archiveRef = doc(db, 'archives', folderName);
+      const existingSnap = await getDoc(archiveRef);
+      const existing = existingSnap.exists() ? (existingSnap.data().students || []) : [];
+
+      const existingIds = new Set(existing.map(s => s.id));
+      const toAppend = selectedStudentsData.filter(s => !existingIds.has(s.id));
+      const merged = [...existing, ...toAppend];
+
+      await setDoc(archiveRef, { students: merged, name: folderName, updatedAt: serverTimestamp() }, { merge: true });
+
+      // refresh folder list
+      await fetchArchiveFolders();
+      // remove archived students from active collection
+      try {
+        await Promise.all(selectedIds.map(id => deleteDoc(doc(db, 'students', id))));
+      } catch (err) {
+        console.error('Failed to remove archived students from students collection', err);
+      }
+
+      // update local UI state
+      setStudents(prev => prev.filter(s => !selectedIds.includes(s.id)));
+      setSelectedIds([]);
+      setArchiveSelectedModalOpen(false);
+      setNewArchiveFolderName('');
+      setSelectedArchiveFolder('');
+      setSuccess('Students archived successfully.');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to archive students.');
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (archiveSelectedModalOpen) {
+      fetchArchiveFolders();
+    }
+  }, [archiveSelectedModalOpen]);
+
   const loadStudentCourses = async (curriculumId) => {
     if (!curriculumId) return;
     
@@ -296,6 +380,8 @@ const StudentManagement = ({ onBack }) => {
       setError('Please sign in to add a student');
       return;
     }
+    // Clear previous year error
+    setStudentFormYearError('');
     
     // Validate student number format only if provided
     const studentNumberPattern = /^\d{4}-\d{5}$/;
@@ -312,9 +398,26 @@ const StudentManagement = ({ onBack }) => {
         return;
       }
     }
+    // Require curriculum selection for regular students
+    if (!studentForm.isIrregular && (!studentForm.curriculumId || String(studentForm.curriculumId).trim() === '')) {
+      setCurriculumSelectError('Please choose curriculum first');
+      return;
+    }
+    // Require year selection
+    if (!studentForm.yearLevel) {
+      setLoading(false);
+      setStudentFormYearError('Please select a year level');
+      return;
+    }
     
     setLoading(true);
     setError('');
+    // Require block selection
+    if (!studentForm.block || String(studentForm.block).trim() === '') {
+      setLoading(false);
+      setError('Please select a block (A - E)');
+      return;
+    }
     const result = await addStudent({
       ...studentForm,
       curriculumId: studentForm.isIrregular ? null : studentForm.curriculumId,
@@ -322,7 +425,7 @@ const StudentManagement = ({ onBack }) => {
     });
     if (result.success) {
       setSuccess('Student added successfully!');
-      setStudentForm({ name: '', email: '', contactNumber: '', studentNumber: '', yearLevel: 1, curriculumId: '', isIrregular: false });
+      setStudentForm({ name: '', email: '', contactNumber: '', studentNumber: '', yearLevel: 1, curriculumId: '', block: '', isIrregular: false });
       setStudentDialogOpen(false);
       loadStudents();
     } else {
@@ -387,7 +490,11 @@ const StudentManagement = ({ onBack }) => {
       studentNumber: student.studentNumber || '',
       yearLevel: student.yearLevel,
       curriculumId: student.curriculumId,
-      isIrregular: student.isIrregular || false
+      isIrregular: student.isIrregular || false,
+      block: student.block || getFirstBlockForYear(student.yearLevel, student.isIrregular || false),
+      // keep originals so UI can keep student visible in the folder where edit started
+      originalYearLevel: student.yearLevel,
+      originalBlock: student.block || getFirstBlockForYear(student.yearLevel, student.isIrregular || false)
     });
     setEditingDialogOpen(true);
   };
@@ -419,9 +526,21 @@ const StudentManagement = ({ onBack }) => {
         return;
       }
     }
+    // Require curriculum selection for regular students
+    if (!editingData.isIrregular && (!editingData.curriculumId || String(editingData.curriculumId).trim() === '')) {
+      setCurriculumSelectError('Please choose curriculum first');
+      setLoading(false);
+      return;
+    }
     
     setLoading(true);
     setError('');
+    // Require block selection
+    if (!editingData.block || String(editingData.block).trim() === '') {
+      setLoading(false);
+      setError('Please select a block (A - E)');
+      return;
+    }
     try {
       const payload = {
         name: editingData.name || '',
@@ -430,6 +549,7 @@ const StudentManagement = ({ onBack }) => {
         studentNumber: editingData.studentNumber || '',
         yearLevel: editingData.yearLevel,
         curriculumId: editingData.isIrregular ? null : (editingData.curriculumId || ''),
+        block: editingData.block || '',
         isIrregular: editingData.isIrregular,
         irregularSubjects: editingData.isIrregular
           ? { sem1: [], sem2: [], sem3: [], ...(selectedStudent?.irregularSubjects || {}) }
@@ -440,10 +560,17 @@ const StudentManagement = ({ onBack }) => {
       const studentRef = doc(db, 'students', studentId);
       await updateDoc(studentRef, payload);
       setSuccess('Student updated successfully!');
+      // Keep the updated student visible in the folder where the edit started
+      setDisplayOverrides(prev => ({
+        ...prev,
+        [studentId]: { year: editingData.originalYearLevel ?? editingData.yearLevel, block: editingData.originalBlock ?? editingData.block }
+      }));
+
       setEditingStudent(null);
       setEditingData({});
       setStudentListTab(editingData.isIrregular ? 5 : editingData.yearLevel);
       setEditingDialogOpen(false);
+      // reload students from server to get canonical data
       loadStudents();
     } catch (error) {
       setError('Failed to update student: ' + error.message);
@@ -459,6 +586,21 @@ const StudentManagement = ({ onBack }) => {
 
     setStudentToDelete(studentId);
     setDeleteDialogOpen(true);
+  };
+
+  // Archive a single student: open the Archive Selected modal prefilled for this student
+  const handleArchiveStudent = (e, student) => {
+    e.stopPropagation();
+    if (!currentUser) {
+      setError('Please sign in to archive a student');
+      return;
+    }
+
+    // Preselect this student and open the archive modal so user can choose/create folder
+    setSelectedIds([student.id]);
+    setSelectedArchiveFolder('');
+    setNewArchiveFolderName('');
+    setArchiveSelectedModalOpen(true);
   };
 
   const handleConfirmDelete = async () => {
@@ -506,6 +648,34 @@ const StudentManagement = ({ onBack }) => {
   const getCurriculumName = (curriculumId) => {
     const curriculum = curriculums.find(c => c.id === curriculumId);
     return curriculum ? curriculum.name : '';
+  };
+
+  // Derive available blocks dynamically from existing students
+  const getAvailableBlocks = () => {
+    const set = new Set();
+    students.forEach(s => {
+      const block = s && s.block && String(s.block).trim() !== '' ? String(s.block).trim() : 'A';
+      set.add(block);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  };
+
+  const getBlocksForYear = (year, isIrregular = false) => {
+    const set = new Set();
+    students.forEach(s => {
+      if ((s.yearLevel === year) && (isIrregular ? s.isIrregular : !s.isIrregular)) {
+        const block = s && s.block && String(s.block).trim() !== '' ? String(s.block).trim() : 'A';
+        set.add(block);
+      }
+    });
+    const blocks = Array.from(set).sort((a, b) => a.localeCompare(b));
+    if (blocks.length === 0) return ['A'];
+    return blocks;
+  };
+
+  const getFirstBlockForYear = (year, isIrregular = false) => {
+    const blocks = getBlocksForYear(year, isIrregular);
+    return blocks && blocks.length > 0 ? blocks[0] : 'A';
   };
 
   const getIrregularSubjectCandidates = () => {
@@ -832,102 +1002,8 @@ const StudentManagement = ({ onBack }) => {
   const renderStudentList = () => (
     <div>
      <div className='flex-1 flex justify-between items-center  gap-4 mb-4'>
-      <div className=" flex flex-wrap gap-2  border-gray-300 text-sm">
-        {[1, 2, 3, 4].map((year, idx) => (
-          <button
-            key={year}
-            onClick={() => setStudentListTab(idx + 1)}
-            className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
-              ${studentListTab === idx + 1
-               ? 'bg-blue-100 text-blue-600'
-                    : 'text-gray-800 hover:bg-gray-100'
-              }
-            `}
-          >
-            {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year ({getStudentCountByYear(year)})
-          </button>
-        ))}
-
-        <button
-          onClick={() => setStudentListTab(5)}
-            className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
-              ${studentListTab === 5
-              ? 'bg-blue-100 text-blue-600'
-                    : 'text-gray-800 hover:bg-gray-100'
-            }
-          `}
-        >
-          Irregular ({getIrregularStudentCount()})
-        </button>
-      </div>
-
-
-     <div className="flex items-center gap-4">
-        <div className="relative w-full sm:w-70">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <input
-            className="w-full border text-sm border-gray-300 rounded-lg pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-            placeholder="Search students name..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-
-        {/* Archive & Promote button for 4th year tab */}
-        {studentListTab === 4 && (
-          <button
-            onClick={() => setArchiveModalOpen(true)}
-            className="inline-flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700"
-            disabled={archiveLoading}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v8m4-4H8" /></svg>
-            Archive & Promote
-          </button>
-        )}
-
-        <button
-          className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-          onClick={() => {
-            setStudentForm({
-              name: '',
-              email: '',
-              studentNumber: '',
-              yearLevel: studentListTab === 5 ? 1 : studentListTab,
-              curriculumId: '',
-              isIrregular: studentListTab === 5,
-              contactNumber: ''
-            });
-            setStudentDialogOpen(true);
-          }}
-        >
-          <Plus className="w-4 h-4" />
-          Add Student
-        </button>
-
-        {selectedIds.length > 0 && (
-          <div className="flex items-center  gap-2">
-            <div className="text-xs text-gray-700">{selectedIds.length} selected</div>
-            <div className="flex items-center gap">
-              <button
-                onClick={() => {
-                  const first = students.find(s => s.id === selectedIds[0]);
-                  setMultiEditYear(first ? first.yearLevel : 1);
-                  setMultiEditOpen(true);
-                }}
-                className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setMultiDeleteOpen(true)}
-                className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
-              >
-                <Trash className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+   
+      
           {/* Archive & Promote Modal */}
           {archiveModalOpen && (
             <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
@@ -970,6 +1046,83 @@ const StudentManagement = ({ onBack }) => {
           )}
      </div>
 
+
+        {selectedIds.length > 0 && (
+          <div className="flex items-center  gap-2">
+            <div className="text-xs text-gray-700">{selectedIds.length} selected</div>
+            <div className="flex items-center gap">
+              <button
+                onClick={() => {
+                  const first = students.find(s => s.id === selectedIds[0]);
+                  setMultiEditYear(first ? first.yearLevel : 1);
+                  setMultiEditOpen(true);
+                }}
+                className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+                title="Edit year level of selected students"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setArchiveSelectedModalOpen(true)}
+                className="p-1 rounded-full text-gray-700 hover:bg-gray-300 cursor-pointer"
+                title="Archive selected students"
+              >
+                <FolderArchive className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setMultiDeleteOpen(true)}
+                className="p-1 rounded-full text-gray-700  hover:bg-gray-300 cursor-pointer"
+                title="Delete selected students"
+              >
+                <Trash className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+          {/* Archive Selected Modal */}
+          {archiveSelectedModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+              <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setArchiveSelectedModalOpen(false)}></div>
+              <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-6">
+                <div className="text-lg font-semibold mb-2">Archive Selected Students</div>
+                <p className="text-sm text-gray-600 mb-4">Choose an existing folder or create a new one to group the selected students.</p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Existing folders</label>
+                    <select className="w-full border px-2 py-1 rounded" value={selectedArchiveFolder} onChange={e => setSelectedArchiveFolder(e.target.value)} onClick={fetchArchiveFolders}>
+                      <option value="">-- choose folder --</option>
+                      {archiveFolders.map(f => (
+                        <option key={f.id} value={f.id}>{f.id}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Or create new folder</label>
+                    <input value={newArchiveFolderName} onChange={e => setNewArchiveFolderName(e.target.value)} placeholder="Enter folder name" className="w-full border px-2 py-1 rounded" />
+                  </div>
+                </div>
+
+                <div className="mt-6 flex justify-end gap-2">
+                  <button onClick={() => setArchiveSelectedModalOpen(false)} className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50">Cancel</button>
+                  <button
+                    onClick={async () => {
+                      const folder = newArchiveFolderName.trim() || selectedArchiveFolder;
+                      if (!folder) return alert('Please select or enter a folder name');
+                      await archiveSelectedStudentsToFolder(folder);
+                    }}
+                    disabled={archiving}
+                    className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {archiving ? 'Archiving...' : 'Archive Selected'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          
 
     
       {/* Multi-edit Year Modal */}
@@ -1050,13 +1203,8 @@ const StudentManagement = ({ onBack }) => {
         {(() => {
           let filteredStudents;
 
-          if (studentListTab === 0) {
-            filteredStudents = students;
-          } else if (studentListTab === 5) {
-            filteredStudents = students.filter((student) => student.isIrregular);
-          } else {
-            filteredStudents = students.filter((student) => student.yearLevel === studentListTab && !student.isIrregular);
-          }
+          // Show all students across years and irregulars; folders will group by year+block
+          filteredStudents = students;
 
           if (searchTerm) {
             filteredStudents = filteredStudents.filter(
@@ -1067,7 +1215,7 @@ const StudentManagement = ({ onBack }) => {
           }
 
           // Create a sorted copy of filtered students for table display
-          const sortedStudents = filteredStudents.slice().sort((a, b) => {
+          let sortedStudents = filteredStudents.slice().sort((a, b) => {
             let aValue = '';
             let bValue = '';
             switch (sortBy) {
@@ -1096,40 +1244,189 @@ const StudentManagement = ({ onBack }) => {
             }
           });
 
-          if (filteredStudents.length === 0) {
-            return (
-              <div className="text-center py-8">
-                <div className="text-gray-600 text-lg font-medium mb-1">
-                  {searchTerm ? 'No students found' : studentListTab === 5 ? 'No irregular students' : `No students in Year ${studentListTab}`}
-                </div>
-                <div className="text-gray-500 mb-4">{searchTerm ? 'Try adjusting your search terms' : 'Add students to get started'}</div>
-                {!searchTerm && (
-                  <button
-                    className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                    onClick={() => {
+          // helper function
+  const getYearLabel = (year) => {
+    if (year === 1) return '1st';
+    if (year === 2) return '2nd';
+    if (year === 3) return '3rd';
+    if (year === 4) return '4th';
+    return `${year}th`;
+  };
+
+  // Build folder groups from the currently filtered students (respecting the selected tab)
+  const buildFolders = () => {
+    const map = new Map();
+    filteredStudents.forEach(s => {
+      const block = s && s.block && String(s.block).trim() !== '' ? String(s.block).trim() : 'A';
+      const isIrr = !!s.isIrregular;
+      const yearKey = isIrr ? 'Irregular' : String(s.yearLevel);
+      const key = `${yearKey}||${block}`;
+      if (!map.has(key)) {
+        const yearNum = isIrr ? null : Number(s.yearLevel);
+        const label = isIrr ? `Irregular Block ${block}` : `${getYearLabel(yearNum)} Year Block ${block}`;
+        map.set(key, { year: yearNum, isIrregular: isIrr, block, students: [], label });
+      }
+      map.get(key).students.push(s);
+    });
+    // Ensure we still show a default 1st Year Block A folder even if empty
+    const defaultKey = `1||A`;
+    if (!map.has(defaultKey)) {
+      map.set(defaultKey, { year: 1, isIrregular: false, block: 'A', students: [], label: `${getYearLabel(1)} Year Block A` });
+    }
+
+    // Sort: years 1..4 (ascending), then Irregular last. Within each year, sort by block alphabetically.
+    return Array.from(map.values()).sort((a, b) => {
+      // If one is irregular and the other is not, non-irregular comes first
+      if (a.isIrregular && !b.isIrregular) return 1;
+      if (!a.isIrregular && b.isIrregular) return -1;
+
+      // Both non-irregular: sort by year then block
+      if (!a.isIrregular && !b.isIrregular) {
+        if ((a.year || 0) !== (b.year || 0)) return (a.year || 0) - (b.year || 0);
+        return (a.block || '').localeCompare(b.block || '');
+      }
+
+      // Both irregular: sort by block
+      return (a.block || '').localeCompare(b.block || '');
+    });
+  };
+
+  const folders = buildFolders();
+  // Always render folders view when not inside a selected folder
+  if (!selectedFolder) {
+    return (
+     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 ">
+  {folders.map((f) => (
+    <div
+      key={`${f.year || 'irr'}-${f.block}`}
+      className="p-4 border border-gray-200 rounded-xl min-h-24 bg-white hover:shadow-lg hover:border-yellow-300 transition-all duration-200 cursor-pointer"
+      onClick={() => setSelectedFolder({ year: f.year, block: f.block, isIrregular: f.isIrregular })}
+    >
+      <div className="flex  items-start gap-4">
+        <Folder className="w-8 h-8 text-yellow-500 mb-3" />
+        <div>
+          <div className="w-full flex items-center justify-between gap-2">
+          <div className="text-sm font-medium text-gray-800 truncate max-w-[70%]">
+            {f.label}
+          </div>
+          <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+            {f.students.length} student{f.students.length !== 1 ? 's' : ''}
+          </div>
+        </div>
+        <div className="text-xs text-gray-400 mt-2">Click to view students</div>
+        </div>
+      </div>
+    </div>
+  ))}
+</div>
+    );
+  }
+
+  // If we have a selected folder, compute the students for that folder and fall through to the table/grid rendering below
+  let folderStudents = null;
+  if (selectedFolder) {
+    const blockKey = selectedFolder.block || 'A';
+    folderStudents = filteredStudents.filter(s => {
+      const override = displayOverrides && displayOverrides[s.id] ? displayOverrides[s.id] : null;
+      const sBlock = override?.block ?? (s.block && String(s.block).trim() !== '' ? String(s.block).trim() : 'A');
+      const sYear = override?.year ?? s.yearLevel;
+      if (selectedFolder.isIrregular) {
+        return s.isIrregular && sBlock === blockKey;
+      }
+      return !s.isIrregular && sYear === selectedFolder.year && sBlock === blockKey;
+    });
+  }
+
+  // If a folder is selected, sort the students for that folder instead
+  if (selectedFolder) {
+    sortedStudents = (folderStudents || []).slice().sort((a, b) => {
+      let aValue = '';
+      let bValue = '';
+      switch (sortBy) {
+        case 'studentNumber':
+          aValue = a.studentNumber || '';
+          bValue = b.studentNumber || '';
+          return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+        case 'name':
+          aValue = a.name || '';
+          bValue = b.name || '';
+          return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+        case 'email':
+          aValue = a.email || '';
+          bValue = b.email || '';
+          return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+        case 'contactNumber':
+          aValue = a.contactNumber || '';
+          bValue = b.contactNumber || '';
+          return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+        case 'curriculum':
+          aValue = getCurriculumName(a.curriculumId) || '';
+          bValue = getCurriculumName(b.curriculumId) || '';
+          return sortOrder === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+        default:
+          return 0;
+      }
+    });
+  }
+            if (filteredStudents.length === 0) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+
+      {/* Icon */}
+      <div className="w-16 h-16 flex items-center justify-center rounded-full bg-blue-50 mb-4">
+        <i className="bi bi-people text-2xl text-blue-600"></i>
+      </div>
+
+      {/* Title */}
+      <h2 className="text-lg font-semibold text-gray-800 mb-1">
+        {searchTerm
+          ? 'No matching students'
+          : studentListTab === 5
+          ? 'No irregular students yet'
+          : `No students in ${getYearLabel(studentListTab)} Year`}
+      </h2>
+
+      {/* Description */}
+      <p className="text-sm text-gray-500 mb-6 max-w-xs">
+        {searchTerm
+          ? 'Try using different keywords or check for typos.'
+          : 'Start building your list by adding students to this section.'}
+      </p>
+
+      {/* Action Button */}
+      {!searchTerm && (
+        <button
+          className="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium shadow-sm hover:bg-blue-700 hover:shadow-md transition-all duration-200"
+          onClick={() => {
+                      const yearForDefault = studentListTab === 5 ? 1 : studentListTab;
+                      const isIrr = studentListTab === 5;
                       setStudentForm({
                         name: '',
                         email: '',
                         studentNumber: '',
-                        yearLevel: studentListTab === 5 ? 1 : studentListTab,
+                        yearLevel: yearForDefault,
                         curriculumId: '',
-                        isIrregular: studentListTab === 5,
+                        block: getFirstBlockForYear(yearForDefault, isIrr),
+                        isIrregular: isIrr,
                       });
-                      setStudentDialogOpen(true);
-                    }}
-                  >
-                    <i className="bi bi-plus-lg"></i>
-                    <span>Add {studentListTab === 5 ? 'Irregular ' : ''}Student</span>
-                  </button>
-                )}
-              </div>
-            );
-          }
+            setStudentDialogOpen(true);
+          }}
+        >
+          <i className="bi bi-plus-lg text-base"></i>
+          <span>
+            Add {studentListTab === 5 ? 'Irregular ' : ''}Student
+          </span>
+        </button>
+      )}
+
+    </div>
+  );
+}
 
           if (viewMode === 'grid') {
             return (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredStudents.map((student) => (
+                {(selectedFolder ? folderStudents || [] : filteredStudents).map((student) => (
                       <div
                           id={`student-row-${student.id}`}
                           key={student.id}
@@ -1178,6 +1475,18 @@ const StudentManagement = ({ onBack }) => {
                             >
                              Delete
                             </button>
+                            {student.yearLevel === 4 && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenDropdown(null);
+                                  handleArchiveStudent(e, student);
+                                }}
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2"
+                              >
+                                Archive
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1205,54 +1514,82 @@ const StudentManagement = ({ onBack }) => {
 
           return (
             <div className="border border-gray-200 rounded-lg overflow-hidden">
+              {selectedFolder && (
+                <div className="px-4 py-3 border-b bg-white flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setSelectedFolder(null)} className="px-3 py-1 rounded-full border text-sm text-blue-600 bg-white hover:bg-gray-50">Back to folders</button>
+                    <div className="text-sm font-semibold">
+                      {selectedFolder.isIrregular ? `Irregular Block ${selectedFolder.block}` : `${getYearLabel(selectedFolder.year)} Year Block ${selectedFolder.block}`}
+                    </div>
+                  </div>
+                  
+                  <div className='flex items-center gap-4'>
+
+                     <div className="relative w-full sm:w-70">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <input
+            className="w-full border text-sm border-gray-300 rounded-lg pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+            placeholder="Search students name..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+                                              <div className="text-xs text-gray-600">{(folderStudents || []).length} student{(folderStudents || []).length !== 1 ? 's' : ''}</div>
+
+
+
+                  </div>
+                </div>
+              )}
               <table className="min-w-full text-sm">
                 <thead className="bg-blue-700 text-white sticky top-0">
                   <tr>
-                    <th className="px-2 py-1 w-[5%] text-left">
+                    <th className="px-4 py-2 w-[5%] text-left">
                       <input
                         type="checkbox"
                         className="h-4 w-4"
-                        checked={filteredStudents.length > 0 && filteredStudents.every(s => selectedIds.includes(s.id))}
+                        checked={(selectedFolder ? (folderStudents || []) : filteredStudents).length > 0 && (selectedFolder ? (folderStudents || []).every(s => selectedIds.includes(s.id)) : filteredStudents.every(s => selectedIds.includes(s.id)))}
                         onChange={() => {
-                          if (filteredStudents.length > 0 && filteredStudents.every(s => selectedIds.includes(s.id))) {
+                          const pool = selectedFolder ? (folderStudents || []) : filteredStudents;
+                          if (pool.length > 0 && pool.every(s => selectedIds.includes(s.id))) {
                             setSelectedIds([]);
                           } else {
-                            setSelectedIds(filteredStudents.map(s => s.id));
+                            setSelectedIds(pool.map(s => s.id));
                           }
                         }}
                       />
                     </th>
                     <th
-                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
+                      className="px-4 py-2 w-[15%] text-left cursor-pointer"
                       onClick={() => handleSort('studentNumber')}
                     >
                       Student No. {sortBy === 'studentNumber' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
                     </th>
                     <th
-                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
+                      className="px-4 py-2 w-[25%] text-left cursor-pointer"
                       onClick={() => handleSort('name')}
                     >
                       Name {sortBy === 'name' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
                     </th>
                     <th
-                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
+                      className="px-4 py-2 w-[20%] text-left cursor-pointer"
                       onClick={() => handleSort('email')}
                     >
                       Email {sortBy === 'email' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
                     </th>
                     <th
-                      className="px-2 py-1 w-[20%] text-left cursor-pointer"
+                      className="px-4 py-2 w-[20%] text-left cursor-pointer"
                       onClick={() => handleSort('contactNumber')}
                     >
                       Contact No.
                     </th>
                     <th
-                      className="px-2 py-1 w-[15%] text-left cursor-pointer"
+                      className="px-4 py-2 w-[15%] text-left cursor-pointer"
                       onClick={() => handleSort('curriculum')}
                     >
                       Curriculum 
                     </th>
-                    <th className="px-2 py-1 w-[10%] text-left">Actions</th>
+                    <th className="px-4 py-2 w-[10%] text-left">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1264,7 +1601,7 @@ const StudentManagement = ({ onBack }) => {
                         className="border-t border-gray-300 hover:bg-gray-50 cursor-pointer"
                         onClick={() => handleSelectStudent(student)}
                       >
-                        <td className="px-2 py-1">
+                        <td className="px-4 py-2">
                           <input
                             type="checkbox"
                             className="h-4 w-4"
@@ -1273,23 +1610,23 @@ const StudentManagement = ({ onBack }) => {
                             onChange={() => {}}
                           />
                         </td>
-                        <td className="px-2 py-1">
+                        <td className="px-4 py-2">
                           <span className="font-semibold">{student.studentNumber || ''}</span>
                         </td>
-                        <td className="px-2 py-1">
+                        <td className="px-4 py-2">
                           <span className="font-semibold">{student.name}</span>
                         </td>
-                        <td className="px-2 py-1">
+                        <td className="px-4 py-2">
                           <span>{student.email}</span>
                         </td>
                     
-                        <td className="px-2 py-1">
+                        <td className="px-4 py-2">
                           <span>{student.contactNumber || ''}</span>
                         </td>
-                        <td className="px-2 py-1">
+                        <td className="px-4 py-2">
                           <span>{getCurriculumName(student.curriculumId)}</span>
                         </td>
-                        <td className="px-2 py-1">
+                        <td className="px-4 py-2">
                           <div className="flex items-center gap-2">
                             <button
                               onClick={(e) => {
@@ -1309,6 +1646,18 @@ const StudentManagement = ({ onBack }) => {
                             >
                               <Trash className="w-4 h-4" />
                             </button>
+                            {student.yearLevel === 4 && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleArchiveStudent(e, student);
+                                }}
+                                className="p-1 rounded-full text-gray-700 hover:bg-gray-300 cursor-pointer"
+                                title="Archive student"
+                              >
+                                <FolderArchive className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1804,19 +2153,17 @@ const StudentManagement = ({ onBack }) => {
   {!selectedStudent && (
     <button
       onClick={() => {
-        setStudentForm({
-          name: "",
-          email: "",
-          studentNumber: "",
-          yearLevel:
-            studentListTab === 0
-              ? 1
-              : studentListTab === 5
-              ? 1
-              : studentListTab,
-          curriculumId: "",
-          isIrregular: studentListTab === 5,
-        });
+          const yearForDefault = studentListTab === 0 ? 1 : (studentListTab === 5 ? 1 : studentListTab);
+          const isIrr = studentListTab === 5;
+          setStudentForm({
+            name: "",
+            email: "",
+            studentNumber: "",
+            yearLevel: yearForDefault,
+            curriculumId: "",
+            block: getFirstBlockForYear(yearForDefault, isIrr),
+            isIrregular: isIrr,
+          });
         setStudentDialogOpen(true);
       }}
       className="inline-flex items-center text-sm gap-2 cursor-pointer bg-blue-600 text-white px-3 py-2 rounded-xl hover:bg-blue-700"
@@ -1944,12 +2291,29 @@ const StudentManagement = ({ onBack }) => {
                 <select
                   className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
                   value={editingData.curriculumId}
-                  onChange={(e) => setEditingData({ ...editingData, curriculumId: e.target.value })}
+                  onChange={(e) => { setEditingData({ ...editingData, curriculumId: e.target.value }); if (curriculumSelectError) setCurriculumSelectError(''); }}
                 >
                   {curriculums.map((curriculum) => (
                     <option key={curriculum.id} value={curriculum.id}>
                       {curriculum.name}
                     </option>
+                  ))}
+                </select>
+                {curriculumSelectError && (
+                  <div className="text-sm text-red-600 mt-2">{curriculumSelectError}</div>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Block</label>
+                <select
+                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+                  value={editingData.block || ''}
+                  required
+                  onChange={(e) => setEditingData({ ...editingData, block: e.target.value })}
+                >
+                  <option value="" disabled>-- choose block --</option>
+                  {['A','B','C','D','E'].map((b) => (
+                    <option key={b} value={b}>{b}</option>
                   ))}
                 </select>
               </div>
@@ -2071,33 +2435,80 @@ const StudentManagement = ({ onBack }) => {
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">Year Level</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
-                  value={studentForm.yearLevel}
-                  onChange={(e) => setStudentForm({ ...studentForm, yearLevel: parseInt(e.target.value, 10) })}
-                >
-                  {[1, 2, 3, 4].map((year) => (
-                    <option key={year} value={year}>
-                      {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">Curriculum</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
-                  value={studentForm.curriculumId}
-                  onChange={(e) => setStudentForm({ ...studentForm, curriculumId: e.target.value })}
-                >
-                  {curriculums.map((curriculum) => (
-                    <option key={curriculum.id} value={curriculum.id}>
-                      {curriculum.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+  <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+  <select
+    className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+    value={studentForm.yearLevel || ""}
+    required
+    onChange={(e) => {
+      setStudentForm({
+        ...studentForm,
+        yearLevel: e.target.value ? parseInt(e.target.value, 10) : ""
+      });
+      setStudentFormYearError('');
+    }}
+  >
+    <option value="" disabled>
+      Select Year Level
+    </option>
+
+    {[1, 2, 3, 4].map((year) => (
+      <option key={year} value={year}>
+        {year === 1
+          ? "1st Year"
+          : year === 2
+          ? "2nd Year"
+          : year === 3
+          ? "3rd Year"
+          : "4th Year"}
+      </option>
+    ))}
+  </select>
+  {studentFormYearError && <div className="text-sm text-red-600 mt-2">{studentFormYearError}</div>}
+</div>
+
+<div>
+  <label className="block text-sm text-gray-600 mb-1">Curriculum</label>
+  <select
+    className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+    value={studentForm.curriculumId || ""}
+    required
+    onChange={(e) => {
+      setStudentForm({
+        ...studentForm,
+        curriculumId: e.target.value
+      });
+      if (curriculumSelectError) setCurriculumSelectError('');
+    }}
+  >
+    <option value="" disabled>
+      Select Curriculum
+    </option>
+
+    {curriculums.map((curriculum) => (
+      <option key={curriculum.id} value={curriculum.id}>
+        {curriculum.name}
+      </option>
+    ))}
+  </select>
+  {curriculumSelectError && (
+    <div className="text-sm text-red-600 mt-2">{curriculumSelectError}</div>
+  )}
+</div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">Block</label>
+              <select
+                className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+                value={studentForm.block || ''}
+                required
+                onChange={(e) => setStudentForm({ ...studentForm, block: e.target.value })}
+              >
+                <option value="" disabled>-- choose block --</option>
+                {['A','B','C','D','E'].map((b) => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            </div>
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"

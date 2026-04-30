@@ -482,12 +482,7 @@ const CurriculumCheckerMain = ({ onBack }) => {
             <p className="text-gray-600">Select a student to check their curriculum status</p>
           </div>
         </div>
-        <button
-          className="ml-auto px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
-          onClick={() => setShowArchivedPanel(true)}
-        >
-          View Archived Classes
-        </button>
+       
       </div>
       {/* Archived Classes Panel */}
       {showArchivedPanel && (
