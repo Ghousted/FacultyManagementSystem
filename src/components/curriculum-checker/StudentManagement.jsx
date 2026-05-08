@@ -13,6 +13,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc, collection, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { BadgePlus, Pencil, Folder, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft, Plus, Funnel, X, FolderArchive } from 'lucide-react';
+import TermEnrollmentPanel from './TermEnrollmentPanel';
 
 const StudentManagement = ({ onBack }) => {
   const { currentUser } = useAuth();
@@ -2187,6 +2188,7 @@ const StudentManagement = ({ onBack }) => {
         <div className="flex-1 flex flex-col">
           {!selectedStudent ? (
             <div className="flex-1">
+              <TermEnrollmentPanel />
               <div>{renderStudentList()}</div>
             </div>
           ) : (

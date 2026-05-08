@@ -1,6 +1,6 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { BookCheck, PhilippinePeso, Archive } from 'lucide-react';
+import { BookCheck, PhilippinePeso, Archive, GraduationCap } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 
@@ -8,6 +8,7 @@ import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 const CurriculumChecker = lazy(() => import('./curriculum-checker/CurriculumChecker'));
 const PayablesMain = lazy(() => import('./payables-system/PayablesMain'));
 const ReportsMain = lazy(() => import('./reports/ReportsMain'));
+const FacultyMain = lazy(() => import('./faculty/FacultyMain'));
 
 const Dashboard = () => {
   const { currentUser, role } = useAuth();
@@ -167,6 +168,14 @@ const Dashboard = () => {
     );
   }
 
+  if (selectedSystem === 'Faculty Management') {
+    return (
+      <Suspense fallback={<p className="p-4">Loading Faculty Management...</p>}>
+        <FacultyMain onBackToDashboard={handleBackToDashboard} />
+      </Suspense>
+    );
+  }
+
   return (
     <div>
 
@@ -241,6 +250,29 @@ const Dashboard = () => {
                   </p>
                 </div>
                 <p className="text-purple-600 font-semibold mt-2 flex items-center justify-center gap-2">
+                  <span>Click to access</span>
+                  <i className="bi bi-chevron-right"></i>
+                </p>
+              </div>
+            </div>
+          )}
+
+          {canAccessSystem('Faculty Management') && (
+            <div
+              className="w-full h-72 cursor-pointer transition-all duration-300 border border-gray-300 bg-white rounded-2xl hover:-translate-y-1 hover:shadow-xl hover:border-amber-600 focus-within:border-amber-600"
+              onClick={() => handleSystemSelect('Faculty Management')}
+            >
+              <div className="text-center p-4 h-full flex flex-col justify-between">
+                <div>
+                  <div className="mx-auto w-20 h-20 mb-4 rounded-full bg-amber-50 flex items-center justify-center">
+                    <GraduationCap className="text-amber-600 w-10 h-10" />
+                  </div>
+                  <h4 className="text-2xl font-bold mb-2 text-amber-600">Faculty Management</h4>
+                  <p className="text-gray-600 leading-relaxed">
+                    Manage department professors, assign subjects from existing curriculums, and view enrolled students per subject.
+                  </p>
+                </div>
+                <p className="text-amber-600 font-semibold mt-2 flex items-center justify-center gap-2">
                   <span>Click to access</span>
                   <i className="bi bi-chevron-right"></i>
                 </p>

@@ -154,4 +154,35 @@ import {
   export const calculateStudentBalance = async (studentId, payableId) => {
     // Implement as needed, using Firestore only
   };
-  
+
+  // Module (Offered Subject) Helpers
+  // A "module" is a course/subject the department itself is offering as a payable.
+  // We mark this directly on the course doc with `isOffered: true`.
+  export const getOfferedModules = async () => {
+    try {
+      const q = query(collection(db, 'courses'), where('isOffered', '==', true));
+      const snap = await getDocs(q);
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) =>
+          (a.courseCode || '').localeCompare(b.courseCode || '') ||
+          (a.courseTitle || '').localeCompare(b.courseTitle || '')
+        );
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error getting offered modules:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  export const setCourseOfferedStatus = async (courseId, isOffered) => {
+    try {
+      await updateDoc(doc(db, 'courses', courseId), {
+        isOffered: !!isOffered,
+        updatedAt: new Date().toISOString()
+      });
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating offered status:', error);
+      return { success: false, error: error.message };
+    }
+  };

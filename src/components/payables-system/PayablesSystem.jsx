@@ -1,16 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getStudents } from '../../models/curriculumModels';
-import { 
-  createPayable, 
-  getPayables, 
-  updatePayable, 
+import {
+  createPayable,
+  getPayables,
+  updatePayable,
   deletePayable,
   createStudentPayment,
   getStudentPayments,
-  getAllStudentPayments
+  getAllStudentPayments,
+  getOfferedModules
 } from '../../models/payablesModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { BadgePlus,  Search, ChevronUp, ChevronDown, ChevronsUpDown, Funnel, X, Printer, Pencil, Delete, History, ArrowBigLeft, Settings2, Download, Receipt, Trash } from 'lucide-react';
+import { BadgePlus,  Search, ChevronUp, ChevronDown, ChevronsUpDown, Funnel, X, Printer, Pencil, Delete, History, ArrowBigLeft, Settings2, Download, Receipt, Trash, Package } from 'lucide-react';
+import ModuleManagement from './ModuleManagement';
 import Logo from '../../assets/logo.png';
 import ReceiptModal, { printReceiptDirect } from './ReceiptModal';
 import { db } from '../../firebase';
@@ -55,8 +57,23 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     amount: '',
     status: 'unpaid',
     paidAmount: '0',
-    yearLevel: 'all'
+    yearLevel: 'all',
+    category: 'general', // 'general' | 'module'
+    moduleId: '',
+    moduleCode: '',
+    moduleTitle: '',
+    moduleCurriculumId: ''
   });
+
+  const [moduleManagementOpen, setModuleManagementOpen] = useState(false);
+  const [offeredModules, setOfferedModules] = useState([]);
+
+  const loadOfferedModules = useCallback(async () => {
+    const res = await getOfferedModules();
+    if (res.success) setOfferedModules(res.data);
+  }, []);
+
+  useEffect(() => { loadOfferedModules(); }, [loadOfferedModules]);
 
   // Student modal states
   const [selectedStudentModal, setSelectedStudentModal] = useState(null);
@@ -283,8 +300,14 @@ const PayablesSystem = ({ onBackToDashboard }) => {
       amount: '',
       status: 'unpaid',
       paidAmount: '0',
-      yearLevel: tabValue === 4 ? 'irregular' : (tabValue + 1).toString()
+      yearLevel: tabValue === 4 ? 'irregular' : (tabValue + 1).toString(),
+      category: 'general',
+      moduleId: '',
+      moduleCode: '',
+      moduleTitle: '',
+      moduleCurriculumId: ''
     });
+    loadOfferedModules();
     setAddPayableDialogOpen(true);
   };
 
@@ -299,7 +322,16 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   };
 
   const handleSaveNewPayable = async () => {
-    if (!newPayableForm.type || !newPayableForm.amount) {
+    const isModule = newPayableForm.category === 'module';
+    if (!newPayableForm.amount) {
+      setError('Please fill in all required fields');
+      return;
+    }
+    if (isModule && !newPayableForm.moduleId) {
+      setError('Please pick a module from the offered list.');
+      return;
+    }
+    if (!isModule && !newPayableForm.type) {
       setError('Please fill in all required fields');
       return;
     }
@@ -334,11 +366,23 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             paidAmount: 0
           };
         });
+        const isModule = newPayableForm.category === 'module';
         const newPayableData = {
-          type: newPayableForm.type,
+          type: isModule
+            ? `Module: ${newPayableForm.moduleCode} — ${newPayableForm.moduleTitle}`
+            : newPayableForm.type,
           amount: parseFloat(newPayableForm.amount),
           yearLevel: targetYear === 'irregular' || targetYear === 'all' ? targetYear : parseInt(targetYear),
-          studentPayments: studentPayments
+          studentPayments: studentPayments,
+          category: isModule ? 'module' : 'general',
+          ...(isModule
+            ? {
+                moduleId: newPayableForm.moduleId,
+                moduleCode: newPayableForm.moduleCode,
+                moduleTitle: newPayableForm.moduleTitle,
+                moduleCurriculumId: newPayableForm.moduleCurriculumId
+              }
+            : {})
         };
         const result = await createPayable(newPayableData, currentUser.uid);
         if (result.success) {
@@ -1087,6 +1131,14 @@ const PayablesSystem = ({ onBackToDashboard }) => {
             />
           </div>
           <button
+            className="px-3 py-1.5 border border-gray-300 cursor-pointer text-sm text-gray-700 rounded-lg hover:bg-gray-50"
+            onClick={() => setModuleManagementOpen(true)}
+            title="Manage subjects offered as modules"
+          >
+            <Package className="w-4 h-4 inline-flex mr-1 mb-0.5" />
+            Modules
+          </button>
+          <button
             className="px-3 py-1.5 bg-blue-600 cursor-pointer  text-sm text-white rounded-lg hover:bg-blue-700 "
             onClick={handleAddPayable}
           >
@@ -1407,15 +1459,78 @@ const PayablesSystem = ({ onBackToDashboard }) => {
                 </select>
               </div>
 
-              <label className="block text-sm font-medium mb-1">Payable Type</label>
-              <input
-                type="text"
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
-                placeholder="Type (e.g., Tuition Fee, Miscellaneous)"
-                value={newPayableForm.type}
-                onChange={(e) => handleNewPayableInputChange('type', e.target.value)}
-              />
-              
+              <label className="block text-sm font-medium mb-1">Category</label>
+              <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => handleNewPayableInputChange('category', 'general')}
+                  disabled={editingMode}
+                  className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md cursor-pointer transition-colors disabled:cursor-not-allowed ${
+                    newPayableForm.category === 'general'
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  General
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNewPayableInputChange('category', 'module')}
+                  disabled={editingMode}
+                  className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md cursor-pointer transition-colors disabled:cursor-not-allowed ${
+                    newPayableForm.category === 'module'
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Module
+                </button>
+              </div>
+
+              {newPayableForm.category === 'module' ? (
+                <>
+                  <label className="block text-sm font-medium mb-1">Module *</label>
+                  <select
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                    value={newPayableForm.moduleId}
+                    onChange={(e) => {
+                      const m = offeredModules.find(x => x.id === e.target.value);
+                      setNewPayableForm(prev => ({
+                        ...prev,
+                        moduleId: m?.id || '',
+                        moduleCode: m?.courseCode || '',
+                        moduleTitle: m?.courseTitle || '',
+                        moduleCurriculumId: m?.curriculumId || '',
+                        type: m ? `Module: ${m.courseCode} — ${m.courseTitle}` : ''
+                      }));
+                    }}
+                  >
+                    <option value="">Select an offered module...</option>
+                    {offeredModules.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.courseCode} — {m.courseTitle}
+                      </option>
+                    ))}
+                  </select>
+                  {offeredModules.length === 0 && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      No subjects are marked as offered yet. Click <span className="font-medium">Modules</span> in the toolbar to mark some.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <label className="block text-sm font-medium mb-1">Payable Type</label>
+                  <input
+                    type="text"
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                    placeholder="Type (e.g., Tuition Fee, Miscellaneous)"
+                    value={newPayableForm.type}
+                    onChange={(e) => handleNewPayableInputChange('type', e.target.value)}
+                  />
+                </>
+              )}
+
              <label className="block text-sm font-medium mb-1">Amount</label>
               <input
                 type="number"
@@ -1447,10 +1562,16 @@ const PayablesSystem = ({ onBackToDashboard }) => {
               >
                 Cancel
               </button>
-              <button 
-                onClick={handleSaveNewPayable} 
+              <button
+                onClick={handleSaveNewPayable}
                 className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={!newPayableForm.type || !newPayableForm.amount || loading}
+                disabled={
+                  !newPayableForm.amount ||
+                  loading ||
+                  (newPayableForm.category === 'module'
+                    ? !newPayableForm.moduleId
+                    : !newPayableForm.type)
+                }
               >
                 {loading ? (editingMode ? 'Updating...' : 'Adding...') : (editingMode ? 'Update Payable' : 'Add Payable')}
               </button>
@@ -1458,6 +1579,12 @@ const PayablesSystem = ({ onBackToDashboard }) => {
           </div>
         </div>
       )}
+
+      <ModuleManagement
+        open={moduleManagementOpen}
+        onClose={() => setModuleManagementOpen(false)}
+        onChanged={loadOfferedModules}
+      />
 
       {/* Payment Creation Dialog */}
       {paymentDialogOpen && (
