@@ -1,9 +1,11 @@
-import { 
-    collection, 
-    addDoc, 
-    getDocs, 
-    doc, 
-    updateDoc, 
+import {
+    collection,
+    addDoc,
+    getDocs,
+    getDoc,
+    setDoc,
+    doc,
+    updateDoc,
     deleteDoc,
     query,
     where,
@@ -170,6 +172,62 @@ import {
       return { success: true, data };
     } catch (error) {
       console.error('Error getting offered modules:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Professor cutback rate (single global value, customizable).
+  const CUTBACK_SETTINGS_DOC = doc(db, 'settings', 'professor_cutback');
+  const DEFAULT_CUTBACK_PER_STUDENT = 50;
+
+  export const getCutbackRate = async () => {
+    try {
+      const snap = await getDoc(CUTBACK_SETTINGS_DOC);
+      if (!snap.exists()) {
+        await setDoc(CUTBACK_SETTINGS_DOC, {
+          ratePerStudent: DEFAULT_CUTBACK_PER_STUDENT,
+          updatedAt: new Date().toISOString()
+        });
+        return { success: true, data: DEFAULT_CUTBACK_PER_STUDENT };
+      }
+      const data = snap.data() || {};
+      const parsed = parseFloat(data.ratePerStudent);
+      return {
+        success: true,
+        data: Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_CUTBACK_PER_STUDENT
+      };
+    } catch (error) {
+      console.error('Error getting cutback rate:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  export const saveCutbackRate = async (ratePerStudent) => {
+    try {
+      const parsed = parseFloat(ratePerStudent);
+      const safe = Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_CUTBACK_PER_STUDENT;
+      await setDoc(CUTBACK_SETTINGS_DOC, {
+        ratePerStudent: safe,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      return { success: true, data: safe };
+    } catch (error) {
+      console.error('Error saving cutback rate:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Returns every payable across all users where category === 'module'.
+  // Used by reports that span the entire department, not just one user.
+  export const getAllModulePayables = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'payables'));
+      const data = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(p => p.category === 'module' && !p.deleted);
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error getting module payables:', error);
       return { success: false, error: error.message };
     }
   };

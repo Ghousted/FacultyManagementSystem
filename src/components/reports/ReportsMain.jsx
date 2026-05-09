@@ -1,8 +1,10 @@
 import { useState, lazy, Suspense } from 'react';
-import { ArrowBigLeft, Medal, GraduationCap } from 'lucide-react';
+import { ArrowBigLeft, Medal, GraduationCap, Wallet, HandCoins } from 'lucide-react';
 
 const ReportsModule = lazy(() => import('./ReportsModule'));
 const ArchivedClasses = lazy(() => import('./ArchivedClasses'));
+const ModulePaymentsReport = lazy(() => import('./ModulePaymentsReport'));
+const ProfessorCutbacksReport = lazy(() => import('./ProfessorCutbacksReport'));
 
 const ReportsLoadingSkeleton = () => (
   <div>
@@ -49,6 +51,18 @@ const ReportsMain = ({ onBackToDashboard }) => {
       title: 'Archived Classes',
       description: 'Browse archived class batches and folders to keep academic records organized.',
       icon: GraduationCap
+    },
+    {
+      key: 'modulePayments',
+      title: 'Module Payments',
+      description: 'See which students paid each offered module, grouped by year level and block.',
+      icon: Wallet
+    },
+    {
+      key: 'cutbacks',
+      title: 'Professor Cutbacks',
+      description: 'Compute professor cutbacks per handled class based on the per-student rate.',
+      icon: HandCoins
     }
   ];
 
@@ -64,6 +78,22 @@ const ReportsMain = ({ onBackToDashboard }) => {
     return (
       <Suspense fallback={<ReportsLoadingSkeleton />}>
         <ArchivedClasses onBackToReportsMain={() => setSelectedReport('')} />
+      </Suspense>
+    );
+  }
+
+  if (selectedReport === 'modulePayments') {
+    return (
+      <Suspense fallback={<ReportsLoadingSkeleton />}>
+        <ModulePaymentsReport onBackToReportsMain={() => setSelectedReport('')} />
+      </Suspense>
+    );
+  }
+
+  if (selectedReport === 'cutbacks') {
+    return (
+      <Suspense fallback={<ReportsLoadingSkeleton />}>
+        <ProfessorCutbacksReport onBackToReportsMain={() => setSelectedReport('')} />
       </Suspense>
     );
   }

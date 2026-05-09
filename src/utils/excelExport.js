@@ -268,3 +268,175 @@ export function exportDeanListToExcel(data, defaultFilename = 'deans_list.xlsx',
   const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), defaultFilename);
 }
+
+const sanitizeSheetName = (name) => {
+  const cleaned = (name || 'Sheet').toString().replace(/[\\/?*[\]:]/g, '-').trim() || 'Sheet';
+  return cleaned.length > 31 ? cleaned.slice(0, 31) : cleaned;
+};
+
+const dedupeSheetName = (wb, baseName) => {
+  let candidate = sanitizeSheetName(baseName);
+  if (!wb.SheetNames.includes(candidate)) return candidate;
+  const root = candidate.length > 27 ? candidate.slice(0, 27) : candidate;
+  let i = 2;
+  while (wb.SheetNames.includes(`${root} (${i})`)) i += 1;
+  return `${root} (${i})`;
+};
+
+const buildModuleSheet = (mod) => {
+  const rows = [];
+  rows.push([`Module: ${mod.courseCode || ''} — ${mod.courseTitle || ''}`]);
+  rows.push([`Year Level: ${mod.yearLevel || '-'}`, `Semester: ${mod.semester || '-'}`]);
+  rows.push([`Amount: ${mod.amount != null ? Number(mod.amount).toFixed(2) : 'N/A'}`]);
+  rows.push([]);
+  rows.push(['Block', 'Student Name', 'Status', 'Paid Amount']);
+
+  const blockGroups = mod.blocks || [];
+  if (blockGroups.length === 0) {
+    rows.push(['—', 'No students enrolled', '', '']);
+  } else {
+    blockGroups.forEach(group => {
+      const students = group.students || [];
+      if (students.length === 0) {
+        rows.push([group.block || '—', '(no students)', '', '']);
+      } else {
+        students.forEach((s, idx) => {
+          rows.push([
+            idx === 0 ? (group.block || '—') : '',
+            s.name || '',
+            s.status || 'UNPAID',
+            s.paidAmount != null ? Number(s.paidAmount).toFixed(2) : '0.00'
+          ]);
+        });
+      }
+    });
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 10 }, { wch: 36 }, { wch: 10 }, { wch: 14 }];
+  return ws;
+};
+
+export function exportSingleModulePaymentsToExcel(mod, filename = 'module_payments.xlsx') {
+  const wb = XLSX.utils.book_new();
+  const ws = buildModuleSheet(mod);
+  const sheetName = dedupeSheetName(wb, mod.courseCode || mod.courseTitle || 'Module');
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
+}
+
+export function exportAllModulePaymentsToExcel(modules, filename = 'all_module_payments.xlsx') {
+  const wb = XLSX.utils.book_new();
+
+  // Summary sheet first.
+  const summaryRows = [['Module Code', 'Module Title', 'Year', 'Sem', 'Amount', 'Total Students', 'Paid', 'Unpaid']];
+  modules.forEach(mod => {
+    const allStudents = (mod.blocks || []).flatMap(b => b.students || []);
+    const paid = allStudents.filter(s => s.status === 'PAID').length;
+    summaryRows.push([
+      mod.courseCode || '',
+      mod.courseTitle || '',
+      mod.yearLevel || '',
+      mod.semester || '',
+      mod.amount != null ? Number(mod.amount).toFixed(2) : 'N/A',
+      allStudents.length,
+      paid,
+      allStudents.length - paid
+    ]);
+  });
+  const summary = XLSX.utils.aoa_to_sheet(summaryRows);
+  summary['!cols'] = [{ wch: 14 }, { wch: 38 }, { wch: 6 }, { wch: 6 }, { wch: 12 }, { wch: 16 }, { wch: 8 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, summary, 'Summary');
+
+  modules.forEach(mod => {
+    const ws = buildModuleSheet(mod);
+    const sheetName = dedupeSheetName(wb, mod.courseCode || mod.courseTitle || 'Module');
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  });
+
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
+}
+
+const buildProfessorSheet = (prof, ratePerStudent) => {
+  const rows = [];
+  rows.push([`Professor: ${prof.name || ''}`]);
+  if (prof.employeeId) rows.push([`Employee ID: ${prof.employeeId}`]);
+  rows.push([`Cutback Rate: ${Number(ratePerStudent).toFixed(2)} PHP per student`]);
+  rows.push([]);
+  rows.push(['Course Code', 'Course Title', 'Year', 'Block(s)', 'Students', 'Cutback (PHP)']);
+
+  const classes = prof.classes || [];
+  let total = 0;
+  if (classes.length === 0) {
+    rows.push(['—', 'No assigned classes', '', '', 0, '0.00']);
+  } else {
+    classes.forEach(c => {
+      const cutback = (c.studentCount || 0) * ratePerStudent;
+      total += cutback;
+      rows.push([
+        c.courseCode || '',
+        c.courseTitle || '',
+        c.yearLevel || '',
+        (c.blocks || []).join(', '),
+        c.studentCount || 0,
+        cutback.toFixed(2)
+      ]);
+    });
+  }
+  rows.push([]);
+  rows.push(['', '', '', '', 'TOTAL', total.toFixed(2)]);
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 6 }, { wch: 12 }, { wch: 10 }, { wch: 14 }];
+  return ws;
+};
+
+export function exportSingleProfessorCutbacksToExcel(prof, ratePerStudent, filename = 'professor_cutbacks.xlsx') {
+  const wb = XLSX.utils.book_new();
+  const ws = buildProfessorSheet(prof, ratePerStudent);
+  const sheetName = dedupeSheetName(wb, prof.name || 'Professor');
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
+}
+
+export function exportAllProfessorCutbacksToExcel(professors, ratePerStudent, filename = 'all_professor_cutbacks.xlsx') {
+  const wb = XLSX.utils.book_new();
+
+  const summaryRows = [['Professor', 'Employee ID', 'Subjects Handled', 'Total Students', 'Total Cutback (PHP)']];
+  let grandTotalStudents = 0;
+  let grandTotalCutback = 0;
+  professors.forEach(prof => {
+    const classes = prof.classes || [];
+    const totalStudents = classes.reduce((sum, c) => sum + (c.studentCount || 0), 0);
+    const totalCutback = totalStudents * ratePerStudent;
+    grandTotalStudents += totalStudents;
+    grandTotalCutback += totalCutback;
+    summaryRows.push([
+      prof.name || '',
+      prof.employeeId || '',
+      classes.length,
+      totalStudents,
+      totalCutback.toFixed(2)
+    ]);
+  });
+  summaryRows.push([]);
+  summaryRows.push(['', '', 'GRAND TOTAL', grandTotalStudents, grandTotalCutback.toFixed(2)]);
+  summaryRows.push([]);
+  summaryRows.push([`Rate per student: ${Number(ratePerStudent).toFixed(2)} PHP`]);
+
+  const summary = XLSX.utils.aoa_to_sheet(summaryRows);
+  summary['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 20 }];
+  XLSX.utils.book_append_sheet(wb, summary, 'Summary');
+
+  professors.forEach(prof => {
+    const ws = buildProfessorSheet(prof, ratePerStudent);
+    const sheetName = dedupeSheetName(wb, prof.name || 'Professor');
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  });
+
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
+}
