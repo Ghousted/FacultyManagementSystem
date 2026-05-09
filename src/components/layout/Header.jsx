@@ -41,14 +41,11 @@ const Header = () => {
 
   // Navigation handlers
   const handleGoAdminPanel = () => {
-    window.location.hash = '#/admin';
+    window.location.hash = '#/settings';
     setMenuOpen(false);
   };
 
-  const handleGoHistoryLog = () => {
-    window.location.hash = '#/history-log';
-    setMenuOpen(false);
-  };
+
 
   const handleGoDashboard = () => {
     window.location.hash = '';
@@ -78,10 +75,10 @@ const Header = () => {
         <img
           src={Logo}
           alt="Logo"
-          className="w-12 h-12 mr-2 select-none cursor-pointer hover:opacity-90 active:scale-95 transition-all duration-200"
+          className="w-10 h-10 mr-2 select-none cursor-pointer hover:opacity-90 active:scale-95 transition-all duration-200"
           onClick={handleGoDashboard}
         />
-        <h5 className="text-lg sm:text-2xl font-bold text-gray-800 grow select-none">
+        <h5 className="text-lg sm:text-xl font-bold text-gray-800 grow select-none">
           College of Computer Studies
         </h5>
         {currentUser && (
@@ -115,7 +112,7 @@ const Header = () => {
                       onClick={handleGoAdminPanel}
                     >
                       <ShieldCheck className="w-4 h-4" />
-                      <span>User Management</span>
+                      <span>Admin Panel</span>
                     </button>
                     
                   </div>

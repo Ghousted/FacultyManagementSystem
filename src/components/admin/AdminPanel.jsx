@@ -5,6 +5,7 @@ import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { ArrowBigLeft } from 'lucide-react';
 import { archiveAndPromoteStudents } from '../../models/curriculumModels';
+import TermEnrollmentPanel from '../curriculum-checker/TermEnrollmentPanel';
 
 const AdminPanel = () => {
   const { role, updateRole } = useAuth();
@@ -109,25 +110,31 @@ const AdminPanel = () => {
 
   return (
     <div className="">
-      <div className="flex items-center justify-between gap-3 mb-6 border border-gray-300 rounded-2xl p-8 bg-white shadow-lg">
-        <div className="flex items-center gap-6">
-          <button
-            onClick={goBack}
-            className="group flex items-center gap-2 bg-blue-600 text-white p-2 cursor-pointer rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
-            aria-label="Back to dashboard"
-            title="Back to dashboard"
-          >
-            <ArrowBigLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-blue-600">User Management</h1>
-            <span className="text-sm text-gray-500">
-              Manage user roles and permissions for the system.
-            </span>
-          </div>
-        </div>
-       
-      </div>
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 mb-6 border border-gray-300 rounded-2xl p-8 bg-white shadow-lg">
+  <div className="flex items-center gap-6">
+    <button
+      onClick={goBack}
+      className="group flex items-center gap-2 bg-blue-600 text-white p-2 cursor-pointer rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+      aria-label="Back to dashboard"
+      title="Back to dashboard"
+    >
+      <ArrowBigLeft className="w-5 h-5" />
+    </button>
+    <div>
+      <h1 className="text-2xl font-bold text-blue-600">User Management</h1>
+      <span className="text-sm text-gray-500">
+        Manage user roles and permissions for the system.
+      </span>
+    </div>
+  </div>
+
+ 
+</div>
+
+ <div className="w-full xl:w-auto mb-6">
+    <TermEnrollmentPanel headerOnly />
+  </div>
+
 
       <div className="rounded-xl border border-gray-300 shadow-sm">
         {error && (

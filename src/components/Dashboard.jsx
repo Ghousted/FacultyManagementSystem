@@ -2,9 +2,8 @@ import { useEffect, useState, lazy, Suspense } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { BookCheck, PhilippinePeso, Archive, GraduationCap } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 
-// Lazy load modules
 const CurriculumChecker = lazy(() => import('./curriculum-checker/CurriculumChecker'));
 const PayablesMain = lazy(() => import('./payables-system/PayablesMain'));
 const ReportsMain = lazy(() => import('./reports/ReportsMain'));
@@ -15,7 +14,7 @@ const Dashboard = () => {
   const [selectedSystem, setSelectedSystem] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [loading, setLoading] = useState(true);
-  const [userName, setUserName] = useState("");
+  const [userName, setUserName] = useState('');
 
   useEffect(() => {
     const onGoDashboard = () => setSelectedSystem(null);
@@ -36,14 +35,14 @@ const Dashboard = () => {
       if (!currentUser?.uid) return;
 
       try {
-        const userRef = doc(db, "users", currentUser.uid);
+        const userRef = doc(db, 'users', currentUser.uid);
         const userSnap = await getDoc(userRef);
 
         if (userSnap.exists()) {
           setUserName(userSnap.data().userName);
         }
       } catch (error) {
-        console.error("Error fetching username:", error);
+        console.error('Error fetching username:', error);
       }
     };
 
@@ -79,8 +78,6 @@ const Dashboard = () => {
     return date.toLocaleString('en-US', { weekday: 'long' });
   };
 
-  
-
   const getTimePeriod = () => {
     const hour = currentTime.getHours();
     if (hour < 12) return 'Good Morning';
@@ -90,15 +87,15 @@ const Dashboard = () => {
 
   const getWelcomeMessage = () => {
     if (role === 'admin') {
-      return 'You can manage users, monitor system activity, and keep the platform running smoothly.';
+      return 'Manage users, monitor system activity, and keep the platform running smoothly.';
     }
 
     if (role === 'curriculum') {
-      return 'You can review curriculum records, validate student requirements, and keep academic data organized.';
+      return 'Review curriculum records, validate student requirements, and keep academic data organized.';
     }
 
     if (role === 'payables') {
-      return 'You can track department payments, manage payables, and keep financial records accurate.';
+      return 'Track department payments, manage payables, and keep financial records accurate.';
     }
 
     return 'Welcome to the dashboard.';
@@ -112,33 +109,55 @@ const Dashboard = () => {
     return false;
   };
 
+  const systemCards = [
+    {
+      name: 'Faculty Management',
+      title: 'Faculty Management',
+      description: 'Manage professors, subject assignments, and enrolled students per subject.',
+      icon: GraduationCap
+    },
+    {
+      name: 'Curriculum Checker',
+      title: 'Curriculum Checker',
+      description: 'Review curriculum requirements, course mappings, and academic compliance.',
+      icon: BookCheck
+    },
+    {
+      name: 'Reports',
+      title: 'Academic Records',
+      description: "Generate dean's lists, institutional reports, and archived class records.",
+      icon: Archive,
+      accessKey: 'Curriculum Checker'
+    },
+    {
+      name: 'Payables System',
+      title: 'Payables System',
+      description: 'Manage invoices, track payments, and handle financial transactions.',
+      icon: PhilippinePeso
+    }
+  ];
+
   if (loading) {
     return (
       <div>
-        <div className="">
-          <div className="mb-8 p-8 rounded-2xl bg-linear-to-r from-blue-500 to-indigo-500 shadow-lg">
-            <div className='w-20 px-4 py-2 rounded-lg mb-2 bg-white/30'></div>
-            <div className='w-150 px-4 py-4 rounded-lg mb-2 bg-white/30'></div>
-            <div className='w-200 px-4 py-2 rounded-lg mb-2 bg-white/30'></div>
-            <div className='w-50 px-4 py-1.5 rounded-lg mb-2 bg-white/30'></div>
-          </div>
+        <div className="mb-6 rounded-2xl border border-blue-100 bg-white p-8 shadow-sm">
+          <div className="mb-3 h-4 w-28 animate-pulse rounded bg-blue-100" />
+          <div className="mb-3 h-8 w-80 max-w-full animate-pulse rounded bg-blue-100" />
+          <div className="h-4 w-[520px] max-w-full animate-pulse rounded bg-blue-50" />
+        </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
-            {[1, 2, 3].map((_, index) => (
-              <div
-                key={index}
-                className="w-full h-72 transition-all duration-300 border border-gray-300 bg-white rounded-2xl flex items-center justify-center"
-              >
-                <div className="flex flex-col items-center justify-center text-center space-y-4">
-                  <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center"></div>
-                  <div className="w-30 h-6 bg-gray-300 rounded"></div>
-                  <div className="w-60 h-4 bg-gray-300 rounded"></div>
-                  <div className="w-60 h-4 bg-gray-300 rounded"></div>
-                  <div className="w-40 h-3 mt-10 bg-gray-300 rounded"></div>
-                </div>
-              </div>
-            ))}
-          </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((item) => (
+            <div
+              key={item}
+              className="h-64 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
+            >
+              <div className="mb-5 h-12 w-12 animate-pulse rounded-xl bg-blue-50" />
+              <div className="mb-3 h-5 w-36 animate-pulse rounded bg-gray-100" />
+              <div className="mb-2 h-4 w-full animate-pulse rounded bg-gray-100" />
+              <div className="h-4 w-3/4 animate-pulse rounded bg-gray-100" />
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -146,7 +165,7 @@ const Dashboard = () => {
 
   if (selectedSystem === 'Curriculum Checker') {
     return (
-      <Suspense fallback={<p className="p-4">Loading Curriculum Checker...</p>}>
+      <Suspense fallback={<p className="p-4 text-sm text-gray-500">Loading Curriculum Checker...</p>}>
         <CurriculumChecker onBackToDashboard={handleBackToDashboard} />
       </Suspense>
     );
@@ -154,7 +173,7 @@ const Dashboard = () => {
 
   if (selectedSystem === 'Payables System') {
     return (
-      <Suspense fallback={<p className="p-4">Loading Payables...</p>}>
+      <Suspense fallback={<p className="p-4 text-sm text-gray-500">Loading Payables...</p>}>
         <PayablesMain onBackToDashboard={handleBackToDashboard} />
       </Suspense>
     );
@@ -162,7 +181,7 @@ const Dashboard = () => {
 
   if (selectedSystem === 'Reports') {
     return (
-      <Suspense fallback={<p className="p-4">Loading Reports Module...</p>}>
+      <Suspense fallback={<p className="p-4 text-sm text-gray-500">Loading Reports Module...</p>}>
         <ReportsMain onBackToDashboard={handleBackToDashboard} />
       </Suspense>
     );
@@ -170,7 +189,7 @@ const Dashboard = () => {
 
   if (selectedSystem === 'Faculty Management') {
     return (
-      <Suspense fallback={<p className="p-4">Loading Faculty Management...</p>}>
+      <Suspense fallback={<p className="p-4 text-sm text-gray-500">Loading Faculty Management...</p>}>
         <FacultyMain onBackToDashboard={handleBackToDashboard} />
       </Suspense>
     );
@@ -178,133 +197,77 @@ const Dashboard = () => {
 
   return (
     <div>
+      <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-600 px-12 py-6 shadow-sm">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="mb-2 text-sm font-medium text-blue-100">
+              {getTimePeriod()}
+            </p>
 
-      <div className="relative mb-6 overflow-hidden rounded-2xl border border-blue-300/60 bg-linear-to-br from-sky-500 via-blue-600 to-indigo-700 px-15 py-5 shadow-[0_16px_36px_-18px_rgba(30,64,175,0.7)]">
-        <div className="pointer-events-none absolute -top-16 -right-16 h-44 w-44 rounded-full bg-white/20 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-16 left-1/3 h-52 w-52 rounded-full bg-cyan-300/20 blur-3xl" />
-            <div className="relative z-10 grid gap-4 md:grid-cols-[1.35fr_0.65fr] md:items-center">
-              <div>
-                <p className="mb-2 inline-flex items-center rounded-full border border-white/30 bg-white/15 px-3 py-1 text-xs font-semibold tracking-wide text-white/95 backdrop-blur-sm">
-                  {getTimePeriod()}!
-                </p>
-                <h3 className="mb-1.5 text-2xl font-black tracking-tight text-white md:text-3xl">
-                  Welcome, {userName || currentUser?.displayName || currentUser?.email}!
-                </h3>
-                 <p className=" text-sm leading-relaxed text-blue-50">
-                    {getWelcomeMessage()}
-                  </p>
-                
-                <div className='flex gap-2 mt-4'>
-                    <p className='bg-gray-100/20 p-1.5 rounded-lg text-[11px] uppercase text-white'>
-                    {formatDate(currentTime)}
-                  </p>
-                    <p className='bg-gray-100/20 p-1.5 rounded-lg text-[11px] uppercase text-white'>
-                    {formatDay(currentTime)}
-                  </p>
-                    <p className='bg-gray-100/20 p-1.5 rounded-lg text-[11px] uppercase text-white'>
-                    {formatTime(currentTime)}
-                  </p>            
-              </div>
-                 
-            </div>
+            <h3 className="text-2xl font-semibold text-white md:text-3xl">
+              Welcome, {userName || currentUser?.displayName || currentUser?.email}
+            </h3>
+
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-blue-50">
+              {getWelcomeMessage()}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2 text-xs font-medium text-white">
+            <span className="rounded-lg bg-white/15 px-3 py-2">
+              {formatDate(currentTime)}
+            </span>
+            <span className="rounded-lg bg-white/15 px-3 py-2">
+              {formatDay(currentTime)}
+            </span>
+            <span className="rounded-lg bg-white/15 px-3 py-2">
+              {formatTime(currentTime)}
+            </span>
+          </div>
         </div>
       </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
-          {canAccessSystem('Curriculum Checker') && (
-            <div
-              className="w-full h-72 cursor-pointer transition-all duration-300 border border-gray-300 bg-white rounded-2xl hover:-translate-y-1 hover:shadow-xl hover:border-blue-600 focus-within:border-blue-600"
-              onClick={() => handleSystemSelect('Curriculum Checker')}
+
+  
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
+        {systemCards.map((system) => {
+          const accessName = system.accessKey || system.name;
+          const Icon = system.icon;
+
+          if (!canAccessSystem(accessName)) return null;
+
+          return (
+            <button
+              key={system.name}
+              type="button"
+              onClick={() => handleSystemSelect(system.name)}
+              className="group h-64 rounded-2xl border border-gray-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-200"
             >
-              <div className="text-center p-4 h-full flex flex-col justify-between">
+              <div className="flex h-full flex-col justify-between">
                 <div>
-                  <div className="mx-auto w-20 h-20 mb-4 rounded-full bg-blue-50 flex items-center justify-center">
-                    <BookCheck className="text-blue-600 w-10 h-10" />
+                  <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 transition group-hover:bg-blue-100">
+                    <Icon className="h-6 w-6" />
                   </div>
-                  <h4 className="text-2xl font-bold mb-2 text-blue-600">Curriculum Checker</h4>
-                  <p className="text-gray-600 leading-relaxed">
-                    Review and validate curriculum requirements, course mappings, and academic compliance.
+
+                  <h4 className="text-lg font-semibold text-gray-900">
+                    {system.title}
+                  </h4>
+
+                  <p className="mt-2 text-sm leading-relaxed text-gray-500">
+                    {system.description}
                   </p>
                 </div>
-                <p className="text-blue-600 font-semibold mt-2 flex items-center justify-center gap-2">
-                  <span>Click to access</span>
-                  <i className="bi bi-chevron-right"></i>
-                </p>
-              </div>
-            </div>
-          )}
 
-           {canAccessSystem('Curriculum Checker') && (
-            <div
-              className="w-full h-72 cursor-pointer transition-all duration-300 border border-gray-300 bg-white rounded-2xl hover:-translate-y-1 hover:shadow-xl hover:border-purple-600 focus-within:border-purple-600"
-              onClick={() => handleSystemSelect('Reports')}
-            >
-              <div className="text-center p-4 h-full flex flex-col justify-between">
-                <div>
-                  <div className="mx-auto w-20 h-20 mb-4 rounded-full bg-purple-50 flex items-center justify-center">
-                    <Archive className="text-purple-700 w-10 h-10" />
-                  </div>
-                  <h4 className="text-2xl font-bold mb-2 text-purple-600">Academic Records</h4>
-                  <p className="text-gray-600 leading-relaxed">
-                    Generate and manage institutional reports, including dean's lists and archived class records.
-                  </p>
+                <div className="mt-5 flex items-center text-sm font-medium text-blue-600">
+                  Open module
+                  <i className="bi bi-chevron-right ml-2 text-xs transition group-hover:translate-x-0.5"></i>
                 </div>
-                <p className="text-purple-600 font-semibold mt-2 flex items-center justify-center gap-2">
-                  <span>Click to access</span>
-                  <i className="bi bi-chevron-right"></i>
-                </p>
               </div>
-            </div>
-          )}
-
-          {canAccessSystem('Faculty Management') && (
-            <div
-              className="w-full h-72 cursor-pointer transition-all duration-300 border border-gray-300 bg-white rounded-2xl hover:-translate-y-1 hover:shadow-xl hover:border-amber-600 focus-within:border-amber-600"
-              onClick={() => handleSystemSelect('Faculty Management')}
-            >
-              <div className="text-center p-4 h-full flex flex-col justify-between">
-                <div>
-                  <div className="mx-auto w-20 h-20 mb-4 rounded-full bg-amber-50 flex items-center justify-center">
-                    <GraduationCap className="text-amber-600 w-10 h-10" />
-                  </div>
-                  <h4 className="text-2xl font-bold mb-2 text-amber-600">Faculty Management</h4>
-                  <p className="text-gray-600 leading-relaxed">
-                    Manage department professors, assign subjects from existing curriculums, and view enrolled students per subject.
-                  </p>
-                </div>
-                <p className="text-amber-600 font-semibold mt-2 flex items-center justify-center gap-2">
-                  <span>Click to access</span>
-                  <i className="bi bi-chevron-right"></i>
-                </p>
-              </div>
-            </div>
-          )}
-
-          {canAccessSystem('Payables System') && (
-            <div
-              className="w-full h-72 cursor-pointer transition-all duration-300 border border-gray-300 bg-white rounded-2xl hover:-translate-y-1 hover:shadow-xl hover:border-green-600 focus-within:border-green-600"
-              onClick={() => handleSystemSelect('Payables System')}
-            >
-              <div className="text-center p-4 h-full flex flex-col justify-between">
-                <div>
-                  <div className="mx-auto w-20 h-20 mb-4 rounded-full bg-green-50 flex items-center justify-center">
-                    <PhilippinePeso className="text-green-700 w-10 h-10" />
-                  </div>
-                  <h4 className="text-2xl font-bold mb-2 text-green-600">Payables System</h4>
-                  <p className="text-gray-600 leading-relaxed">
-                    Manage invoices, track payments, and handle financial transactions for the institution.
-                  </p>
-                </div>
-                <p className="text-green-600 font-semibold mt-2 flex items-center justify-center gap-2">
-                  <span>Click to access</span>
-                  <i className="bi bi-chevron-right"></i>
-                </p>
-              </div>
-            </div>
-          )}
-
-         
-        </div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 };

@@ -13,7 +13,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc, collection, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { BadgePlus, Pencil, Folder, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowBigLeft, Plus, Funnel, X, FolderArchive } from 'lucide-react';
-import TermEnrollmentPanel from './TermEnrollmentPanel';
 
 const StudentManagement = ({ onBack }) => {
   const { currentUser } = useAuth();
@@ -1300,21 +1299,22 @@ const StudentManagement = ({ onBack }) => {
   {folders.map((f) => (
     <div
       key={`${f.year || 'irr'}-${f.block}`}
-      className="p-4 border border-gray-200 rounded-xl min-h-24 bg-white hover:shadow-lg hover:border-yellow-300 transition-all duration-200 cursor-pointer"
+      className="p-4 border border-gray-200 rounded-xl  bg-white hover:shadow-lg hover:border-yellow-300 transition-all duration-200 cursor-pointer"
       onClick={() => setSelectedFolder({ year: f.year, block: f.block, isIrregular: f.isIrregular })}
     >
       <div className="flex  items-start gap-4">
-        <Folder className="w-8 h-8 text-yellow-500 mb-3" />
+       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-gray-200 bg-gray-50 text-gray-500">
+                      <Folder className="h-5 w-5" />
+                    </div>
         <div>
-          <div className="w-full flex items-center justify-between gap-2">
-          <div className="text-sm font-medium text-gray-800 truncate max-w-[70%]">
+          <div className="w-full">
+          <div className="text-sm font-medium text-gray-800 ">
             {f.label}
           </div>
-          <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+          <div className="text-xs text-gray-500">
             {f.students.length} student{f.students.length !== 1 ? 's' : ''}
           </div>
         </div>
-        <div className="text-xs text-gray-400 mt-2">Click to view students</div>
         </div>
       </div>
     </div>
@@ -2185,21 +2185,21 @@ const StudentManagement = ({ onBack }) => {
       {success && <div className="mb-2 rounded border border-green-200 bg-green-50 text-green-800 px-4 py-2">{success}</div>}
 
       {currentUser ? (
-        <div className="flex-1 flex flex-col">
-          {!selectedStudent ? (
-            <div className="flex-1">
-              <TermEnrollmentPanel />
-              <div>{renderStudentList()}</div>
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col">
-              <div className="w-full">
-                {renderCourseTables()}
-              </div>
-            </div>
-          )}
+  <div className="flex-1 flex flex-col">
+    {!selectedStudent ? (
+      <div className="flex-1">
+        <div>{renderStudentList()}</div>
+      </div>
+    ) : (
+      <div className="flex-1 flex flex-col">
+        <div className="w-full">
+          {renderCourseTables()}
         </div>
-      ) : (
+      </div>
+    )}
+  </div>
+) : (
+
         <div className="flex-1 flex items-center justify-center">
           <div className="p-6 text-center border border-gray-200 rounded bg-gray-50 text-gray-600">
             Sign in to access student management features

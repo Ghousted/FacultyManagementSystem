@@ -44,7 +44,7 @@ function App() {
   return (
     <Layout>
       {currentUser ? (
-        route === '#/admin' ? (
+        route === '#/settings' ? (
           <AdminPanel />
         ) : route === '#/history-log' ? (
           <HistoryLog /> // Replace with your HistoryLog component

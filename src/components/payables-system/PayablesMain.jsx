@@ -1,11 +1,25 @@
 import { useState } from 'react';
-import { ArrowLeft, Building2, Laptop, PhilippinePeso } from 'lucide-react';
+import { ArrowBigLeft, Building2, Laptop } from 'lucide-react';
 import PayablesSystem from './PayablesSystem';
 import OtherDepartmentPayables from './OtherDepartmentPayables';
-import { ArrowBigLeft } from 'lucide-react';
 
 const PayablesMain = ({ onBackToDashboard }) => {
   const [selectedDepartmentType, setSelectedDepartmentType] = useState('');
+
+  const departmentCards = [
+    {
+      key: 'ccs',
+      title: 'CCS Department',
+      description: 'Manage payables related to the College of Computer Studies.',
+      icon: Laptop
+    },
+    {
+      key: 'other',
+      title: 'Other Departments',
+      description: 'Create and manage independent payables from other departments.',
+      icon: Building2
+    }
+  ];
 
   if (selectedDepartmentType === 'ccs') {
     return <PayablesSystem onBackToDashboard={() => setSelectedDepartmentType('')} />;
@@ -16,80 +30,65 @@ const PayablesMain = ({ onBackToDashboard }) => {
   }
 
   return (
-    <div className="">
+    <div>
+      <div className="mb-6 rounded-2xl border border-blue-100 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <button
+            onClick={onBackToDashboard}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:ring-offset-2"
+            aria-label="Back to dashboard"
+            title="Back to dashboard"
+          >
+            <ArrowBigLeft className="h-5 w-5" />
+          </button>
 
-      <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-300 mb-6">
-          <div className="flex items-center gap-6">
-            <button
-              onClick={onBackToDashboard}
-              className="group flex items-center gap-2 bg-blue-600 text-white p-2 cursor-pointer rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
-              aria-label="Back to dashboard"
-              title="Back to dashboard"
-            >
-              <ArrowBigLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-            </button>
-            <div className="">
-              <h5 className="text-2xl font-medium text-blue-600">
-                Payables Management System
-              </h5>
-              <p className="text-gray-500 text-sm">
-                Manage invoices, track payments, and handle financial transactions for the institution.
-              </p>
-            </div>
+          <div>
+            <h5 className="text-2xl font-semibold text-gray-900">
+              Payables Management System
+            </h5>
+            <p className="mt-1 text-sm leading-relaxed text-gray-500">
+              Manage invoices, track payments, and handle institutional financial records.
+            </p>
           </div>
         </div>
+      </div>
 
+    
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {/* CCS Department */}
-        <div
-        className="h-80 cursor-pointer transition-all duration-300 border border-gray-300 rounded-2xl bg-white hover:shadow-xl hover:border-green-500 hover:-translate-y-2 focus-within:border-green-500"
-        onClick={() => setSelectedDepartmentType('ccs')}
-        >
-        <div className="text-center py-8 px-4 h-full flex flex-col justify-between">
-            <div>
-            <div className="mx-auto w-20 h-20 mb-6 rounded-full bg-green-50 flex items-center justify-center">
-                <Laptop className="text-green-600 w-10 h-10" />
-            </div>
-            <h5 className="text-xl font-bold mb-4 text-green-600">
-                CCS Department
-            </h5>
-            <p className="text-gray-600 text-sm leading-relaxed">
-                Manage payables related to the College of Computer Studies.
-            </p>
-            </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
+        {departmentCards.map((department) => {
+          const Icon = department.icon;
 
-            <p className="text-green-600 font-semibold mt-4 flex items-center justify-center gap-2">
-            <span>Click to access</span>
-            <i className="bi bi-chevron-right"></i>
-            </p>
-        </div>
-        </div>
+          return (
+            <button
+              key={department.key}
+              type="button"
+              onClick={() => setSelectedDepartmentType(department.key)}
+              className="group h-64 rounded-2xl border border-gray-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-200"
+            >
+              <div className="flex h-full flex-col justify-between">
+                <div>
+                  <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 transition group-hover:bg-blue-100">
+                    <Icon className="h-6 w-6" />
+                  </div>
 
-        {/* Other Departments */}
-        <div
-        className="h-80 cursor-pointer transition-all duration-300 border border-gray-300 rounded-2xl bg-white hover:shadow-xl hover:border-green-500 hover:-translate-y-2 focus-within:border-green-500"
-        onClick={() => setSelectedDepartmentType('other')}
-        >
-        <div className="text-center py-8 px-4 h-full flex flex-col justify-between">
-            <div>
-            <div className="mx-auto w-20 h-20 mb-6 rounded-full bg-emerald-50 flex items-center justify-center">
-                <Building2 className="text-green-600 w-10 h-10" />
-            </div>
-            <h5 className="text-xl font-bold mb-4 text-green-600">
-                Other Departments
-            </h5>
-            <p className="text-gray-600 text-sm leading-relaxed">
-                Create and manage independent payables from other department.
-            </p>
-            </div>
+                  <h5 className="text-lg font-semibold text-gray-900">
+                    {department.title}
+                  </h5>
 
-            <p className="text-green-600 font-semibold mt-4 flex items-center justify-center gap-2">
-            <span>Click to access</span>
-            <i className="bi bi-chevron-right"></i>
-            </p>
-        </div>
-        </div>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-500">
+                    {department.description}
+                  </p>
+                </div>
+
+                <div className="mt-5 flex items-center text-sm font-medium text-blue-600">
+                  Open module
+                  <i className="bi bi-chevron-right ml-2 text-xs transition group-hover:translate-x-0.5"></i>
+                </div>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

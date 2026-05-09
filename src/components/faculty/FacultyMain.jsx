@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowBigLeft, GraduationCap, CalendarRange } from 'lucide-react';
+import { ArrowBigLeft, CalendarRange } from 'lucide-react';
 import ProfessorList from './ProfessorList';
 import ProfessorDetail from './ProfessorDetail';
 import { getActiveTerm } from '../../models/facultyModels';
@@ -21,50 +21,30 @@ const FacultyMain = ({ onBackToDashboard }) => {
   }, []);
 
   return (
-    <div className="">
-      <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-300 mb-6">
-        <div className="flex items-center gap-6">
-          <button
-            onClick={selectedProfessor ? () => setSelectedProfessor(null) : onBackToDashboard}
-            className="group flex items-center gap-2 bg-blue-600 text-white p-2 cursor-pointer rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
-            aria-label="Back"
-            title="Back"
-          >
-            <ArrowBigLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-          </button>
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center">
-              <GraduationCap className="text-blue-600 w-7 h-7" />
-            </div>
-            <div>
-              <h5 className="text-2xl font-medium text-blue-600">Faculty Management</h5>
-              <p className="text-gray-500 text-sm">
-                Manage department professors, assign subjects from existing curriculums, and view enrolled students per subject.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div>
+      <div className="mb-6 rounded-2xl border border-blue-100 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={selectedProfessor ? () => setSelectedProfessor(null) : onBackToDashboard}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:ring-offset-2"
+              aria-label="Back"
+              title="Back"
+            >
+              <ArrowBigLeft className="h-5 w-5" />
+            </button>
 
-      <div className="bg-white border border-gray-300 rounded-2xl shadow-sm p-4 mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center shrink-0">
-            <CalendarRange className="text-amber-600 w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-xs text-gray-500">Active Academic Term</p>
-            {loadingTerm ? (
-              <p className="text-gray-400 text-sm">Loading...</p>
-            ) : (
-              <p className="text-base font-semibold text-gray-800">
-                {SEMESTER_LABELS[activeTerm.semester] || '1st Semester'}
-                {activeTerm.schoolYear ? ` · S.Y. ${activeTerm.schoolYear}` : ''}
+            <div>
+              <h5 className="text-2xl font-semibold text-gray-900">
+                Faculty Management
+              </h5>
+              <p className="mt-1 text-sm leading-relaxed text-gray-500">
+                Manage professors, subject assignments, and enrolled students per subject.
               </p>
-            )}
-            <p className="text-xs text-gray-400 mt-0.5">
-              Change the term and manage student enrollment in Student Management.
-            </p>
+            </div>
           </div>
+
+          
         </div>
       </div>
 
