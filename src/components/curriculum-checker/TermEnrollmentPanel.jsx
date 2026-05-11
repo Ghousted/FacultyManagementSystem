@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { CalendarRange, Pencil, Check, X, ArrowBigLeft } from 'lucide-react';
-import { getActiveTerm, saveActiveTerm } from '../../models/facultyModels';
+import { CalendarRange, Pencil, Check, X } from 'lucide-react';
+import { getActiveTerm, saveActiveTerm, bulkSetAllStudentsNotEnrolled } from '../../models/facultyModels';
 import EnrollmentManager from './EnrollmentManager';
 
 const SEMESTER_LABELS = { 1: '1st Semester', 2: '2nd Semester', 3: 'Summer' };
 
-const TermEnrollmentPanel = ({ headerOnly = false, onBack }) => {
+const TermEnrollmentPanel = ({ headerOnly = false }) => {
   const [activeTerm, setActiveTerm] = useState({ semester: 1, schoolYear: '' });
   const [loadingTerm, setLoadingTerm] = useState(true);
   const [editingTerm, setEditingTerm] = useState(false);
@@ -39,12 +39,28 @@ const TermEnrollmentPanel = ({ headerOnly = false, onBack }) => {
       semester: Number(draftTerm.semester),
       schoolYear: sy
     });
-    setSavingTerm(false);
 
     if (res.success) {
-      setActiveTerm({ semester: Number(draftTerm.semester), schoolYear: sy });
+      const previousActiveTerm = activeTerm;
+      const nextTerm = { semester: Number(draftTerm.semester), schoolYear: sy };
+      setActiveTerm(nextTerm);
       setEditingTerm(false);
+      setSavingTerm(false);
+
+      const termChanged =
+        Number(previousActiveTerm.semester) !== Number(nextTerm.semester) ||
+        (previousActiveTerm.schoolYear || '') !== (nextTerm.schoolYear || '');
+
+      if (termChanged) {
+        const unenrollRes = await bulkSetAllStudentsNotEnrolled();
+        if (!unenrollRes.success) {
+          setTermError(
+            `Term saved, but failed to unenroll students: ${unenrollRes.error || 'Unknown error'}`
+          );
+        }
+      }
     } else {
+      setSavingTerm(false);
       setTermError(res.error || 'Failed to save active term.');
     }
   };
@@ -167,26 +183,6 @@ const TermEnrollmentPanel = ({ headerOnly = false, onBack }) => {
 
   return (
     <div>
-      <div className="bg-white text-black p-8 rounded-2xl mb-6 flex items-center justify-between border border-gray-300 shadow-lg">
-        <div className="flex items-center gap-6">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700"
-              aria-label="Back"
-            >
-              <ArrowBigLeft className="w-4 h-4" />
-            </button>
-          )}
-          <div>
-            <div className="text-2xl font-medium text-blue-600">Enrollment Management</div>
-            <div className="text-gray-500 text-sm">
-              Manage enrollment by active term, year level, and block.
-            </div>
-          </div>
-        </div>
-      </div>
-
       <EnrollmentManager activeTerm={activeTerm} />
     </div>
   );

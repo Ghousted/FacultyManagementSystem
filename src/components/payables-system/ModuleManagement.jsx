@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, X, Package, BookOpen, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Search, X, Package, BookOpen, ToggleLeft, ToggleRight, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { getCurriculums, getAllCourses } from '../../models/curriculumModels';
 import { setCourseOfferedStatus } from '../../models/payablesModels';
 
 const SEMESTER_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
+const YEAR_LABELS = { 1: '1st Year', 2: '2nd Year', 3: '3rd Year', 4: '4th Year' };
 
 const ModuleManagement = ({ open, onClose, onChanged }) => {
   const [courses, setCourses] = useState([]);
@@ -11,22 +12,39 @@ const ModuleManagement = ({ open, onClose, onChanged }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [curriculumFilter, setCurriculumFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'offered' | 'not-offered'
+  const [curriculumFilter, setCurriculumFilter] = useState('');
+  const [yearLevelFilter, setYearLevelFilter] = useState('1');
+  const [semesterFilter, setSemesterFilter] = useState('all');
   const [busyIds, setBusyIds] = useState(new Set());
+  const [sortConfig, setSortConfig] = useState({ key: 'subject', direction: 'ascending' });
+
+  const handleSort = (key) => {
+    let direction = 'ascending';
+    if (sortConfig.key === key && sortConfig.direction === 'ascending') {
+      direction = 'descending';
+    }
+    setSortConfig({ key, direction });
+  };
 
   const refresh = async () => {
     setLoading(true);
     setError('');
     const [cur, crs] = await Promise.all([getCurriculums(), getAllCourses()]);
-    if (cur.success) setCurriculums(cur.data);
+    if (cur.success) {
+      setCurriculums(cur.data);
+      if (cur.data.length > 0) {
+        setCurriculumFilter(cur.data[0].id);
+      }
+    }
     if (crs.success) setCourses(crs.data);
     if (!cur.success) setError(cur.error || 'Failed to load curriculums.');
     if (!crs.success) setError(prev => prev || crs.error || 'Failed to load courses.');
     setLoading(false);
   };
 
-  useEffect(() => { if (open) refresh(); }, [open]);
+  useEffect(() => {
+    if (open) refresh();
+  }, [open]);
 
   const curriculumNameById = useMemo(() => {
     const map = new Map();
@@ -41,21 +59,33 @@ const ModuleManagement = ({ open, onClose, onChanged }) => {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return courses.filter(c => {
-      if (curriculumFilter !== 'all' && c.curriculumId !== curriculumFilter) return false;
-      if (statusFilter === 'offered' && !c.isOffered) return false;
-      if (statusFilter === 'not-offered' && c.isOffered) return false;
+    let result = courses.filter(c => {
+      if (curriculumFilter && c.curriculumId !== curriculumFilter) return false;
+      if (yearLevelFilter !== 'all' && c.yearLevel !== Number(yearLevelFilter)) return false;
+      if (semesterFilter !== 'all' && c.semester !== Number(semesterFilter)) return false;
       if (!q) return true;
       return (
         (c.courseCode || '').toLowerCase().includes(q) ||
         (c.courseTitle || '').toLowerCase().includes(q)
       );
-    }).sort((a, b) => {
-      // Offered first, then by code
-      if (!!a.isOffered !== !!b.isOffered) return a.isOffered ? -1 : 1;
+    });
+
+    result.sort((a, b) => {
+      if (!!a.isOffered !== !!b.isOffered) {
+        return a.isOffered ? -1 : 1;
+      }
+      if (sortConfig.key === 'subject') {
+        const aValue = (a.courseCode || '').toLowerCase();
+        const bValue = (b.courseCode || '').toLowerCase();
+        return sortConfig.direction === 'ascending'
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      }
       return (a.courseCode || '').localeCompare(b.courseCode || '');
     });
-  }, [courses, search, curriculumFilter, statusFilter]);
+
+    return result;
+  }, [courses, search, curriculumFilter, yearLevelFilter, semesterFilter, sortConfig]);
 
   const toggleOffered = async (course) => {
     setError('');
@@ -79,74 +109,110 @@ const ModuleManagement = ({ open, onClose, onChanged }) => {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+        className="bg-white rounded-2xl shadow-xl w-full max-w-3xl h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 pt-5 pb-4 border-b border-gray-200">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="flex items-center gap-2 text-blue-600 text-xs font-semibold uppercase tracking-wide mb-1">
-                <Package className="w-3.5 h-3.5" /> Module Management
-              </div>
               <h6 className="text-xl font-semibold text-gray-800">Offered Subjects</h6>
               <p className="text-sm text-gray-500 mt-0.5">
                 Mark subjects from your curriculums as <span className="font-medium">offered</span> so they appear when adding Module payables.
               </p>
             </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 cursor-pointer shrink-0"
-              title="Close"
-            >
-              <X className="w-5 h-5" />
-            </button>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 mt-4">
-            {[
-              { key: 'all', label: 'All Subjects', count: counts.total, color: 'border-gray-200' },
-              { key: 'offered', label: 'Offered', count: counts.offered, color: 'border-green-200' },
-              { key: 'not-offered', label: 'Not Offered', count: counts.notOffered, color: 'border-gray-200' }
-            ].map(c => {
-              const active = statusFilter === c.key;
-              return (
-                <button
-                  key={c.key}
-                  onClick={() => setStatusFilter(c.key)}
-                  className={`text-left p-2.5 rounded-lg border transition-colors cursor-pointer ${
-                    active ? 'border-blue-500 ring-2 ring-blue-100' : c.color + ' hover:border-gray-300'
-                  }`}
-                >
-                  <p className="text-xs text-gray-500">{c.label}</p>
-                  <p className="text-lg font-semibold text-gray-800">{c.count}</p>
-                </button>
-              );
-            })}
+          {/* Stats Card */}
+          <div className="flex gap-4 mt-4">
+            <div className="flex-1 p-3 bg-slate-50 rounded-xl">
+              <p className="text-2xl font-bold text-slate-800">{counts.total}</p>
+              <p className="text-xs text-slate-500">Total Subjects</p>
+            </div>
+            <div className="flex-1 p-3 bg-green-50 rounded-xl">
+              <p className="text-2xl font-bold text-green-700">{counts.offered}</p>
+              <p className="text-xs text-green-600">Offered</p>
+            </div>
+            <div className="flex-1 p-3 bg-red-50 rounded-xl">
+              <p className="text-2xl font-bold text-red-700">{counts.notOffered}</p>
+              <p className="text-xs text-red-600">Not Offered</p>
+            </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-2 mt-3">
+          {/* Year Filter */}
+          <div className="flex gap-2 bg-gray-200/50 p-1 rounded-xl w-full my-4">
+            {[1, 2, 3, 4].map((y) => (
+              <button
+                key={y}
+                type="button"
+                onClick={() => setYearLevelFilter(String(y))}
+                className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                  yearLevelFilter === String(y)
+                  ? 'bg-blue-500 text-white'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
+                }`}
+              >
+                {YEAR_LABELS[y]}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search by code or title..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                className="
+                  w-full rounded-xl border border-gray-200 bg-white
+                  py-2.5 pl-10 pr-4 text-sm text-gray-700
+                  shadow-sm transition-all
+                  placeholder:text-gray-400
+                  focus:border-blue-400 focus:outline-none
+                  focus:ring-4 focus:ring-blue-100
+                "
               />
             </div>
-            <select
-              value={curriculumFilter}
-              onChange={(e) => setCurriculumFilter(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-            >
-              <option value="all">All Curriculums</option>
-              {curriculums.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+
+            {/* Curriculum and Semester Filters Side by Side */}
+            <div className="flex gap-2 w-full md:w-auto">
+              <select
+                value={curriculumFilter}
+                onChange={(e) => setCurriculumFilter(e.target.value)}
+                className="
+                  rounded-xl border border-gray-200 bg-white
+                  px-4 py-2.5 text-sm text-gray-700
+                  shadow-sm transition-all
+                  focus:border-blue-400 focus:outline-none
+                  focus:ring-4 focus:ring-blue-100
+                "
+              >
+                {curriculums.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={semesterFilter}
+                onChange={(e) => setSemesterFilter(e.target.value)}
+                className="
+                  rounded-xl border border-gray-200 bg-white
+                  px-4 py-2.5 text-sm text-gray-700
+                  shadow-sm transition-all
+                  focus:border-blue-400 focus:outline-none
+                  focus:ring-4 focus:ring-blue-100
+                "
+              >
+                <option value="all">All Semesters</option>
+                {Object.entries(SEMESTER_LABELS).map(([key, label]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {error && (
@@ -165,49 +231,64 @@ const ModuleManagement = ({ open, onClose, onChanged }) => {
               <p className="text-sm text-gray-500">No subjects match the current filters.</p>
             </div>
           ) : (
-            <ul className="divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
-              {filtered.map(c => {
-                const busy = busyIds.has(c.id);
-                const offered = !!c.isOffered;
-                return (
-                  <li key={c.id} className="px-4 py-3 flex items-center justify-between gap-3 hover:bg-gray-50">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-gray-800 text-sm">{c.courseCode}</span>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                          Year {c.yearLevel} · {SEMESTER_LABELS[c.semester] || `Sem ${c.semester}`}
-                        </span>
-                        {Number(c.units) > 0 && (
-                          <span className="text-xs text-gray-500">{c.units} units</span>
-                        )}
-                        {offered && (
-                          <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700 border border-green-200">
-                            Offered
-                          </span>
+            <div className="overflow-x-auto rounded-2xl border border-gray-200">
+              <table className="min-w-full text-sm text-left">
+                <thead className="bg-slate-50 text-slate-700">
+                  <tr>
+                    <th className="px-3 py-2 w-12">&nbsp;</th>
+                    <th className="px-3 py-2 cursor-pointer" onClick={() => handleSort('subject')}>
+                      <div className="flex items-center gap-1">
+                        Subject
+                        {sortConfig.key === 'subject' ? (
+                          sortConfig.direction === 'ascending' ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )
+                        ) : (
+                          <ChevronsUpDown className="h-4 w-4" />
                         )}
                       </div>
-                      <p className="text-sm text-gray-600 truncate">{c.courseTitle}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {curriculumNameById.get(c.curriculumId) || 'Unknown curriculum'}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => toggleOffered(c)}
-                      disabled={busy}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg cursor-pointer disabled:opacity-60 ${
-                        offered
-                          ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
-                          : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                      }`}
-                      title={offered ? 'Mark as not offered' : 'Mark as offered'}
-                    >
-                      {offered ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                      {offered ? 'Offered' : 'Not Offered'}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+                    </th>
+                    <th className="px-3 py-2">Year</th>
+                    <th className="px-3 py-2">Units</th>
+                    <th className="px-3 py-2">Offered</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(c => (
+                    <tr key={c.id} className={`border-t border-slate-200 ${busyIds.has(c.id) ? 'opacity-80' : ''}`}>
+                      <td className="px-3 py-3">&nbsp;</td>
+                      <td className="px-3 py-3">
+                        <div>
+                          <div className="font-medium text-slate-900">{c.courseCode}</div>
+                          <div className="text-slate-600">{c.courseTitle}</div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-slate-600">{YEAR_LABELS[c.yearLevel]}</td>
+                      <td className="px-3 py-3 text-slate-600">{c.units || '—'}</td>
+                      <td className="px-3 py-3">
+                        <button
+                          onClick={() => toggleOffered(c)}
+                          disabled={busyIds.has(c.id)}
+                          className={`p-1 rounded-full transition ${
+                            c.isOffered
+                              ? 'bg-green-500 text-white hover:bg-green-600'
+                              : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                          }`}
+                        >
+                          {c.isOffered ? (
+                            <ToggleRight className="h-4 w-4" />
+                          ) : (
+                            <ToggleLeft className="h-4 w-4" />
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 

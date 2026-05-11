@@ -67,12 +67,12 @@ const ProfessorList = ({ onSelectProfessor }) => {
 
   const SortIcon = ({ column }) => {
     if (sortBy !== column) {
-      return <ChevronsUpDown className="ml-1 inline-flex h-3.5 w-3.5 opacity-70" />;
+      return <ChevronsUpDown className="ml-1 inline-flex h-3.5 w-3.5 opacity-70 text-white" />;
     }
 
     return sortOrder === 'asc'
-      ? <ChevronUp className="ml-1 inline-flex h-3.5 w-3.5" />
-      : <ChevronDown className="ml-1 inline-flex h-3.5 w-3.5" />;
+      ? <ChevronUp className="ml-1 inline-flex h-3.5 w-3.5 text-white" />
+      : <ChevronDown className="ml-1 inline-flex h-3.5 w-3.5 text-white" />;
   };
 
   const filtered = useMemo(() => {
@@ -207,7 +207,7 @@ const ProfessorList = ({ onSelectProfessor }) => {
 
         <div className="overflow-x-auto">
           <table className="w-full table-fixed text-sm">
-            <thead className="bg-gray-50 text-left text-gray-600 uppercase text-xs tracking-wide">
+            <thead className="bg-blue-500 text-left text-white text-sm tracking-wide">
               <tr>
                 <th
                   className="px-4 py-3 cursor-pointer select-none w-[15%]"

@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { ArrowBigLeft, Medal, GraduationCap, Wallet, HandCoins } from 'lucide-react';
 
 const ReportsModule = lazy(() => import('./ReportsModule'));
@@ -36,8 +36,12 @@ const ReportsLoadingSkeleton = () => (
   </div>
 );
 
-const ReportsMain = ({ onBackToDashboard }) => {
-  const [selectedReport, setSelectedReport] = useState('');
+const ReportsMain = ({ onBackToDashboard, initialReport = '' }) => {
+  const [selectedReport, setSelectedReport] = useState(initialReport);
+
+  useEffect(() => {
+    setSelectedReport(initialReport);
+  }, [initialReport]);
 
   const reportCards = [
     {
@@ -100,6 +104,11 @@ const ReportsMain = ({ onBackToDashboard }) => {
 
   return (
     <div>
+      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+        <span>Dashboard</span>
+        <span className="text-gray-300">&gt;</span>
+        <span className="font-medium text-blue-600">Academic Reports</span>
+      </div>
       <div className="mb-6 rounded-2xl border border-blue-100 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <button

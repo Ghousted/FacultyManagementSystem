@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { ArrowBigLeft, Download, UserRound, ChevronDown, ChevronRight, Search, RefreshCw, Settings2 } from 'lucide-react';
+import { ArrowBigLeft, Download, UserRound, Search, RefreshCw, Settings2, ChevronUp, ChevronDown, ChevronsUpDown, X } from 'lucide-react';
 import {
   getProfessors,
   getActiveTerm,
@@ -63,7 +63,7 @@ const RateModal = ({ isOpen, onClose, currentRate, onSave, isSaving }) => {
         <h3 className="text-xl font-bold text-blue-700 mb-2">Configure Cutback Rate</h3>
         <p className="text-sm text-gray-600 mb-4">Amount (PHP) paid to a professor per student per class.</p>
         <div className="flex items-center">
-          <span className="px-3 py-1.5 text-sm bg-gray-100 border border-gray-300 border-r-0 rounded-l-lg">₱</span>
+          <span className="px-3 py-1.5 text-sm bg-gray-100 border border-gray-300 border-r-0 rounded-l-lg">PHP</span>
           <input
             type="number"
             min="0"
@@ -100,7 +100,8 @@ const ProfessorCutbacksReport = ({ onBackToReportsMain }) => {
   const [activeTerm, setActiveTerm] = useState({ semester: 1, schoolYear: '' });
   const [rate, setRate] = useState(50);
   const [search, setSearch] = useState('');
-  const [expanded, setExpanded] = useState({});
+  const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
+  const [selectedProfessor, setSelectedProfessor] = useState(null);
   const [error, setError] = useState('');
   const [rateModalOpen, setRateModalOpen] = useState(false);
   const [savingRate, setSavingRate] = useState(false);
@@ -121,7 +122,6 @@ const ProfessorCutbacksReport = ({ onBackToReportsMain }) => {
       setActiveTerm(term);
       setRate(ratePerStudent);
 
-      // Resolve student counts for each professor's assigned courses for the active term.
       const enriched = await Promise.all(
         profsRes.data.map(async (p) => {
           const assignments = p.assignedCourses || [];
@@ -153,27 +153,47 @@ const ProfessorCutbacksReport = ({ onBackToReportsMain }) => {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  const filtered = useMemo(() => {
+  const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return professors;
-    return professors.filter(p =>
+    const list = q ? professors.filter(p =>
       (p.name || '').toLowerCase().includes(q) ||
       (p.employeeId || '').toLowerCase().includes(q)
-    );
-  }, [professors, search]);
+    ) : professors;
+
+    return [...list].sort((a, b) => {
+      const dir = sortConfig.direction === 'asc' ? 1 : -1;
+      const getTotalStudents = (prof) => (prof.classes || []).reduce((sum, c) => sum + (c.studentCount || 0), 0);
+      if (sortConfig.key === 'classCount') return (((a.classes || []).length) - ((b.classes || []).length)) * dir;
+      if (sortConfig.key === 'totalStudents') return (getTotalStudents(a) - getTotalStudents(b)) * dir;
+      if (sortConfig.key === 'totalCutback') return ((getTotalStudents(a) * rate) - (getTotalStudents(b) * rate)) * dir;
+      return (a[sortConfig.key] || '').toString().localeCompare((b[sortConfig.key] || '').toString()) * dir;
+    });
+  }, [professors, search, sortConfig, rate]);
 
   const grandTotals = useMemo(() => {
     let totalStudents = 0;
-    filtered.forEach(p => {
+    rows.forEach(p => {
       (p.classes || []).forEach(c => { totalStudents += c.studentCount || 0; });
     });
     return {
       totalStudents,
       totalCutback: totalStudents * rate
     };
-  }, [filtered, rate]);
+  }, [rows, rate]);
 
-  const toggleExpand = (id) => setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+  const handleSort = (key) => {
+    setSortConfig((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const SortIcon = ({ column }) => {
+    if (sortConfig.key !== column) return <ChevronsUpDown className="h-3.5 w-3.5 opacity-70" />;
+    return sortConfig.direction === 'asc'
+      ? <ChevronUp className="h-3.5 w-3.5" />
+      : <ChevronDown className="h-3.5 w-3.5" />;
+  };
 
   const handleSaveRate = async (val) => {
     setSavingRate(true);
@@ -193,7 +213,7 @@ const ProfessorCutbacksReport = ({ onBackToReportsMain }) => {
   const handleExportConfirm = (filename) => {
     const safeName = filename || 'professor_cutbacks';
     if (filenameModal.mode === 'all') {
-      exportAllProfessorCutbacksToExcel(filtered, rate, `${safeName}.xlsx`);
+      exportAllProfessorCutbacksToExcel(rows, rate, `${safeName}.xlsx`);
     } else if (filenameModal.target) {
       exportSingleProfessorCutbacksToExcel(filenameModal.target, rate, `${safeName}.xlsx`);
     }
@@ -202,25 +222,20 @@ const ProfessorCutbacksReport = ({ onBackToReportsMain }) => {
 
   return (
     <div>
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100 mb-6">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={onBackToReportsMain}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700"
-            aria-label="Back"
-            title="Back"
-          >
-            <ArrowBigLeft className="h-5 w-5" />
-          </button>
-          <div className="flex-1">
+      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+        <span>Dashboard</span>
+        <span className="text-gray-300">&gt;</span>
+
+        <span className="font-medium text-blue-600">Professor Cutbacks</span>
+      </div>
+
+      <div className="flex-1 mb-4">
             <h2 className="text-2xl font-semibold text-gray-900">Professor Cutbacks</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Cutback computed as {rate.toFixed(2)} PHP × number of students per handled class
+              Cutback computed as {rate.toFixed(2)} PHP x number of students per handled class
               {activeTerm.schoolYear && ` (Sem ${activeTerm.semester}, SY ${activeTerm.schoolYear})`}.
             </p>
           </div>
-        </div>
-      </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-4 items-stretch sm:items-center justify-between">
         <div className="flex gap-2 flex-1">
@@ -248,11 +263,11 @@ const ProfessorCutbacksReport = ({ onBackToReportsMain }) => {
             onClick={() => setRateModalOpen(true)}
             className="rounded-full text-sm px-4 py-2 cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow flex items-center gap-2"
           >
-            <Settings2 className="h-4 w-4" /> Rate: ₱{rate.toFixed(2)}
+            <Settings2 className="h-4 w-4" /> Rate: PHP {rate.toFixed(2)}
           </button>
           <button
             onClick={openExportAll}
-            disabled={loading || filtered.length === 0}
+            disabled={loading || rows.length === 0}
             className="rounded-full text-sm px-4 py-2 cursor-pointer bg-green-600 hover:bg-green-700 text-white font-semibold shadow flex items-center gap-2 disabled:opacity-50"
           >
             <Download className="h-4 w-4" /> Export All
@@ -266,11 +281,11 @@ const ProfessorCutbacksReport = ({ onBackToReportsMain }) => {
         </div>
       )}
 
-      {!loading && filtered.length > 0 && (
+      {!loading && rows.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <p className="text-xs text-gray-500">Professors</p>
-            <p className="text-2xl font-semibold text-gray-800">{filtered.length}</p>
+            <p className="text-2xl font-semibold text-gray-800">{rows.length}</p>
           </div>
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <p className="text-xs text-gray-500">Total Students Handled</p>
@@ -278,7 +293,7 @@ const ProfessorCutbacksReport = ({ onBackToReportsMain }) => {
           </div>
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <p className="text-xs text-gray-500">Total Cutbacks</p>
-            <p className="text-2xl font-semibold text-emerald-700">₱{grandTotals.totalCutback.toFixed(2)}</p>
+            <p className="text-2xl font-semibold text-emerald-700">PHP {grandTotals.totalCutback.toFixed(2)}</p>
           </div>
         </div>
       )}
@@ -289,7 +304,7 @@ const ProfessorCutbacksReport = ({ onBackToReportsMain }) => {
             <div key={i} className="h-20 rounded-xl bg-gray-100 animate-pulse" />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : rows.length === 0 ? (
         <div className="py-16 text-center bg-white border border-gray-200 rounded-xl">
           <UserRound className="w-10 h-10 mx-auto text-gray-300 mb-2" />
           <p className="text-sm text-gray-500">
@@ -297,90 +312,108 @@ const ProfessorCutbacksReport = ({ onBackToReportsMain }) => {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filtered.map(prof => {
-            const isOpen = !!expanded[prof.id];
-            const totalStudents = (prof.classes || []).reduce((sum, c) => sum + (c.studentCount || 0), 0);
-            const totalCutback = totalStudents * rate;
-            return (
-              <div key={prof.id} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => toggleExpand(prof.id)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer text-left"
-                >
-                  {isOpen ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronRight className="w-4 h-4 text-gray-500" />}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-gray-800 text-sm">{prof.name}</span>
-                      {prof.employeeId && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                          {prof.employeeId}
-                        </span>
-                      )}
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
-                        {(prof.classes || []).length} class{(prof.classes || []).length === 1 ? '' : 'es'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {totalStudents} student{totalStudents === 1 ? '' : 's'} · Total cutback: <span className="font-semibold text-emerald-700">₱{totalCutback.toFixed(2)}</span>
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); openExportSingle(prof); }}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-green-600 hover:bg-green-700 text-white cursor-pointer"
-                    title="Export this professor"
+        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+          <table className="min-w-full text-sm">
+            <thead className="bg-blue-50 text-blue-800">
+              <tr>
+                {[
+                  ['name', 'Professor'],
+                  ['employeeId', 'Employee ID'],
+                  ['classCount', 'Classes'],
+                  ['totalStudents', 'Students'],
+                  ['totalCutback', 'Cutback']
+                ].map(([key, label]) => (
+                  <th key={key} className="px-4 py-2 text-left font-semibold">
+                    <button type="button" onClick={() => handleSort(key)} className="inline-flex items-center gap-1">
+                      {label}
+                      <SortIcon column={key} />
+                    </button>
+                  </th>
+                ))}
+                <th className="px-4 py-2 text-right font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(prof => {
+                const totalStudents = (prof.classes || []).reduce((sum, c) => sum + (c.studentCount || 0), 0);
+                const totalCutback = totalStudents * rate;
+                return (
+                  <tr
+                    key={prof.id}
+                    onClick={() => setSelectedProfessor(prof)}
+                    className="cursor-pointer border-t border-gray-100 hover:bg-gray-50"
                   >
-                    <Download className="w-3.5 h-3.5" /> Export
-                  </button>
-                </button>
+                    <td className="px-4 py-3 font-semibold text-gray-800">{prof.name}</td>
+                    <td className="px-4 py-3 text-gray-700">{prof.employeeId || '-'}</td>
+                    <td className="px-4 py-3 text-gray-700">{(prof.classes || []).length}</td>
+                    <td className="px-4 py-3 text-gray-700">{totalStudents}</td>
+                    <td className="px-4 py-3 font-semibold text-emerald-700">PHP {totalCutback.toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openExportSingle(prof); }}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700"
+                      >
+                        <Download className="h-3.5 w-3.5" /> Export
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-                {isOpen && (
-                  <div className="border-t border-gray-100 px-4 py-3 bg-gray-50/50">
-                    {(prof.classes || []).length === 0 ? (
-                      <p className="text-sm text-gray-500 py-2">No assigned classes.</p>
-                    ) : (
-                      <div className="overflow-x-auto border border-gray-200 rounded-lg bg-white">
-                        <table className="min-w-full text-sm">
-                          <thead>
-                            <tr className="bg-blue-50 text-left">
-                              <th className="px-3 py-1.5 text-blue-700 font-semibold">Code</th>
-                              <th className="px-3 py-1.5 text-blue-700 font-semibold">Title</th>
-                              <th className="px-3 py-1.5 text-blue-700 font-semibold w-20 text-center">Year</th>
-                              <th className="px-3 py-1.5 text-blue-700 font-semibold w-32">Block(s)</th>
-                              <th className="px-3 py-1.5 text-blue-700 font-semibold w-24 text-center">Students</th>
-                              <th className="px-3 py-1.5 text-blue-700 font-semibold w-32 text-right">Cutback</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {prof.classes.map(c => {
-                              const cutback = (c.studentCount || 0) * rate;
-                              return (
-                                <tr key={c.courseId} className="border-t border-gray-100">
-                                  <td className="px-3 py-1.5 font-medium text-gray-800">{c.courseCode}</td>
-                                  <td className="px-3 py-1.5 text-gray-700">{c.courseTitle}</td>
-                                  <td className="px-3 py-1.5 text-center text-gray-700">{c.yearLevel || '-'}</td>
-                                  <td className="px-3 py-1.5 text-gray-700">{(c.blocks || []).join(', ') || '—'}</td>
-                                  <td className="px-3 py-1.5 text-center text-gray-700">{c.studentCount || 0}</td>
-                                  <td className="px-3 py-1.5 text-right font-semibold text-emerald-700">₱{cutback.toFixed(2)}</td>
-                                </tr>
-                              );
-                            })}
-                            <tr className="border-t border-gray-200 bg-gray-50">
-                              <td className="px-3 py-1.5 font-semibold text-gray-700" colSpan={4}>Total</td>
-                              <td className="px-3 py-1.5 text-center font-semibold text-gray-800">{totalStudents}</td>
-                              <td className="px-3 py-1.5 text-right font-bold text-emerald-700">₱{totalCutback.toFixed(2)}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )}
+      {selectedProfessor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setSelectedProfessor(null)}></div>
+          <div className="relative z-10 flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-gray-200 p-5">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">{selectedProfessor.name}</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  {selectedProfessor.employeeId || 'No employee ID'} / {(selectedProfessor.classes || []).length} class{(selectedProfessor.classes || []).length === 1 ? '' : 'es'}
+                </p>
               </div>
-            );
-          })}
+              <button type="button" onClick={() => setSelectedProfessor(null)} className="rounded-full p-1.5 text-gray-500 hover:bg-gray-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="overflow-auto p-5">
+              {(selectedProfessor.classes || []).length === 0 ? (
+                <p className="text-sm text-gray-500">No assigned classes.</p>
+              ) : (
+                <table className="min-w-full text-sm">
+                  <thead className="bg-blue-50 text-blue-800">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold">Code</th>
+                      <th className="px-3 py-2 text-left font-semibold">Title</th>
+                      <th className="px-3 py-2 text-center font-semibold">Year</th>
+                      <th className="px-3 py-2 text-left font-semibold">Block(s)</th>
+                      <th className="px-3 py-2 text-center font-semibold">Students</th>
+                      <th className="px-3 py-2 text-right font-semibold">Cutback</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedProfessor.classes.map(c => {
+                      const cutback = (c.studentCount || 0) * rate;
+                      return (
+                        <tr key={c.courseId} className="border-t border-gray-100">
+                          <td className="px-3 py-2 font-medium text-gray-800">{c.courseCode}</td>
+                          <td className="px-3 py-2 text-gray-700">{c.courseTitle}</td>
+                          <td className="px-3 py-2 text-center text-gray-700">{c.yearLevel || '-'}</td>
+                          <td className="px-3 py-2 text-gray-700">{(c.blocks || []).join(', ') || '-'}</td>
+                          <td className="px-3 py-2 text-center text-gray-700">{c.studentCount || 0}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-emerald-700">PHP {cutback.toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

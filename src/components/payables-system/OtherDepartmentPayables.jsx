@@ -1,5 +1,3 @@
-// The Add Previous Balance Modal must be rendered inside the return statement of OtherDepartmentPayables, after all useState hooks.
-// All import statements must be at the very top of the file
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   addDoc,
@@ -21,21 +19,34 @@ import {
   History,
   Trash2,
   MoreVertical,
-  ArrowBigLeft,
-  X
+  ChevronLeft,
+  X,
+  Folder,
+  Package,
+  ChevronsUpDown, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import { getOtherDepartments } from '../../models/facultyModels';
+import { getOfferedModules } from '../../models/payablesModels';
 import { createReceiptRecord, generateReceiptNumber } from '../../utils/receiptService';
+import { logSystemAction } from '../../utils/auditLogger';
 import ReceiptModal from './ReceiptModal';
 
-// ...existing code...
 const emptyDepartmentForm = { name: '', code: '' };
-// Removed all invalid top-level useState and hook calls. All hooks must be inside the OtherDepartmentPayables function.
-
-// All hooks and handlers must be inside the OtherDepartmentPayables function below.
 const emptyStudentForm = { name: '', course: '', yearLevel: '1', block: '' };
-const emptyPayableForm = { title: '', amount: '' };
+
+const emptyPayableForm = {
+  title: '',
+  amount: '',
+  category: 'general',
+  moduleId: '',
+  moduleCode: '',
+  moduleTitle: '',
+  moduleCurriculumId: '',
+  selectedModuleIds: []
+};
+
 const emptyPaymentForm = {
   studentId: '',
   payableId: '',
@@ -74,17 +85,189 @@ const toDateLabel = (rawValue) => {
 };
 
 const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
-    // Add Previous Balance state and handler (must be inside component)
-    const [individualPayableDialogOpen, setIndividualPayableDialogOpen] = useState(false);
-    const [individualPayableForm, setIndividualPayableForm] = useState({ type: '', amount: '', yearLevel: '' });
-    const [selectedStudentForIndividualPayable, setSelectedStudentForIndividualPayable] = useState(null);
-
-    const openAddPreviousBalanceModal = (student) => {
-      setSelectedStudentForIndividualPayable(student);
-      setIndividualPayableForm({ type: '', amount: '', yearLevel: '' });
-      setIndividualPayableDialogOpen(true);
-    };
   const { currentUser } = useAuth();
+
+  // Add Previous Balance state and handler
+  const [individualPayableDialogOpen, setIndividualPayableDialogOpen] = useState(false);
+  const [individualPayableForm, setIndividualPayableForm] = useState({
+    type: '',
+    amount: '',
+    yearLevel: '',
+    category: 'general',
+    moduleId: '',
+    moduleCode: '',
+    moduleTitle: '',
+    moduleCurriculumId: '',
+    selectedModuleIds: []
+  });
+  const [selectedStudentForIndividualPayable, setSelectedStudentForIndividualPayable] = useState(null);
+  const [offeredModules, setOfferedModules] = useState([]);
+  const [moduleSelectorOpen, setModuleSelectorOpen] = useState(false);
+  const [moduleSelectorContext, setModuleSelectorContext] = useState('individual');
+
+  const loadOfferedModules = useCallback(async () => {
+    const res = await getOfferedModules();
+    if (res.success) setOfferedModules(res.data);
+  }, []);
+
+  useEffect(() => {
+    loadOfferedModules();
+  }, [loadOfferedModules]);
+
+  const individualSelectedModuleIds = individualPayableForm?.selectedModuleIds || [];
+  const individualSelectedModules = useMemo(
+    () => offeredModules.filter((module) => individualSelectedModuleIds.includes(module.id)),
+    [offeredModules, individualSelectedModuleIds]
+  );
+
+  const openAddPreviousBalanceModal = (student) => {
+    setSelectedStudentForIndividualPayable(student);
+    setIndividualPayableForm({
+      type: '',
+      amount: '',
+      yearLevel: student.yearLevel.toString(),
+      category: 'general',
+      moduleId: '',
+      moduleCode: '',
+      moduleTitle: '',
+      moduleCurriculumId: '',
+      selectedModuleIds: []
+    });
+    setIndividualPayableDialogOpen(true);
+  };
+
+  const handleIndividualPayableInputChange = (field, value) => {
+    setIndividualPayableForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleSaveIndividualPayable = async () => {
+    const isModule = individualPayableForm.category === 'module';
+    if (!individualPayableForm.amount || !individualPayableForm.yearLevel || (!isModule && !individualPayableForm.type) || (isModule && (!individualPayableForm.selectedModuleIds || individualPayableForm.selectedModuleIds.length === 0))) {
+      setError('Please fill in all required fields');
+      return;
+    }
+    if (!selectedStudentForIndividualPayable) {
+      setError('No student selected');
+      return;
+    }
+    setLoading(true);
+    try {
+      const studentPayments = {
+        [selectedStudentForIndividualPayable.id]: {
+          status: 'unpaid',
+          paidAmount: 0
+        }
+      };
+      if (individualPayableForm.category === 'module') {
+        const amount = parseFloat(individualPayableForm.amount);
+        const selected = individualPayableForm.selectedModuleIds || [];
+        if (selected.length === 0) {
+          setError('Please select at least one module');
+          setLoading(false);
+          return;
+        }
+        const results = await Promise.all(selected.map((mid) => {
+          const module = offeredModules.find(m => m.id === mid);
+          const modulePayableData = {
+            title: module ? `Module: ${module.courseCode} — ${module.courseTitle}` : (individualPayableForm.type || 'Module'),
+            amount,
+            yearLevel: parseInt(individualPayableForm.yearLevel),
+            studentPayments,
+            isIndividual: true,
+            studentId: selectedStudentForIndividualPayable.id,
+            studentName: selectedStudentForIndividualPayable.name,
+            category: 'module',
+            moduleId: module?.id || '',
+            moduleCode: module?.courseCode || '',
+            moduleTitle: module?.courseTitle || '',
+            moduleCurriculumId: module?.curriculumId || '',
+            departmentId: selectedDepartmentId,
+            userId: currentUser.uid,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          return addDoc(collection(db, 'otherDept-payables'), modulePayableData);
+        }));
+        const failedCount = results.filter(r => !r).length;
+        if (failedCount === 0) {
+          showSuccess(`Previous balance(s) added successfully for ${selectedStudentForIndividualPayable.name}!`);
+          setIndividualPayableDialogOpen(false);
+          setIndividualPayableForm({
+            type: '',
+            amount: '',
+            yearLevel: '',
+            category: 'general',
+            moduleId: '',
+            moduleCode: '',
+            moduleTitle: '',
+            moduleCurriculumId: '',
+            selectedModuleIds: []
+          });
+          await loadDepartmentData();
+        } else {
+          setError(`${failedCount} previous balance(s) failed to save. Please try again.`);
+        }
+      } else {
+        const newPayableData = {
+          title: individualPayableForm.type,
+          amount: parseFloat(individualPayableForm.amount),
+          yearLevel: parseInt(individualPayableForm.yearLevel),
+          studentPayments: studentPayments,
+          isIndividual: true,
+          studentId: selectedStudentForIndividualPayable.id,
+          studentName: selectedStudentForIndividualPayable.name,
+          category: individualPayableForm.category,
+          departmentId: selectedDepartmentId,
+          userId: currentUser.uid,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        await addDoc(collection(db, 'otherDept-payables'), newPayableData);
+        showSuccess(`Previous balance added successfully for ${selectedStudentForIndividualPayable.name}!`);
+        setIndividualPayableDialogOpen(false);
+        setIndividualPayableForm({
+          type: '',
+          amount: '',
+          yearLevel: '',
+          category: 'general',
+          moduleId: '',
+          moduleCode: '',
+          moduleTitle: '',
+          moduleCurriculumId: '',
+          selectedModuleIds: []
+        });
+        await loadDepartmentData();
+      }
+    } catch (error) {
+      showError('Failed to add previous balance: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+  const handlePayablesBreadcrumb = (event) => {
+    const { departmentType, departmentName, selectedFolder } = event.detail || {};
+
+    // Reset to the list of folders if the department name is clicked
+    if (departmentType === 'other' && departmentName && selectedFolder === null) {
+      setSelectedFolder(null);
+    }
+    // Reset to the list of departments if "Other Department" is clicked
+    else if (departmentType === 'other' && !departmentName) {
+      setSelectedDepartmentId('');
+    }
+  };
+
+  window.addEventListener('payables-breadcrumb', handlePayablesBreadcrumb);
+  return () => {
+    window.removeEventListener('payables-breadcrumb', handlePayablesBreadcrumb);
+  };
+}, []);
+
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -101,6 +284,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
 
   const [students, setStudents] = useState([]);
   const [studentSearch, setStudentSearch] = useState('');
+  const [selectedFolder, setSelectedFolder] = useState(null);
   const [studentForm, setStudentForm] = useState(emptyStudentForm);
   const [editingStudentId, setEditingStudentId] = useState('');
   const [studentModalOpen, setStudentModalOpen] = useState(false);
@@ -131,9 +315,101 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
   const [transactionPayable, setTransactionPayable] = useState(null);
   const [transactionPayments, setTransactionPayments] = useState([]);
 
+  // Add these state variables near your other state declarations
+const [curriculums, setCurriculums] = useState([]);
+const [moduleYearLevelFilter, setModuleYearLevelFilter] = useState('all');
+const [moduleCurriculumFilter, setModuleCurriculumFilter] = useState('all');
+const [moduleSemesterFilter, setModuleSemesterFilter] = useState('all');
+const [moduleSortConfig, setModuleSortConfig] = useState({ key: null, direction: 'ascending' });
+
+const loadCurriculums = useCallback(async () => {
+  try {
+    const querySnapshot = await getDocs(collection(db, 'curriculums'));
+    const curriculumsData = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    setCurriculums(curriculumsData);
+  } catch (error) {
+    console.error("Error loading curriculums: ", error);
+    showError('Failed to load curriculums');
+  }
+}, []);
+
+
+const handleModuleSort = useCallback((key) => {
+  let direction = 'ascending';
+  if (moduleSortConfig.key === key && moduleSortConfig.direction === 'ascending') {
+    direction = 'descending';
+  }
+  setModuleSortConfig({ key, direction });
+}, [moduleSortConfig]);
+
+
+const filteredAndSortedModules = useMemo(() => {
+  let filtered = offeredModules;
+
+  // Apply year level filter
+  if (moduleYearLevelFilter !== 'all') {
+    filtered = filtered.filter(m => m.yearLevel === parseInt(moduleYearLevelFilter));
+  }
+
+  // Apply curriculum filter
+  if (moduleCurriculumFilter !== 'all') {
+    filtered = filtered.filter(m => m.curriculumId === moduleCurriculumFilter);
+  }
+
+  // Apply semester filter
+  if (moduleSemesterFilter !== 'all') {
+    filtered = filtered.filter(m => m.semester === parseInt(moduleSemesterFilter));
+  }
+
+  // Apply sorting
+  if (moduleSortConfig.key) {
+    filtered.sort((a, b) => {
+      let aValue = a[moduleSortConfig.key];
+      let bValue = b[moduleSortConfig.key];
+
+      // Handle numeric sorting for yearLevel
+      if (moduleSortConfig.key === 'yearLevel') {
+        aValue = parseInt(aValue) || 0;
+        bValue = parseInt(bValue) || 0;
+      }
+
+      if (aValue < bValue) {
+        return moduleSortConfig.direction === 'ascending' ? -1 : 1;
+      }
+      if (aValue > bValue) {
+        return moduleSortConfig.direction === 'ascending' ? 1 : -1;
+      }
+      return 0;
+    });
+  }
+
+  return filtered;
+}, [offeredModules, moduleYearLevelFilter, moduleCurriculumFilter, moduleSemesterFilter, moduleSortConfig]);
+
+const getOrdinalSuffix = (num) => {
+  const j = num % 10, k = num % 100;
+  if (j === 1 && k !== 11) return 'st';
+  if (j === 2 && k !== 12) return 'nd';
+  if (j === 3 && k !== 13) return 'rd';
+  return 'th';
+};
+
+
+useEffect(() => {
+  loadCurriculums();
+}, [loadCurriculums]);
+
   const selectedDepartment = useMemo(
     () => departments.find((department) => department.id === selectedDepartmentId) || null,
     [departments, selectedDepartmentId]
+  );
+
+  const selectedModules = useMemo(
+    () => offeredModules.filter((module) => payableForm.selectedModuleIds.includes(module.id)),
+    [offeredModules, payableForm.selectedModuleIds]
   );
 
   const studentsById = useMemo(() => {
@@ -169,6 +445,21 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
     });
   }, [studentSearch, students]);
 
+  const studentsInSelectedFolder = useMemo(() => {
+    if (!selectedFolder) return departmentStudents;
+    return departmentStudents.filter((student) => {
+      const block = (student.block || 'A').toString().trim().toUpperCase() || 'A';
+      if (selectedFolder.isIrregular) {
+        return student.isIrregular && block === selectedFolder.block;
+      }
+      return !student.isIrregular && Number(student.yearLevel) === Number(selectedFolder.year) && block === selectedFolder.block;
+    });
+  }, [departmentStudents, selectedFolder]);
+
+  useEffect(() => {
+    setSelectedFolder(null);
+  }, [selectedDepartmentId]);
+
   const paymentHistory = useMemo(() => {
     return payments
       .filter((payment) => {
@@ -199,22 +490,15 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
   };
 
   const loadDepartments = useCallback(async () => {
-    if (!currentUser?.uid) return;
-
     setLoading(true);
     clearStatus();
     try {
-      const departmentsRef = collection(db, 'otherDepartments');
-      const departmentsQuery = query(
-        departmentsRef,
-        where('userId', '==', currentUser.uid)
-      );
-      const snapshot = await getDocs(departmentsQuery);
-      const records = snapshot.docs.map((departmentDoc) => ({
-        id: departmentDoc.id,
-        ...departmentDoc.data()
-      }))
-      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      const result = await getOtherDepartments();
+      if (!result.success) {
+        throw new Error(result.error || 'Unable to load other departments.');
+      }
+      const records = result.data
+        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       setDepartments(records);
 
       if (!records.length) {
@@ -248,21 +532,18 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         getDocs(
           query(
             studentsRef,
-            where('userId', '==', currentUser.uid),
             where('departmentId', '==', selectedDepartmentId)
           )
         ),
         getDocs(
           query(
             payablesRef,
-            where('userId', '==', currentUser.uid),
             where('departmentId', '==', selectedDepartmentId)
           )
         ),
         getDocs(
           query(
             paymentsRef,
-            where('userId', '==', currentUser.uid),
             where('departmentId', '==', selectedDepartmentId)
           )
         )
@@ -356,11 +637,27 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
 
       if (editingDepartmentId) {
         await updateDoc(doc(db, 'otherDepartments', editingDepartmentId), payload);
+        await logSystemAction({
+          action: 'Updated other department',
+          module: 'Payables System',
+          entityType: 'otherDepartment',
+          entityId: editingDepartmentId,
+          description: `Updated department: ${payload.name}`,
+          details: payload
+        });
         showSuccess('Department updated.');
       } else {
-        await addDoc(collection(db, 'otherDepartments'), {
+        const ref = await addDoc(collection(db, 'otherDepartments'), {
           ...payload,
           createdAt: new Date().toISOString()
+        });
+        await logSystemAction({
+          action: 'Created other department',
+          module: 'Payables System',
+          entityType: 'otherDepartment',
+          entityId: ref.id,
+          description: `Created department: ${payload.name}`,
+          details: payload
         });
         showSuccess('Department created.');
       }
@@ -375,6 +672,75 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
       setLoading(false);
     }
   };
+
+
+  const [sortField, setSortField] = useState("student");
+const [sortDirection, setSortDirection] = useState("asc");
+
+const handleSort = (field) => {
+  if (sortField === field) {
+    setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+  } else {
+    setSortField(field);
+    setSortDirection("asc");
+  }
+};
+
+const sortedStudents = [...studentsInSelectedFolder].sort((a, b) => {
+  let valueA;
+  let valueB;
+
+  switch (sortField) {
+    case "student":
+      valueA = a.name || "";
+      valueB = b.name || "";
+      break;
+
+    case "course":
+      valueA = a.course || "";
+      valueB = b.course || "";
+      break;
+
+    case "year":
+      valueA = a.yearLevel || "";
+      valueB = b.yearLevel || "";
+      break;
+
+    case "block":
+      valueA = a.block || "";
+      valueB = b.block || "";
+      break;
+
+    case "balance":
+      valueA = getStudentTotalBalance(a.id);
+      valueB = getStudentTotalBalance(b.id);
+      break;
+
+    default:
+      valueA = "";
+      valueB = "";
+  }
+
+  if (typeof valueA === "string") {
+    return sortDirection === "asc"
+      ? valueA.localeCompare(valueB)
+      : valueB.localeCompare(valueA);
+  }
+
+  return sortDirection === "asc" ? valueA - valueB : valueB - valueA;
+});
+
+const renderSortIcon = (field) => {
+  if (sortField !== field) {
+    return <ChevronsUpDown className="w-4 h-4" />;
+  }
+
+  return sortDirection === "asc" ? (
+    <ChevronUp className="w-4 h-4" />
+  ) : (
+    <ChevronDown className="w-4 h-4" />
+  );
+};
 
   const handleEditDepartment = (department) => {
     setDepartmentForm({
@@ -421,6 +787,18 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
       deletePromises.push(deleteDoc(doc(db, 'otherDepartments', departmentId)));
 
       await Promise.all(deletePromises);
+      await logSystemAction({
+        action: 'Deleted other department',
+        module: 'Payables System',
+        entityType: 'otherDepartment',
+        entityId: departmentId,
+        description: `Deleted department and related records: ${departmentToDelete.name || departmentId}`,
+        details: {
+          studentsDeleted: studentsSnapshot.docs.length,
+          payablesDeleted: payablesSnapshot.docs.length,
+          paymentsDeleted: paymentsSnapshot.docs.length
+        }
+      });
 
       if (selectedDepartmentId === departmentId) {
         setSelectedDepartmentId('');
@@ -476,11 +854,27 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
 
       if (editingStudentId) {
         await updateDoc(doc(db, 'otherDept-Students', editingStudentId), payload);
+        await logSystemAction({
+          action: 'Updated other department student',
+          module: 'Payables System',
+          entityType: 'otherDepartmentStudent',
+          entityId: editingStudentId,
+          description: `Updated student: ${payload.name}`,
+          details: payload
+        });
         showSuccess('Student updated.');
       } else {
-        await addDoc(collection(db, 'otherDept-Students'), {
+        const ref = await addDoc(collection(db, 'otherDept-Students'), {
           ...payload,
           createdAt: new Date().toISOString()
+        });
+        await logSystemAction({
+          action: 'Added other department student',
+          module: 'Payables System',
+          entityType: 'otherDepartmentStudent',
+          entityId: ref.id,
+          description: `Added student: ${payload.name}`,
+          details: payload
         });
         showSuccess('Student added.');
       }
@@ -533,6 +927,14 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
       deletePromises.push(deleteDoc(doc(db, 'otherDept-Students', studentId)));
 
       await Promise.all(deletePromises);
+      await logSystemAction({
+        action: 'Deleted other department student',
+        module: 'Payables System',
+        entityType: 'otherDepartmentStudent',
+        entityId: studentId,
+        description: `Deleted student ${studentId} and related payment records`,
+        details: { paymentsDeleted: paymentSnapshot.docs.length }
+      });
       showSuccess('Student deleted.');
       await loadDepartmentData();
     } catch (deleteError) {
@@ -581,8 +983,18 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
       return;
     }
 
-    if (!payableForm.title.trim() || !payableForm.amount) {
-      showError('Payable title and amount are required.');
+    if (payableForm.category === 'module' && (!Array.isArray(payableForm.selectedModuleIds) || payableForm.selectedModuleIds.length === 0)) {
+      showError('Please select at least one module.');
+      return;
+    }
+
+    if (payableForm.category === 'general' && !payableForm.title.trim()) {
+      showError('Payable title is required.');
+      return;
+    }
+
+    if (!payableForm.amount) {
+      showError('Payable amount is required.');
       return;
     }
 
@@ -595,21 +1007,87 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
     setLoading(true);
     clearStatus();
     try {
-      const payload = {
+      const isModule = payableForm.category === 'module';
+      const commonPayload = {
         userId: currentUser.uid,
         departmentId: selectedDepartmentId,
-        title: payableForm.title.trim(),
         amount,
+        category: payableForm.category || 'general',
         updatedAt: new Date().toISOString()
       };
 
       if (editingPayableId) {
+        const payload = {
+          ...commonPayload,
+          title: isModule
+            ? `Module: ${payableForm.moduleCode} — ${payableForm.moduleTitle}`
+            : payableForm.title.trim(),
+          ...(isModule
+            ? {
+                moduleId: payableForm.moduleId,
+                moduleCode: payableForm.moduleCode,
+                moduleTitle: payableForm.moduleTitle,
+                moduleCurriculumId: payableForm.moduleCurriculumId
+              }
+            : {})
+        };
         await updateDoc(doc(db, 'otherDept-payables', editingPayableId), payload);
+        await logSystemAction({
+          action: 'Updated other department payable',
+          module: 'Payables System',
+          entityType: 'otherDepartmentPayable',
+          entityId: editingPayableId,
+          description: `Updated payable: ${payload.title}`,
+          details: payload
+        });
         showSuccess('Payable updated.');
+      } else if (isModule) {
+        const modulesToCreate = offeredModules.filter((module) =>
+          payableForm.selectedModuleIds.includes(module.id)
+        );
+        const refs = await Promise.all(
+          modulesToCreate.map((module) =>
+            addDoc(collection(db, 'otherDept-payables'), {
+              ...commonPayload,
+              title: `Module: ${module.courseCode} — ${module.courseTitle}`,
+              moduleId: module.id,
+              moduleCode: module.courseCode,
+              moduleTitle: module.courseTitle,
+              moduleCurriculumId: module.curriculumId,
+              createdAt: new Date().toISOString()
+            })
+          )
+        );
+        await logSystemAction({
+          action: 'Created other department module payables',
+          module: 'Payables System',
+          entityType: 'otherDepartmentPayable',
+          entityId: refs.length === 1 ? refs[0].id : refs.map((r) => r.id).join(','),
+          description: `Created ${refs.length} module payable${refs.length === 1 ? '' : 's'}`,
+          details: {
+            count: refs.length,
+            amountPerModule: amount,
+            moduleIds: payableForm.selectedModuleIds
+          }
+        });
+        showSuccess(`Created ${refs.length} module payable${refs.length === 1 ? '' : 's'}.`);
       } else {
-        await addDoc(collection(db, 'otherDept-payables'), {
+        const payload = {
+          ...commonPayload,
+          title: payableForm.title.trim(),
+          updatedAt: new Date().toISOString()
+        };
+        const ref = await addDoc(collection(db, 'otherDept-payables'), {
           ...payload,
           createdAt: new Date().toISOString()
+        });
+        await logSystemAction({
+          action: 'Created other department payable',
+          module: 'Payables System',
+          entityType: 'otherDepartmentPayable',
+          entityId: ref.id,
+          description: `Created payable: ${payload.title}`,
+          details: payload
         });
         showSuccess('Payable created.');
       }
@@ -628,7 +1106,13 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
   const handleEditPayable = (payable) => {
     setPayableForm({
       title: payable.title || '',
-      amount: String(numberOrZero(payable.amount))
+      amount: String(numberOrZero(payable.amount)),
+      category: payable.category || 'general',
+      moduleId: payable.moduleId || '',
+      moduleCode: payable.moduleCode || '',
+      moduleTitle: payable.moduleTitle || '',
+      moduleCurriculumId: payable.moduleCurriculumId || '',
+      selectedModuleIds: payable.moduleId ? [payable.moduleId] : []
     });
     setEditingPayableId(payable.id);
     setPayableModalOpen(true);
@@ -669,6 +1153,14 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
       deletePromises.push(deleteDoc(doc(db, 'otherDept-payables', payableId)));
 
       await Promise.all(deletePromises);
+      await logSystemAction({
+        action: 'Deleted other department payable',
+        module: 'Payables System',
+        entityType: 'otherDepartmentPayable',
+        entityId: payableId,
+        description: `Deleted payable ${payableId} and related payment records`,
+        details: { paymentsDeleted: paymentSnapshot.docs.length }
+      });
       showSuccess('Payable deleted.');
       await loadDepartmentData();
     } catch (deleteError) {
@@ -757,7 +1249,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
       return null;
     }
 
-    // Collect drafts from paymentFormByPayable for the selected student
     if (!selectedStudentForPayment) {
       showError('Select a student first.');
       return null;
@@ -781,7 +1272,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         const totalPayableAmount = numberOrZero(payable.amount);
         const newSettled = amount + voucherAmount;
         if (previousSettled + newSettled > totalPayableAmount + 0.0001) {
-          // Skip invalid overpayments; caller may show error
           return { error: `Payment for ${payable.title} exceeds remaining balance.` };
         }
 
@@ -816,7 +1306,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
       return null;
     }
 
-    // Check for any drafts with error
     const draftWithError = drafts.find((d) => d && d.error);
     if (draftWithError) {
       showError(draftWithError.error);
@@ -998,7 +1487,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
     event.preventDefault();
     clearStatus();
 
-    // Prefer batch drafts (multiple staged payables)
     const batchDrafts = getBatchPaymentConfirmationDrafts();
     if (batchDrafts) {
       setPendingPaymentConfirmation(batchDrafts);
@@ -1006,15 +1494,12 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
       return;
     }
 
-    // Fallback to a single-payment draft created from the active payment form
     const singleDraft = getPaymentConfirmationDraft();
     if (singleDraft) {
       setPendingPaymentConfirmation([singleDraft]);
       setPaymentConfirmModalOpen(true);
       return;
     }
-
-    // If neither produced a draft, getBatch/getPayment already called showError
   };
 
   const handleConfirmPayment = async () => {
@@ -1027,7 +1512,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
       const receiptNumber = await generateReceiptNumber(db, paymentDate);
       let receiptId = null;
 
-      // Create combined receipt record (items from all drafts)
       try {
         const receiptItems = pendingPaymentConfirmation.map((d) => ({
           description: d.payable.title || 'Payment',
@@ -1051,7 +1535,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         console.warn('Failed to create receipt record for other department payment:', receiptError);
       }
 
-      // Persist each payment record and collect created ids
       const createdPaymentIds = [];
       for (const draft of pendingPaymentConfirmation) {
         const payloadWithReceipt = {
@@ -1064,12 +1547,36 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         if (editingPaymentId && pendingPaymentConfirmation.length === 1) {
           await updateDoc(doc(db, 'otherDept-payment', editingPaymentId), payloadWithReceipt);
           createdPaymentIds.push(editingPaymentId);
+          await logSystemAction({
+            action: draft.remainingBalance === 0 ? 'Paid full' : 'Paid partial',
+            module: 'Payables System',
+            entityType: 'otherDepartmentPayment',
+            entityId: editingPaymentId,
+            description: `Paid ${draft.payable.title || 'payable'}`,
+            details: {
+              ...payloadWithReceipt,
+              remainingBalance: draft.remainingBalance,
+              status: draft.remainingBalance === 0 ? 'fully_paid' : 'partially_paid'
+            }
+          });
         } else {
           const ref = await addDoc(collection(db, 'otherDept-payment'), {
             ...payloadWithReceipt,
             createdAt: new Date().toISOString()
           });
           createdPaymentIds.push(ref.id);
+          await logSystemAction({
+            action: draft.remainingBalance === 0 ? 'Paid full' : 'Paid partial',
+            module: 'Payables System',
+            entityType: 'otherDepartmentPayment',
+            entityId: ref.id,
+            description: `Paid ${draft.payable.title || 'payable'}`,
+            details: {
+              ...payloadWithReceipt,
+              remainingBalance: draft.remainingBalance,
+              status: draft.remainingBalance === 0 ? 'fully_paid' : 'partially_paid'
+            }
+          });
         }
       }
 
@@ -1077,7 +1584,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
 
       const receiptPreview = buildCombinedReceiptPreview(pendingPaymentConfirmation, receiptNumber);
 
-      // Clear staged payment entries for the processed payables
       setPaymentFormByPayable((prev) => {
         const copy = { ...prev };
         for (const d of pendingPaymentConfirmation) {
@@ -1128,6 +1634,13 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
     clearStatus();
     try {
       await deleteDoc(doc(db, 'otherDept-payment', paymentId));
+      await logSystemAction({
+        action: 'Deleted other department payment',
+        module: 'Payables System',
+        entityType: 'otherDepartmentPayment',
+        entityId: paymentId,
+        description: `Deleted payment ${paymentId}`
+      });
       showSuccess('Payment deleted.');
       await loadDepartmentData();
 
@@ -1179,7 +1692,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
     setTransactionModalOpen(true);
   }, [getStudentPayablePayments, selectedStudentForPayment]);
 
-  // Get all payables for a student (department-wide and individual)
   const getStudentPayables = (studentId) => {
     return payables.filter((p) => !p.studentId || p.studentId === studentId);
   };
@@ -1218,242 +1730,374 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
 
   return (
     <div className="">
-
-      <div className="bg-white text-black p-8 rounded-2xl mb-6 border border-gray-300 shadow-md">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-8">
-            <button
-              onClick={() => {
-                if (selectedDepartment) {
-                  setSelectedDepartmentId('');
-                  return;
-                }
-                onBackToPayablesMain();
-              }}
-              className="group flex items-center justify-center w-10 h-10 cursor-pointer rounded-full bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-            >
-              <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
-            </button>
-            <div>
-              <h5 className="text-2xl font-medium text-blue-600 leading-tight">
-                {selectedDepartment ? selectedDepartment.name : 'Other Department Payables'}
-              </h5>
-              <p className="text-sm text-gray-500 ">
-                {selectedDepartment
-                  ? `Manage payables for ${selectedDepartment.name} department.`
-                  : 'Each department has isolated students, payables, and payment history.'}
-              </p>
-            </div>
-          </div>
-          {selectedDepartment && (
-            <button
-              type="button"
-              onClick={openCreateStudentModal}
-              className="inline-flex items-center cursor-pointer gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition shadow-sm"
-            >
-              <BadgePlus className="w-4 h-4" />
-              Add Student
-            </button>
-          )}
-        </div>
-      </div>
-
       {error && <div className="rounded-lg border border-rose-200 bg-rose-50 text-rose-700 px-4 py-2 text-sm">{error}</div>}
       {success && <div className="rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 px-4 py-2 text-sm">{success}</div>}
 
-      
-        {!selectedDepartment && (
-          <>
-            <div className="flex items-center justify-between mb-3 gap-2">
-              <h3 className="text-lg font-semibold text-slate-800">Departments</h3>
-              <button
-                type="button"
-                onClick={openCreateDepartmentModal}
-                className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg cursor-pointer bg-blue-600 text-white hover:bg-blue-700"
+      {!selectedDepartment && (
+        <>
+          <div />
+          <div className="flex items-center justify-between mb-3 gap-2">
+            <h3 className="text-lg font-semibold text-slate-800">Departments</h3>
+            <button
+              type="button"
+              onClick={openCreateDepartmentModal}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer bg-blue-500 text-white hover:bg-blue-600"
+            >
+              <BadgePlus className="w-4 h-4" />
+              Add Department
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {departments.map((department) => (
+              <div
+                key={department.id}
+                className="relative  rounded-xl border p-4 cursor-pointer bg-white shadow-md border-gray-300 hover:border-blue-500"
+                onClick={() => {
+                  setSelectedDepartmentId(department.id);
+                  window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'other', departmentName: department.name } }));
+                }}
               >
-                <BadgePlus className="w-4 h-4" />
-                Add Department
-              </button>
-            </div>
+                <div className="absolute top-4 right-4" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => setOpenDepartmentMenuId((prev) => (prev === department.id ? '' : department.id))}
+                    className="cursor-pointer rounded-full p-1 text-gray-400 bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2 focus:ring-offset-white"
+                  >
+                    <MoreVertical className="w-4 h-4" />
+                  </button>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {departments.map((department) => (
-                <div
-                  key={department.id}
-                  className={`relative h-40 rounded-2xl border p-5 cursor-pointer bg-white shadow-md border-gray-300 h
-                              hover:border-green-600
-                            `}      
-                  onClick={() => setSelectedDepartmentId(department.id)}
-                >
-                  <div className="absolute top-4 right-4" onClick={(event) => event.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={() => setOpenDepartmentMenuId((prev) => (prev === department.id ? '' : department.id))}
-                      className="cursor-pointer rounded-full p-1 text-gray-400 bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-2 focus:ring-offset-white"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-
-                    {openDepartmentMenuId === department.id && (
-                      <div className="absolute right-0 mt-1 w-36 rounded-lg border border-slate-200 bg-white shadow-lg z-10">
-                        <button
-                          type="button"
-                          onClick={() => handleEditDepartment(department)}
-                          className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                        >
-                          <Pencil className="w-3 h-3" /> Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openDeleteDepartmentModal(department)}
-                          className="w-full text-left px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 flex items-center gap-2"
-                        >
-                          <Trash2 className="w-3 h-3" /> Delete
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="text-left w-full pr-10">
-                    <p className="font-semibold text-slate-900">{department.name}</p>
-                    <p className="text-xs text-slate-600 mt-1">{department.code || 'No code'}</p>
-                  </div>
-                  
+                  {openDepartmentMenuId === department.id && (
+                    <div className="absolute right-0 mt-1 w-36 rounded-lg border border-slate-200 bg-white shadow-lg z-10">
+                      <button
+                        type="button"
+                        onClick={() => handleEditDepartment(department)}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                      >
+                        <Pencil className="w-3 h-3" /> Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openDeleteDepartmentModal(department)}
+                        className="w-full text-left px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 flex items-center gap-2"
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete
+                      </button>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          </>
-        )}
+
+                <div className='flex items-start gap-4'>
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-500">
+                    <Folder className="h-5 w-5" />
+                  </div>
+                    <div className="text-left w-full pr-10">
+                    <p className="text-xs text-slate-600 mt-1">{department.code || 'No code'}</p>
+                    <p className="font-semibold text-sm h-12 text-slate-900">{department.name}</p>
+                </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {selectedDepartment && (
         <>
           <section className="">
-            <div className="flex flex-wrap items-center justify-between mb-3 gap-3">
-                
-                
-              <div className="relative w-72">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Search students"
-                  value={studentSearch}
-                  onChange={(event) => setStudentSearch(event.target.value)}
-                  className="w-full border border-slate-300 rounded-lg text-sm pl-9 pr-3 py-1.5 "
-                />
-              </div>
+      <div className="flex flex-wrap items-center justify-between mb-3 gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Back Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedDepartmentId('');
+              window.dispatchEvent(
+                new CustomEvent('payables-breadcrumb', {
+                  detail: { departmentType: 'other' }
+                })
+              );
+            }}
+            className="p-2 cursor-pointer bg-blue-500 hover:bg-blue-600 text-white rounded-xl"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
 
-              <div className='flex items-center gap-2'>
-                <button
-                  type="button"
-                  onClick={openCreatePayableModal}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm cursor-pointer border border-blue-600 text-blue-600 hover:bg-blue-100"
-                >
-                  <BadgePlus className="w-4 h-4" />
-                  Add Payable
-                </button>
-
-              
-            
-              </div>
+          {/* Conditionally Render Search Bar (only when inside a folder) */}
+          {selectedFolder && (
+            <div className="relative w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search students"
+                value={studentSearch}
+                onChange={(event) => setStudentSearch(event.target.value)}
+                className="w-full border border-slate-300 rounded-lg text-sm pl-9 pr-3 py-1.5"
+              />
             </div>
+          )}
+        </div>
 
-            <div className="overflow-auto rounded-xl border border-slate-200">
-              <table className="w-full text-sm">
-                <thead className="bg-blue-100 text-slate-700">
-                  <tr>
-                    <th className="text-left px-3 py-1.5 w-[30%]">Student</th>
-                    <th className="text-left px-3 py-1.5 w-[15%]">Course</th>
-                    <th className="text-left px-3 py-1.5 w-[10%]">Year</th>
-                    <th className="text-left px-3 py-1.5 w-[10%]">Block</th>
-                    <th className="text-right px-3 py-1.5 w-[20%]">Total Balance</th>
-                    <th className="text-right px-3 py-1.5 w-[15%]">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {departmentStudents.length === 0 && (
-                    <tr className="border-t border-slate-200">
-                      <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
-                        No students for this department.
-                      </td>
-                    </tr>
-                  )}
+        <div className="flex items-center gap-2">
 
-                  {departmentStudents.map((student) => (
-                    <tr
-                      key={student.id}
-                      className="border-t border-slate-200 cursor-pointer hover:bg-slate-50"
-                      onClick={() => openStudentPaymentModal(student)}
-                    >
-                      <td className="px-3 py-1.5 w-[30%]">{student.name}</td>
-                      <td className="px-3 py-1.5 w-[15%]">{student.course || '-'}</td>
-                      <td className="px-3 py-1.5 w-[10%]">{student.yearLevel}</td>
-                      <td className="px-3 py-1.5 w-[10%]">{student.block}</td>
-                      <td className="px-3 py-1.5 w-[20%] text-right font-semibold">{formatPeso(getStudentTotalBalance(student.id))}</td>
-                      <td className="px-3 py-2 w-[15%] text-right">
-              <div
-                className="flex justify-end items-center gap-1"
-                onClick={(event) => event.stopPropagation()}
+            <button
+            type="button"
+            onClick={openCreateStudentModal}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer bg-green-500 text-white hover:bg-green-600"
+          >
+            <BadgePlus className="w-4 h-4" />
+            Add Student
+          </button>
+
+
+          <button
+            type="button"
+            onClick={openCreatePayableModal}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer bg-blue-500 text-white hover:bg-blue-600"
+          >
+            <BadgePlus className="w-4 h-4" />
+            Add Payable
+          </button>
+        </div>
+      </div>
+
+            <div className="">
+              {!selectedFolder ? (
+                (() => {
+                  const searchLower = studentSearch.trim().toLowerCase();
+                  const filteredStudents = departmentStudents.filter((student) => {
+                    if (!searchLower) return true;
+                    const searchable = `${student.name || ''} ${student.course || ''} ${student.yearLevel || ''} ${student.block || ''}`.toLowerCase();
+                    return searchable.includes(searchLower);
+                  });
+                  const folders = Array.from(filteredStudents.reduce((map, student) => {
+                    const isIrregular = Boolean(student.isIrregular);
+                    const year = isIrregular ? null : Number(student.yearLevel) || 1;
+                    const block = (student.block || 'A').toString().trim().toUpperCase() || 'A';
+                    const key = `${isIrregular ? 'irregular' : year}-${block}`;
+
+                    if (!map.has(key)) {
+                      map.set(key, {
+                        key,
+                        year,
+                        block,
+                        isIrregular,
+                        label: isIrregular ? `Irregular Block ${block}` : `${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year Block ${block}`,
+                        students: []
+                      });
+                    }
+                    map.get(key).students.push(student);
+                    return map;
+                  }, new Map()).values()).sort((a, b) => {
+                    if (a.isIrregular && !b.isIrregular) return 1;
+                    if (!a.isIrregular && b.isIrregular) return -1;
+                    if (!a.isIrregular && !b.isIrregular && a.year !== b.year) return a.year - b.year;
+                    return a.block.localeCompare(b.block);
+                  });
+
+                  if (folders.length === 0) {
+                    return (
+                      <div className="text-center py-8">
+                        <h6 className="text-lg text-gray-600 mb-2">{studentSearch ? 'No folders found' : 'No student folders yet'}</h6>
+                        <p className="text-sm text-gray-600">
+                          {studentSearch ? 'Try adjusting your search terms' : 'Students will appear here grouped by year level and block.'}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mt-4">
+                        {folders.map((folder) => (
+                        <button
+                          key={folder.key}
+                          type="button"
+                          onClick={() => {
+                            setSelectedFolder(folder);
+                            window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'other', departmentName: selectedDepartment?.name || '', selectedFolder: folder } }));
+                          }}
+                          className="rounded-xl border border-gray-200 bg-white p-4 text-left transition hover:border-blue-300 hover:shadow-lg"
+                        >
+                          <div className="flex items-start gap-4">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-500">
+                              <Folder className="h-5 w-5" />
+                            </div>
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">{folder.label}</div>
+                              <div className="text-xs text-gray-500 mt-1">
+                                {folder.students.length} student{folder.students.length === 1 ? '' : 's'}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+  <table className="w-full text-sm">
+    <thead className="bg-blue-500 text-white">
+      <tr>
+        <th
+          onClick={() => handleSort("student")}
+          className="px-3 py-1.5 w-[30%] cursor-pointer"
+        >
+          <div className="flex items-center gap-1">
+            Student
+            {renderSortIcon("student")}
+          </div>
+        </th>
+
+        <th
+          onClick={() => handleSort("course")}
+          className="px-3 py-1.5 w-[15%] cursor-pointer"
+        >
+          <div className="flex items-center gap-1">
+            Course
+            {renderSortIcon("course")}
+          </div>
+        </th>
+
+        <th
+          onClick={() => handleSort("year")}
+          className="px-3 py-1.5 w-[10%] cursor-pointer"
+        >
+          <div className="flex items-center gap-1">
+            Year
+            {renderSortIcon("year")}
+          </div>
+        </th>
+
+        <th
+          onClick={() => handleSort("block")}
+          className="px-3 py-1.5 w-[10%] cursor-pointer"
+        >
+          <div className="flex items-center gap-1">
+            Block
+            {renderSortIcon("block")}
+          </div>
+        </th>
+
+        <th
+          onClick={() => handleSort("balance")}
+          className="px-3 py-1.5 w-[20%] cursor-pointer text-right"
+        >
+          <div className="flex items-center justify-end gap-1">
+            Total Balance
+            {renderSortIcon("balance")}
+          </div>
+        </th>
+
+        <th className="text-right px-3 py-1.5 w-[15%]">
+          Actions
+        </th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {sortedStudents.length === 0 && (
+        <tr className="border-t border-slate-200">
+          <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
+            No students in {selectedFolder.label}.
+          </td>
+        </tr>
+      )}
+
+      {sortedStudents.map((student) => (
+        <tr
+          key={student.id}
+          className="border-t border-slate-200 cursor-pointer hover:bg-slate-50"
+          onClick={() => openStudentPaymentModal(student)}
+        >
+          <td className="px-3 py-1.5 w-[30%]">{student.name}</td>
+          <td className="px-3 py-1.5 w-[15%]">
+            {student.course || "-"}
+          </td>
+          <td className="px-3 py-1.5 w-[10%]">
+            {student.yearLevel}
+          </td>
+          <td className="px-3 py-1.5 w-[10%]">
+            {student.block}
+          </td>
+
+          <td className="px-3 py-1.5 w-[20%] text-right font-semibold">
+            {formatPeso(getStudentTotalBalance(student.id))}
+          </td>
+
+          <td className="px-3 py-2 w-[15%] text-right">
+            <div
+              className="flex justify-end items-center gap-1"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => handleEditStudent(student)}
+                className="p-1 rounded-full text-gray-700 hover:bg-gray-300 cursor-pointer"
               >
-                <button
-                  type="button"
-                  onClick={() => handleEditStudent(student)}
-                  className="p-1 rounded-full text-gray-700 hover:bg-gray-300 cursor-pointer"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteStudent(student.id)}
-                  className="p-1 rounded-full text-gray-700 hover:bg-gray-300 cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-               
-  </div>
-</td>
-                    </tr>
-                  ))}
-                </tbody>
+                <Pencil className="w-4 h-4" />
+              </button>
 
-                {departmentStudents.length > 0 && payables.length > 0 && (
-                  <tfoot className="bg-slate-50 border-t border-slate-200">
-                    <tr>
-                      <td colSpan={4} className="px-3 py-2 text-right font-semibold text-slate-700">
-                        Total Balance
-                      </td>
-                      <td className="px-3 py-2 text-right font-bold text-slate-900">
-                        {formatPeso(
-                          departmentStudents.reduce((sum, student) => sum + getStudentTotalBalance(student.id), 0)
-                        )}
-                      </td>
-                      <td className="px-3 py-2" />
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
+              <button
+                type="button"
+                onClick={() => handleDeleteStudent(student.id)}
+                className="p-1 rounded-full text-gray-700 hover:bg-gray-300 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          </td>
+        </tr>
+      ))}
+    </tbody>
+
+    {(selectedFolder ? sortedStudents : departmentStudents).length > 0 &&
+      payables.length > 0 && (
+        <tfoot className="bg-slate-50 border-t border-slate-200">
+          <tr>
+            <td
+              colSpan={4}
+              className="px-3 py-2 text-right font-semibold text-slate-700"
+            >
+              Total Balance
+            </td>
+
+            <td className="px-3 py-2 text-right font-bold text-slate-900">
+              {formatPeso(
+                (selectedFolder
+                  ? sortedStudents
+                  : departmentStudents
+                ).reduce(
+                  (sum, student) =>
+                    sum + getStudentTotalBalance(student.id),
+                  0
+                )
+              )}
+            </td>
+
+            <td className="px-3 py-2" />
+          </tr>
+        </tfoot>
+      )}
+  </table>
+</div>
+              )}
             </div>
           </section>
         </>
       )}
 
+      {/* Department Modal */}
       {departmentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-[2px] "
-            onClick={closeDepartmentModal}
-            aria-hidden="true"
-          />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={closeDepartmentModal} aria-hidden="true" />
           <div className="relative w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl p-6">
             <h4 className="text-lg font-semibold text-slate-800 mb-4">
               {editingDepartmentId ? 'Edit Department' : 'Create Department'}
             </h4>
             <form onSubmit={handleSaveDepartment} className="space-y-3">
-
-               <label 
-                htmlFor="dept-name"
-                className="block text-sm font-medium text-slate-700"
-              >
-                Department Name 
+              <label htmlFor="dept-name" className="block text-sm font-medium text-slate-700">
+                Department Name
               </label>
               <input
                 type="text"
@@ -1463,13 +2107,9 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                 required
                 className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm"
               />
-
-                <label
-                htmlFor="dept-code"
-                className="block text-sm font-medium text-slate-700"
-                >
+              <label htmlFor="dept-code" className="block text-sm font-medium text-slate-700">
                 Department Code
-                </label>
+              </label>
               <input
                 type="text"
                 placeholder="Code (e.g. CCS)"
@@ -1499,171 +2139,71 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         </div>
       )}
 
+      {/* Student Modal */}
       {studentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
-            onClick={closeStudentModal}
-            aria-hidden="true"
-          />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={closeStudentModal} aria-hidden="true" />
           <div className="relative w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl p-8">
-            <h4 className="text-lg font-semibold text-slate-800 ">
+            <h4 className="text-lg font-semibold text-slate-800">
               {editingStudentId ? 'Edit Student' : 'Create Student'}
             </h4>
-           <p className="text-sm text-slate-600 mb-6">
-                Add a student to <strong>{selectedDepartment?.name || 'the department'}</strong> and manage their payables after.
-                </p>
-            <form onSubmit={handleSaveStudent} className="space-y-4">
-
-                {/* Student Name */}
-                <div>
-                    <label
-                    htmlFor="student-name"
-                    className="block text-xs font-medium text-slate-600 mb-1"
-                    >
-                    Student Name
-                    </label>
-                    <input
-                    id="student-name"
-                    type="text"
-                    placeholder="e.g. Dela Cruz, Juan "
-                    value={studentForm.name}
-                    onChange={(event) =>
-                        setStudentForm((prev) => ({ ...prev, name: event.target.value }))
-                    }
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
-                    />
-                </div>
-
-                {/* Course, Year, Block */}
-                <div className="flex gap-2">
-
-                    {/* Course */}
-                    <div className="">
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                        Course
-                    </label>
-                    <input
-                        type="text"
-                        placeholder="Course (e.g. BSIT)"
-                        value={studentForm.course}
-                        onChange={(event) =>
-                        setStudentForm((prev) => ({ ...prev, course: event.target.value }))
-                        }
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
-                    />
-                    </div>
-
-                    {/* Year Level */}
-                    <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                        Year
-                    </label>
-                    <select
-                        value={studentForm.yearLevel}
-                        onChange={(event) =>
-                        setStudentForm((prev) => ({ ...prev, yearLevel: event.target.value }))
-                        }
-                    className="w-20 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
-                    >
-                        <option value="">Select</option>
-                        <option value="1">1st</option>
-                        <option value="2">2nd</option>
-                        <option value="3">3rd</option>
-                        <option value="4">4th</option>
-                    </select>
-                    </div>
-
-                    {/* Block */}
-                    <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                        Block
-                    </label>
-                    <input
-                        type="text"
-                        placeholder="Block (e.g. A)"
-                        value={studentForm.block}
-                        onChange={(event) =>
-                        setStudentForm((prev) => ({ ...prev, block: event.target.value }))
-                        }
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
-                    />
-                    </div>
-
-                </div>
-
-                {/* Buttons */}
-                <div className="flex justify-end gap-2 mt-8">
-                    <button
-                    type="button"
-                    onClick={closeStudentModal}
-                    className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
-                    >
-                    Cancel
-                    </button>
-
-                    <button
-                    type="submit"
-                    disabled={loading}
-                     className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
-                    >
-                    {editingStudentId ? 'Update Student' : 'Add Student'}
-                    </button>
-                </div>
-
-                </form>
-          </div>
-        </div>
-      )}
-
-      {payableModalOpen && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
-            onClick={closePayableModal}
-            aria-hidden="true"
-          />
-          <div className="relative w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl p-6">
-            <h4 className="text-lg font-semibold text-slate-800 mb-1">
-              {editingPayableId ? 'Edit Payable' : 'Add Payable'}
-            </h4>
             <p className="text-sm text-slate-600 mb-6">
-              This payable applies to all students in <strong>{selectedDepartment?.name || 'this department'}</strong>, including newly added students.
+              Add a student to <strong>{selectedDepartment?.name || 'the department'}</strong> and manage their payables after.
             </p>
-
-            <form onSubmit={handleSavePayable} className="space-y-4">
+            <form onSubmit={handleSaveStudent} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Payable Name
+                <label htmlFor="student-name" className="block text-xs font-medium text-slate-600 mb-1">
+                  Student Name
                 </label>
                 <input
+                  id="student-name"
                   type="text"
-                  placeholder="e.g. Laboratory Fee"
-                  value={payableForm.title}
-                  onChange={(event) => setPayableForm((prev) => ({ ...prev, title: event.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="e.g. Dela Cruz, Juan"
+                  value={studentForm.name}
+                  onChange={(event) => setStudentForm((prev) => ({ ...prev, name: event.target.value }))}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
                 />
               </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Amount
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="e.g. 1500"
-                  value={payableForm.amount}
-                  onChange={(event) => setPayableForm((prev) => ({ ...prev, amount: event.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                />
+              <div className="flex gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Course</label>
+                  <input
+                    type="text"
+                    placeholder="Course (e.g. BSIT)"
+                    value={studentForm.course}
+                    onChange={(event) => setStudentForm((prev) => ({ ...prev, course: event.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Year</label>
+                  <select
+                    value={studentForm.yearLevel}
+                    onChange={(event) => setStudentForm((prev) => ({ ...prev, yearLevel: event.target.value }))}
+                    className="w-20 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
+                  >
+                    <option value="">Select</option>
+                    <option value="1">1st</option>
+                    <option value="2">2nd</option>
+                    <option value="3">3rd</option>
+                    <option value="4">4th</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Block</label>
+                  <input
+                    type="text"
+                    placeholder="Block (e.g. A)"
+                    value={studentForm.block}
+                    onChange={(event) => setStudentForm((prev) => ({ ...prev, block: event.target.value }))}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
+                  />
+                </div>
               </div>
-
               <div className="flex justify-end gap-2 mt-8">
                 <button
                   type="button"
-                  onClick={closePayableModal}
+                  onClick={closeStudentModal}
                   className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
                 >
                   Cancel
@@ -1673,7 +2213,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                   disabled={loading}
                   className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
-                  {editingPayableId ? 'Update Payable' : 'Add Payable'}
+                  {editingStudentId ? 'Update Student' : 'Add Student'}
                 </button>
               </div>
             </form>
@@ -1681,14 +2221,451 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         </div>
       )}
 
-      {studentPaymentModalOpen && selectedStudentForPayment && (
+     {payableModalOpen && (
+  <div className="fixed inset-0 z-1000 flex items-center justify-center p-4">
+    <div
+      className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+      onClick={closePayableModal}
+      aria-hidden="true"
+    />
+    <div className="relative w-full max-w-md bg-white rounded-2xl shadow-lg p-6">
+      <h4 className="text-lg font-semibold text-slate-800 mb-1">
+        {editingPayableId ? 'Edit Payable' : 'Add Payable'}
+      </h4>
+      <p className="text-sm text-slate-600 mb-6">
+        This payable applies to all students in <strong>{selectedDepartment?.name || 'this department'}</strong>, including newly added students.
+      </p>
 
+      <form onSubmit={handleSavePayable} className="space-y-4">
+        {/* Category Selection */}
+       <div className='flex items-center gap-4'>
+  <label className="block text-sm font-medium text-slate-700">
+    Category: 
+  </label>
+
+  <div className="flex items-center gap-4">
+    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+      <input
+        type="radio"
+        name="category"
+        checked={payableForm.category === 'general'}
+        onChange={() =>
+          setPayableForm((prev) => ({
+            ...prev,
+            category: 'general',
+            selectedModuleIds: [],
+          }))
+        }
+        className="cursor-pointer"
+      />
+      General
+    </label>
+
+    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+      <input
+        type="radio"
+        name="category"
+        checked={payableForm.category === 'module'}
+        onChange={() => {
+          setPayableForm((prev) => ({
+            ...prev,
+            category: 'module',
+          }));
+          setModuleSelectorOpen(true);
+        }}
+        className="cursor-pointer"
+      />
+      Module
+    </label>
+  </div>
+</div>
+
+        {/* Module Selection */}
+        {payableForm.category === 'module' ? (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Selected Modules</label>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-800">Selected Modules</label>
+                    <p className="text-xs text-slate-500">Manage the modules assigned to this entry</p>
+                  </div>
+                  {selectedModules.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModuleSelectorContext('new');
+                        setModuleSelectorOpen(true);
+                      }}
+                      className="rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
+                    >
+                      Change
+                    </button>
+                  )}
+                </div>
+                {selectedModules.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {selectedModules.map((module) => (
+                      <div
+                        key={module.id}
+                        className="rounded-lg border text-center border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-800 hover:bg-slate-100 transition"
+                      >
+                        <span className="font-medium">{module.courseCode}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModuleSelectorContext('new');
+                      setModuleSelectorOpen(true);
+                    }}
+                    className="inline-flex items-center rounded-lg bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
+                  >
+                    Select Modules
+                  </button>
+                )}
+              </div>
+              {offeredModules.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  No subjects are marked as offered yet. Click <span className="font-medium">Modules</span> in the toolbar to mark some.
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Amount per module</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                placeholder="e.g., 1500.00"
+                value={payableForm.amount}
+                onChange={(e) => setPayableForm((prev) => ({ ...prev, amount: e.target.value }))}
+                onWheel={(e) => e.currentTarget.blur()}
+                onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
+              />
+            </div>
+            {selectedModules.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-sm text-slate-700">
+                <div className="flex items-center justify-between">
+                  <span>Amount per module</span>
+                  <span className="font-semibold">{formatPeso(payableForm.amount)}</span>
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t border-slate-200 mt-2 font-semibold">
+                  <span>Total</span>
+                  <span>{formatPeso((Number(payableForm.amount) || 0) * selectedModules.length)}</span>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Payable Name</label>
+              <input
+                type="text"
+                placeholder="e.g. Laboratory Fee"
+                value={payableForm.title}
+                onChange={(event) => setPayableForm((prev) => ({ ...prev, title: event.target.value }))}
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Amount</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                placeholder="e.g., 1500.00"
+                value={payableForm.amount}
+                onChange={(e) => setPayableForm((prev) => ({ ...prev, amount: e.target.value }))}
+                onWheel={(e) => e.currentTarget.blur()}
+                onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
+              />
+            </div>
+          </>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex justify-end gap-2 mt-6">
+          <button
+            type="button"
+            onClick={closePayableModal}
+            className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-6 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+          >
+            {editingPayableId ? 'Update Payable' : 'Add Payable'}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
+      {/* Module Selector Modal */}
+      {moduleSelectorOpen && (
+  <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/30 px-4 py-6">
+    <div
+      className="absolute inset-0"
+      onClick={() => setModuleSelectorOpen(false)}
+    ></div>
+
+    <div className="relative z-10 w-full max-w-3xl rounded-3xl border h-[90vh] border-slate-200 bg-white shadow-2xl">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-800">
+            Select Modules
+          </h2>
+          <p className="text-sm text-slate-500">
+            Choose modules to include.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setModuleSelectorOpen(false)}
+          className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="max-h-[80vh] overflow-y-auto px-6 py-5">
+        {/* Year Level Filters */}
+        <div className="mb-5 flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
+          {['1', '2', '3', '4'].map((y) => {
+            // Determine if this year is active
+            const isActive = moduleSelectorContext === 'new'
+              ? moduleYearLevelFilter === y
+              : individualPayableForm.yearLevel === y;
+
+            return (
+              <button
+                key={y}
+                type="button"
+                onClick={() => {
+                  if (moduleSelectorContext === 'new') {
+                    setModuleYearLevelFilter(y);
+                  } else {
+                    handleIndividualPayableInputChange('yearLevel', y);
+                  }
+                }}
+                className={`flex-1 rounded-xl px-4 py-2 text-sm font-medium transition ${
+                  isActive
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                }`}
+              >
+                {y}th Year
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Curriculum and Semester Filters */}
+        <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <select
+            value={moduleSelectorContext === 'new' ? moduleCurriculumFilter : 'all'}
+            onChange={(e) => {
+              if (moduleSelectorContext === 'new') {
+                setModuleCurriculumFilter(e.target.value);
+              }
+              // For individual context, you might want to handle curriculum filtering differently
+            }}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+          >
+            <option value="all">All Curriculums</option>
+            {curriculums?.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={moduleSelectorContext === 'new' ? moduleSemesterFilter : 'all'}
+            onChange={(e) => {
+              if (moduleSelectorContext === 'new') {
+                setModuleSemesterFilter(e.target.value);
+              }
+            }}
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+          >
+            <option value="all">All Semesters</option>
+            <option value="1">1st Semester</option>
+            <option value="2">2nd Semester</option>
+            <option value="3">Summer</option>
+          </select>
+        </div>
+
+        {/* Modules Table */}
+        <div className="overflow-hidden rounded-2xl border border-slate-200">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="sticky top-0 bg-slate-100 text-slate-600">
+                <tr>
+                  <th className="w-[70px] px-4 py-3 font-semibold">
+                    Select
+                  </th>
+                  <th className="px-4 py-3 font-semibold cursor-pointer">
+                    <div className="flex items-center gap-1">
+                      Code
+                      <ChevronsUpDown className="h-4 w-4" />
+                    </div>
+                  </th>
+                  <th className="px-4 py-3 font-semibold cursor-pointer">
+                    <div className="flex items-center gap-1">
+                      Title
+                      <ChevronsUpDown className="h-4 w-4" />
+                    </div>
+                  </th>
+                  <th className="px-4 py-3 font-semibold cursor-pointer">
+                    <div className="flex items-center gap-1">
+                      Year Level
+                      <ChevronsUpDown className="h-4 w-4" />
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {(() => {
+                  // Filter modules based on context
+                  let filteredModules = offeredModules;
+
+                  // Apply year level filter
+                  if (moduleSelectorContext === 'new' && moduleYearLevelFilter !== 'all') {
+                    filteredModules = filteredModules.filter(
+                      m => m.yearLevel === parseInt(moduleYearLevelFilter)
+                    );
+                  } else if (moduleSelectorContext === 'individual' && individualPayableForm.yearLevel) {
+                    filteredModules = filteredModules.filter(
+                      m => m.yearLevel === parseInt(individualPayableForm.yearLevel)
+                    );
+                  }
+
+                  // Apply curriculum filter for new context
+                  if (moduleSelectorContext === 'new' && moduleCurriculumFilter !== 'all') {
+                    filteredModules = filteredModules.filter(
+                      m => m.curriculumId === moduleCurriculumFilter
+                    );
+                  }
+
+                  // Apply semester filter for new context
+                  if (moduleSelectorContext === 'new' && moduleSemesterFilter !== 'all') {
+                    filteredModules = filteredModules.filter(
+                      m => m.semester === parseInt(moduleSemesterFilter)
+                    );
+                  }
+
+                  return filteredModules.map((module, index) => {
+                    const isNewContext = moduleSelectorContext === 'new';
+                    const checked = isNewContext
+                      ? (payableForm.selectedModuleIds || []).includes(module.id)
+                      : (individualPayableForm.selectedModuleIds || []).includes(module.id);
+
+                    return (
+                      <tr
+                        key={module.id ?? module.courseCode ?? `offered-module-${index}`}
+                        className="border-t border-slate-200 bg-white transition hover:bg-slate-50"
+                      >
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              if (isNewContext) {
+                                setPayableForm((prev) => {
+                                  const selected = new Set(prev.selectedModuleIds || []);
+                                  if (selected.has(module.id)) {
+                                    selected.delete(module.id);
+                                  } else {
+                                    selected.add(module.id);
+                                  }
+                                  return {
+                                    ...prev,
+                                    selectedModuleIds: Array.from(selected),
+                                  };
+                                });
+                              } else {
+                                setIndividualPayableForm((prev) => {
+                                  const selected = new Set(prev.selectedModuleIds || []);
+                                  if (selected.has(module.id)) {
+                                    selected.delete(module.id);
+                                  } else {
+                                    selected.add(module.id);
+                                  }
+                                  const arr = Array.from(selected);
+                                  // If only one module is selected, auto-fill module details
+                                  if (arr.length === 1) {
+                                    const m = offeredModules.find((mm) => mm.id === arr[0]);
+                                    return {
+                                      ...prev,
+                                      selectedModuleIds: arr,
+                                      moduleId: m?.id || '',
+                                      moduleCode: m?.courseCode || '',
+                                      moduleTitle: m?.courseTitle || '',
+                                      moduleCurriculumId: m?.curriculumId || '',
+                                      type: m ? m.courseCode : prev.type,
+                                    };
+                                  }
+                                  return {
+                                    ...prev,
+                                    selectedModuleIds: arr,
+                                  };
+                                });
+                              }
+                            }}
+                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-900">
+                          {module.courseCode}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {module.courseTitle}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500">
+                          {module.yearLevel ? `${module.yearLevel}${getOrdinalSuffix(module.yearLevel)} Year` : 'N/A'}
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+
+                {offeredModules.length === 0 && (
+                  <tr>
+                    <td colSpan="4" className="px-4 py-12 text-center text-sm text-slate-500">
+                      No modules match the current filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+      {/* Student Payment Modal */}
+      {studentPaymentModalOpen && selectedStudentForPayment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
-            onClick={closeStudentPaymentModal}
-            aria-hidden="true"
-          />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={closeStudentPaymentModal} aria-hidden="true" />
           <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-lg max-h-[90vh] z-10 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 sticky top-0 z-20 bg-blue-50 border-b border-gray-200">
               <div>
@@ -1721,7 +2698,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                     onChange={(event) => setPayablesSearch(event.target.value)}
                   />
                 </div>
-
                 <div className="flex items-center gap-2">
                   <Funnel className="w-4 h-4 text-gray-600" />
                   <select
@@ -1777,7 +2753,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                       return (
                         <div
                           key={payable.id}
-                          className={`border rounded-xl shadow p-4 bg-white border-gray-300`}
+                          className="border rounded-xl shadow p-4 bg-white border-gray-300"
                           onClick={() => {
                             const per = paymentFormByPayable[payable.id] || {};
                             setPaymentForm((prev) => ({
@@ -1795,9 +2771,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                           <div className="flex items-center justify-between mb-4">
                             <div className="flex-1">
                               <h4 className="text-lg font-bold">{payable.title}</h4>
-                              <p className="text-sm text-gray-600">
-                                Total Amount: {formatPeso(payableAmount)}
-                              </p>
+                              <p className="text-sm text-gray-600">Total Amount: {formatPeso(payableAmount)}</p>
                             </div>
                             <div className="flex items-center gap-1">
                               <span className={`inline-flex mr-1 items-center px-3 py-1 rounded-full text-xs font-medium ${getPayableStatusClasses(status)}`}>
@@ -1930,7 +2904,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                               }}
                               className="w-1/3 flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
                             />
-
                             <input
                               type="text"
                               placeholder="Reference (e.g., receipt number)"
@@ -1967,7 +2940,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                                     }
                                     return;
                                   }
-
                                   setPaymentFormByPayable((prev) => ({
                                     ...prev,
                                     [payable.id]: { ...(prev[payable.id] || {}), voucherAmount: '', voucherDescription: '' }
@@ -1978,7 +2950,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                                 }}
                               />
                             </div>
-
                             <div className="flex gap-2">
                               <input
                                 type="number"
@@ -1999,7 +2970,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                                 disabled={!voucherEnabled}
                                 className={`w-1/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${!voucherEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                               />
-
                               <input
                                 type="text"
                                 placeholder="e.g. Scholarship, Promo"
@@ -2036,7 +3006,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
               <h3 className="font-semibold text-gray-800">
                 Total Balance: {formatPeso(getStudentTotalBalance(selectedStudentForPayment.id))}
               </h3>
-
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -2058,13 +3027,251 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         </div>
       )}
 
+     {individualPayableDialogOpen && (
+  <div className="fixed inset-0 z-1000 flex items-center justify-center p-4">
+    <div
+      className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+      onClick={() => {
+        setIndividualPayableDialogOpen(false);
+        setIndividualPayableForm({
+          type: '',
+          amount: '',
+          yearLevel: '',
+          category: 'general',
+          moduleId: '',
+          moduleCode: '',
+          moduleTitle: '',
+          moduleCurriculumId: '',
+          selectedModuleIds: []
+        });
+        setSelectedStudentForIndividualPayable(null);
+      }}
+      aria-hidden="true"
+    />
+    <div className="relative w-full max-w-md bg-white rounded-2xl shadow-lg p-6">
+      <h4 className="text-lg font-semibold text-slate-800 mb-1">
+        Add Previous Balance / Custom Charge
+      </h4>
+      {selectedStudentForIndividualPayable && (
+        <p className="text-sm text-slate-600 mb-6">
+          For: <strong>{selectedStudentForIndividualPayable.name}</strong>
+        </p>
+      )}
+
+      <form onSubmit={(e) => { e.preventDefault(); handleSaveIndividualPayable(); }} className="space-y-4">
+        {/* Category Selection */}
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
+          <div className="flex gap-1 p-1 bg-slate-100 rounded-lg">
+            <button
+              type="button"
+              onClick={() => handleIndividualPayableInputChange('category', 'general')}
+              className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${
+                individualPayableForm.category === 'general'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              General
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                handleIndividualPayableInputChange('category', 'module');
+                setModuleSelectorContext('individual');
+                setModuleSelectorOpen(true);
+              }}
+              className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${
+                individualPayableForm.category === 'module'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Module
+            </button>
+          </div>
+        </div>
+
+        {/* Module Selection */}
+        {individualPayableForm.category === 'module' ? (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Selected Modules</label>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-800">Selected Modules</label>
+                    <p className="text-xs text-slate-500">Manage the modules assigned to this charge</p>
+                  </div>
+                  {individualSelectedModules.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModuleSelectorContext('individual');
+                        setModuleSelectorOpen(true);
+                      }}
+                      className="rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
+                    >
+                      Change
+                    </button>
+                  )}
+                </div>
+                {individualSelectedModules.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {individualSelectedModules.map((module) => (
+                      <div
+                        key={module.id}
+                        className="rounded-lg border text-center border-slate-200 bg-slate-50 px-2 py-1 text-sm text-slate-800 hover:bg-slate-100 transition"
+                      >
+                        <span className="font-medium">{module.courseCode}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModuleSelectorContext('individual');
+                      setModuleSelectorOpen(true);
+                    }}
+                    className="inline-flex items-center rounded-lg bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
+                  >
+                    Select Modules
+                  </button>
+                )}
+              </div>
+              {offeredModules.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  No subjects are marked as offered yet. Click <span className="font-medium">Modules</span> in the toolbar to mark some.
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Amount per module</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                placeholder="e.g., 1500.00"
+                value={individualPayableForm.amount}
+                onChange={(e) => handleIndividualPayableInputChange('amount', e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
+                onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
+              />
+            </div>
+            {individualSelectedModules.length > 0 && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-2 text-sm text-slate-700">
+                <div className="flex items-center justify-between">
+                  <span>Amount per module</span>
+                  <span className="font-semibold">{formatPeso(individualPayableForm.amount)}</span>
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t border-slate-200 mt-2 font-semibold">
+                  <span>Total</span>
+                  <span>{formatPeso((Number(individualPayableForm.amount) || 0) * individualSelectedModules.length)}</span>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Charge Type</label>
+              <input
+                type="text"
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                placeholder="Payable Type (e.g., 2nd Year Balance, Laboratory Fee, etc.)"
+                value={individualPayableForm.type}
+                onChange={(e) => handleIndividualPayableInputChange('type', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Amount</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                placeholder="e.g., 1500.00"
+                value={individualPayableForm.amount}
+                onChange={(e) => handleIndividualPayableInputChange('amount', e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
+                onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
+              />
+            </div>
+          </>
+        )}
+
+        {/* Year Level Selection */}
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Year Level (when the charge was incurred)</label>
+          <select
+            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+            value={individualPayableForm.yearLevel}
+            onChange={(e) => handleIndividualPayableInputChange('yearLevel', e.target.value)}
+          >
+            <option value="">Select Year Level</option>
+            <option value="1">1st Year</option>
+            <option value="2">2nd Year</option>
+            <option value="3">3rd Year</option>
+            <option value="4">4th Year</option>
+          </select>
+        </div>
+
+        {/* Info Box */}
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+          <p className="text-xs text-blue-800">
+            This will add a payable specifically for <strong>{selectedStudentForIndividualPayable?.name}</strong>.
+            Other students will not see this charge.
+          </p>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex justify-end gap-2 mt-6">
+          <button
+            type="button"
+            onClick={() => {
+              setIndividualPayableDialogOpen(false);
+              setIndividualPayableForm({
+                type: '',
+                amount: '',
+                yearLevel: '',
+                category: 'general',
+                moduleId: '',
+                moduleCode: '',
+                moduleTitle: '',
+                moduleCurriculumId: '',
+                selectedModuleIds: []
+              });
+              setSelectedStudentForIndividualPayable(null);
+            }}
+            className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={
+              (!individualPayableForm.amount || !individualPayableForm.yearLevel || loading) ||
+              (individualPayableForm.category === 'module'
+                ? !(individualPayableForm.selectedModuleIds && individualPayableForm.selectedModuleIds.length > 0)
+                : !individualPayableForm.type)
+            }
+            className="px-6 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+          >
+            {loading ? 'Adding...' : 'Add Previous Balance'}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+)}
+      {/* Edit Payables Modal */}
       {editPayablesModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
-            onClick={closeEditPayablesModal}
-            aria-hidden="true"
-          />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={closeEditPayablesModal} aria-hidden="true" />
           <div className="relative w-full max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-xl p-6 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h4 className="text-lg font-semibold text-slate-800">Edit Payables</h4>
@@ -2076,11 +3283,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                 Close
               </button>
             </div>
-
-            {!payables.length && (
-              <p className="text-sm text-slate-500">No payables available for this department yet.</p>
-            )}
-
+            {!payables.length && <p className="text-sm text-slate-500">No payables available for this department yet.</p>}
             {!!payables.length && (
               <div className="space-y-3">
                 {payables.map((payable) => (
@@ -2116,80 +3319,66 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         </div>
       )}
 
+      {/* Payment Confirmation Modal */}
       {paymentConfirmModalOpen && pendingPaymentConfirmation && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50"
-            onClick={() => {
-              if (loading) return;
-              setPaymentConfirmModalOpen(false);
-              setPendingPaymentConfirmation(null);
-            }}
-          />
-
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => !loading && setPaymentConfirmModalOpen(false)} />
           <div className="relative z-10 w-full max-w-lg max-h-[60vh] flex flex-col bg-white rounded-2xl shadow-md overflow-hidden">
-
             <div className="p-4 border-b border-gray-200 bg-white">
               <h2 className="text-xl font-bold">Confirm Payment Changes</h2>
-              <p className="text-sm text-gray-600">For: {Array.isArray(pendingPaymentConfirmation) && pendingPaymentConfirmation[0] ? pendingPaymentConfirmation[0].student.name : ''}</p>
+              <p className="text-sm text-gray-600">
+                For: {Array.isArray(pendingPaymentConfirmation) && pendingPaymentConfirmation[0] ? pendingPaymentConfirmation[0].student.name : ''}
+              </p>
             </div>
-
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {Array.isArray(pendingPaymentConfirmation)
-                ? pendingPaymentConfirmation.map((change) => {
-                    const totalAmount = numberOrZero(change.payable.amount);
-                    const voucherAmount = numberOrZero(change.payload.voucherAmount);
-                    const newPayment = numberOrZero(change.payload.amount);
-                    const newBalance = numberOrZero(change.remainingBalance);
-                    const prevBalance = Math.max(0, newBalance + newPayment + voucherAmount);
-                    const changeModes = (String(change.payload.mode || 'cash')).toLowerCase().split(',').map(s => s.trim());
-
-                    return (
-                      <div className="border border-gray-200 rounded-lg p-4 shadow bg-white" key={change.payable.id}>
-                        <div className="flex justify-between items-start mb-4">
-                          <h4 className="text-lg font-semibold">{change.payable.title}</h4>
-                          <div className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full border ${newPayment > 0 ? 'bg-green-100 text-green-700 border-green-300' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
-                            {newPayment > 0 ? 'Paid' : 'No Payment'}
-                          </div>
-                        </div>
-
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center gap-4 text-xs">
-                            <label className="inline-flex items-center gap-2"><input type="checkbox" disabled checked={changeModes.includes('cash')} /> CASH</label>
-                            <label className="inline-flex items-center gap-2"><input type="checkbox" disabled checked={changeModes.includes('gcash')} /> GCASH</label>
-                            <label className="inline-flex items-center gap-2"><input type="checkbox" disabled checked={changeModes.some(m => m.includes('bank'))} /> BANK TRANSFER</label>
-                          </div>
-
-                          <div className="text-xs text-right">
-                            <div>Price: <b>{formatPeso(totalAmount)}</b></div>
-                            {voucherAmount > 0 && (<div className="text-emerald-700">Voucher: -{formatPeso(voucherAmount)}</div>)}
-                          </div>
-                        </div>
-
-                        <div className="border-t border-gray-200 my-2" />
-
-                        <div className="grid grid-cols-3 gap-4 text-xs">
-                          <div>
-                            <p className="text-gray-500">Previous</p>
-                            <p className={prevBalance > 0 ? 'text-red-700 font-semibold' : 'text-green-700 font-semibold'}>{formatPeso(prevBalance)}</p>
-                          </div>
-
-                          <div className="text-center">
-                            <p className="text-gray-500">Payment</p>
-                            <p className="text-blue-700 font-semibold">{formatPeso(newPayment)}</p>
-                          </div>
-
-                          <div className="text-right">
-                            <p className="text-gray-500">Balance</p>
-                            <p className={newBalance > 0 ? 'text-red-700 font-semibold' : 'text-green-700 font-semibold'}>{formatPeso(newBalance)}</p>
-                          </div>
+              {Array.isArray(pendingPaymentConfirmation) &&
+                pendingPaymentConfirmation.map((change) => {
+                  const totalAmount = numberOrZero(change.payable.amount);
+                  const voucherAmount = numberOrZero(change.payload.voucherAmount);
+                  const newPayment = numberOrZero(change.payload.amount);
+                  const newBalance = numberOrZero(change.remainingBalance);
+                  const prevBalance = Math.max(0, newBalance + newPayment + voucherAmount);
+                  const changeModes = (String(change.payload.mode || 'cash')).toLowerCase().split(',').map(s => s.trim());
+                  return (
+                    <div className="border border-gray-200 rounded-lg p-4 shadow bg-white" key={change.payable.id}>
+                      <div className="flex justify-between items-start mb-4">
+                        <h4 className="text-lg font-semibold">{change.payable.title}</h4>
+                        <div className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full border ${
+                          newPayment > 0 ? 'bg-green-100 text-green-700 border-green-300' : 'bg-gray-100 text-gray-500 border-gray-200'
+                        }`}>
+                          {newPayment > 0 ? 'Paid' : 'No Payment'}
                         </div>
                       </div>
-                    );
-                  })
-                : null}
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-4 text-xs">
+                          <label className="inline-flex items-center gap-2"><input type="checkbox" disabled checked={changeModes.includes('cash')} /> CASH</label>
+                          <label className="inline-flex items-center gap-2"><input type="checkbox" disabled checked={changeModes.includes('gcash')} /> GCASH</label>
+                          <label className="inline-flex items-center gap-2"><input type="checkbox" disabled checked={changeModes.some(m => m.includes('bank'))} /> BANK TRANSFER</label>
+                        </div>
+                        <div className="text-xs text-right">
+                          <div>Price: <b>{formatPeso(totalAmount)}</b></div>
+                          {voucherAmount > 0 && <div className="text-emerald-700">Voucher: -{formatPeso(voucherAmount)}</div>}
+                        </div>
+                      </div>
+                      <div className="border-t border-gray-200 my-2" />
+                      <div className="grid grid-cols-3 gap-4 text-xs">
+                        <div>
+                          <p className="text-gray-500">Previous</p>
+                          <p className={prevBalance > 0 ? 'text-red-700 font-semibold' : 'text-green-700 font-semibold'}>{formatPeso(prevBalance)}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-gray-500">Payment</p>
+                          <p className="text-blue-700 font-semibold">{formatPeso(newPayment)}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-gray-500">Balance</p>
+                          <p className={newBalance > 0 ? 'text-red-700 font-semibold' : 'text-green-700 font-semibold'}>{formatPeso(newBalance)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
-
             <div className="flex gap-2 justify-end p-4 border-t border-gray-200 bg-white">
               <button
                 onClick={() => { setPaymentConfirmModalOpen(false); setPendingPaymentConfirmation(null); }}
@@ -2198,7 +3387,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
               >
                 Cancel
               </button>
-
               <button
                 onClick={handleConfirmPayment}
                 disabled={loading}
@@ -2211,13 +3399,10 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         </div>
       )}
 
+      {/* Transaction History Modal */}
       {transactionModalOpen && transactionPayable && selectedStudentForPayment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
-            onClick={() => setTransactionModalOpen(false)}
-            aria-hidden="true"
-          />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setTransactionModalOpen(false)} aria-hidden="true" />
           <div className="relative w-full max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-xl p-6 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -2234,11 +3419,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
                 Close
               </button>
             </div>
-
-            {transactionPayments.length === 0 && (
-              <p className="text-sm text-slate-500">No payment history for this payable yet.</p>
-            )}
-
+            {transactionPayments.length === 0 && <p className="text-sm text-slate-500">No payment history for this payable yet.</p>}
             {transactionPayments.length > 0 && (
               <div className="space-y-3">
                 {transactionPayments.map((payment) => {
@@ -2291,13 +3472,10 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         </div>
       )}
 
+      {/* Delete Department Modal */}
       {deleteDepartmentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
-            onClick={closeDeleteDepartmentModal}
-            aria-hidden="true"
-          />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={closeDeleteDepartmentModal} aria-hidden="true" />
           <div className="relative w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-xl p-6">
             <h4 className="text-lg font-semibold text-slate-800 mb-2">Delete Department</h4>
             <p className="text-sm text-slate-600 mt-4">
@@ -2323,108 +3501,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
           </div>
         </div>
       )}
-        {/* Add Previous Balance Modal */}
-  {individualPayableDialogOpen && (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => setIndividualPayableDialogOpen(false)}></div>
-      <div className="bg-white rounded-lg px-8 py-6 max-w-md w-full overflow-y-auto relative z-10">
-        <h2 className="font-bold mb-2">Add Previous Balance / Custom Charge</h2>
-        {selectedStudentForIndividualPayable && (
-          <p className="text-sm text-gray-600 mb-6">For: {selectedStudentForIndividualPayable.name}</p>
-        )}
-        <div className="space-y-4">
-          <label className="block text-sm font-medium mb-1">Charge Type</label>
-          <input
-            type="text"
-            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
-            placeholder="Payable Type (e.g., Previous Balance, Custom Fee, etc.)"
-            value={individualPayableForm.type}
-            onChange={e => setIndividualPayableForm(prev => ({ ...prev, type: e.target.value }))}
-          />
-          <label className="block text-sm font-medium mb-1">Amount</label>
-          
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="0.01"
-            className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
-            placeholder="Amount"
-            value={individualPayableForm.amount}
-            onChange={e => setIndividualPayableForm(prev => ({ ...prev, amount: e.target.value }))}
-            onWheel={e => e.currentTarget.blur()}
-            onKeyDown={e => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
-          />
-          <div>
-            <label className="block text-sm font-medium mb-1">Year Level (when the charge was incurred)</label>
-            <select
-              className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
-              value={individualPayableForm.yearLevel}
-              onChange={e => setIndividualPayableForm(prev => ({ ...prev, yearLevel: e.target.value }))}
-            >
-              <option value="">Select Year Level</option>
-              <option value="1">1st Year</option>
-              <option value="2">2nd Year</option>
-              <option value="3">3rd Year</option>
-              <option value="4">4th Year</option>
-            </select>
-          </div>
-          
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded">
-            <p className="text-xs text-blue-800">
-              This will add a payable specifically for {selectedStudentForIndividualPayable?.name}. Other students will not see this charge.
-            </p>
-          </div>
-        </div>
-        <div className="flex gap-2 justify-end mt-4">
-          <button
-            onClick={() => {
-              setIndividualPayableDialogOpen(false);
-              setIndividualPayableForm({ type: '', amount: '', yearLevel: '' });
-              setSelectedStudentForIndividualPayable(null);
-            }}
-            className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={async () => {
-              if (!selectedStudentForIndividualPayable) return;
-              if (!individualPayableForm.type || !individualPayableForm.amount || !individualPayableForm.yearLevel) return;
-              setLoading(true);
-              try {
-                const payload = {
-                  userId: currentUser.uid,
-                  departmentId: selectedDepartmentId,
-                  title: individualPayableForm.type,
-                  amount: Number(individualPayableForm.amount),
-                  yearLevel: Number(individualPayableForm.yearLevel),
-                  studentId: selectedStudentForIndividualPayable.id,
-                  studentName: selectedStudentForIndividualPayable.name,
-                  isIndividual: true,
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                };
-                await addDoc(collection(db, 'otherDept-payables'), payload);
-                setIndividualPayableDialogOpen(false);
-                setIndividualPayableForm({ type: '', amount: '', yearLevel: '' });
-                setSelectedStudentForIndividualPayable(null);
-                await loadDepartmentData();
-              } catch (error) {
-                showError('Failed to add previous balance: ' + error.message);
-              } finally {
-                setLoading(false);
-              }
-            }}
-            className="px-4 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={!individualPayableForm.type || !individualPayableForm.amount || !individualPayableForm.yearLevel || loading}
-          >
-            {loading ? 'Adding...' : 'Add Previous Balance'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )}
+
       <ReceiptModal
         open={receiptModalOpen}
         onClose={() => {

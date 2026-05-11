@@ -13,6 +13,7 @@ import {
   where
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { logSystemAction } from '../utils/auditLogger';
 
 const ACTIVE_TERM_DOC = doc(db, 'settings', 'active_term');
 const DEFAULT_ACTIVE_TERM = { semester: 1, schoolYear: '' };
@@ -69,6 +70,14 @@ export const saveActiveTerm = async ({ semester, schoolYear }) => {
       updatedAt: new Date().toISOString()
     };
     await setDoc(ACTIVE_TERM_DOC, payload, { merge: true });
+    await logSystemAction({
+      action: 'Updated active term',
+      module: 'Faculty Management',
+      entityType: 'setting',
+      entityId: 'active_term',
+      description: `Set active term to semester ${payload.semester}, ${payload.schoolYear}`,
+      details: payload
+    });
     return { success: true, data: payload };
   } catch (error) {
     console.error('Error saving active term:', error);
@@ -98,6 +107,14 @@ export const addProfessor = async (professor) => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
+    await logSystemAction({
+      action: 'Added professor',
+      module: 'Faculty Management',
+      entityType: 'professor',
+      entityId: ref.id,
+      description: `Added professor: ${professor.name || 'Unnamed professor'}`,
+      details: professor
+    });
     return { success: true, id: ref.id };
   } catch (error) {
     console.error('Error adding professor:', error);
@@ -111,6 +128,14 @@ export const updateProfessor = async (id, updates) => {
       ...updates,
       updatedAt: new Date().toISOString()
     });
+    await logSystemAction({
+      action: 'Updated professor',
+      module: 'Faculty Management',
+      entityType: 'professor',
+      entityId: id,
+      description: `Updated professor ${id}`,
+      details: updates
+    });
     return { success: true };
   } catch (error) {
     console.error('Error updating professor:', error);
@@ -121,6 +146,13 @@ export const updateProfessor = async (id, updates) => {
 export const deleteProfessor = async (id) => {
   try {
     await deleteDoc(doc(db, 'professors', id));
+    await logSystemAction({
+      action: 'Deleted professor',
+      module: 'Faculty Management',
+      entityType: 'professor',
+      entityId: id,
+      description: `Deleted professor ${id}`
+    });
     return { success: true };
   } catch (error) {
     console.error('Error deleting professor:', error);
@@ -181,6 +213,14 @@ export const assignCourseToProfessor = async (professorId, course) => {
       assignedCourses: next,
       updatedAt: new Date().toISOString()
     });
+    await logSystemAction({
+      action: 'Assigned course to professor',
+      module: 'Faculty Management',
+      entityType: 'professor',
+      entityId: professorId,
+      description: `Assigned ${entry.courseCode || 'course'} to professor ${professorId}`,
+      details: entry
+    });
     return { success: true };
   } catch (error) {
     console.error('Error assigning course:', error);
@@ -207,6 +247,14 @@ export const updateAssignedCourseBlocks = async (professorId, courseId, blocks) 
       assignedCourses: next,
       updatedAt: new Date().toISOString()
     });
+    await logSystemAction({
+      action: 'Updated assigned course blocks',
+      module: 'Faculty Management',
+      entityType: 'professor',
+      entityId: professorId,
+      description: `Updated blocks for assigned course ${courseId}`,
+      details: { courseId, blocks: normalized }
+    });
     return { success: true };
   } catch (error) {
     console.error('Error updating assignment blocks:', error);
@@ -224,6 +272,14 @@ export const unassignCourseFromProfessor = async (professorId, courseId) => {
     await updateDoc(ref, {
       assignedCourses: next,
       updatedAt: new Date().toISOString()
+    });
+    await logSystemAction({
+      action: 'Unassigned course from professor',
+      module: 'Faculty Management',
+      entityType: 'professor',
+      entityId: professorId,
+      description: `Unassigned course ${courseId} from professor ${professorId}`,
+      details: { courseId }
     });
     return { success: true };
   } catch (error) {
@@ -324,6 +380,14 @@ export const setStudentEnrollment = async (studentId, activeTerm) => {
       enrolledTerm: term,
       updatedAt: new Date().toISOString()
     });
+    await logSystemAction({
+      action: 'Enrolled student',
+      module: 'Faculty Management',
+      entityType: 'student',
+      entityId: studentId,
+      description: `Enrolled student ${studentId}`,
+      details: { activeTerm: term }
+    });
     return { success: true };
   } catch (error) {
     console.error('Error enrolling student:', error);
@@ -336,6 +400,13 @@ export const setStudentNotEnrolled = async (studentId) => {
     await updateDoc(doc(db, 'students', studentId), {
       enrolled: false,
       updatedAt: new Date().toISOString()
+    });
+    await logSystemAction({
+      action: 'Marked student not enrolled',
+      module: 'Faculty Management',
+      entityType: 'student',
+      entityId: studentId,
+      description: `Marked student ${studentId} as not enrolled`
     });
     return { success: true };
   } catch (error) {
@@ -353,19 +424,86 @@ export const bulkSetStudentEnrollment = async (studentIds, activeTerm) => {
     if (!Array.isArray(studentIds) || studentIds.length === 0) {
       return { success: true, count: 0 };
     }
-    const batch = writeBatch(db);
+
+    const chunkSize = 500;
     const stamp = new Date().toISOString();
-    studentIds.forEach(id => {
-      batch.update(doc(db, 'students', id), {
-        enrolled: true,
-        enrolledTerm: term,
-        updatedAt: stamp
+    let committed = 0;
+
+    for (let i = 0; i < studentIds.length; i += chunkSize) {
+      const batch = writeBatch(db);
+      const chunk = studentIds.slice(i, i + chunkSize);
+      chunk.forEach(id => {
+        batch.update(doc(db, 'students', id), {
+          enrolled: true,
+          enrolledTerm: term,
+          updatedAt: stamp
+        });
       });
+      await batch.commit();
+      committed += chunk.length;
+    }
+
+    await logSystemAction({
+      action: 'Bulk enrolled students',
+      module: 'Faculty Management',
+      entityType: 'studentBatch',
+      entityId: '',
+      description: `Enrolled ${studentIds.length} students`,
+      details: { studentIds, activeTerm: term, count: studentIds.length }
     });
-    await batch.commit();
     return { success: true, count: studentIds.length };
   } catch (error) {
     console.error('Error bulk enrolling students:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+export const bulkSetStudentNotEnrolled = async (studentIds) => {
+  try {
+    if (!Array.isArray(studentIds) || studentIds.length === 0) {
+      return { success: true, count: 0 };
+    }
+
+    const chunkSize = 500;
+    const stamp = new Date().toISOString();
+    let committed = 0;
+
+    for (let i = 0; i < studentIds.length; i += chunkSize) {
+      const batch = writeBatch(db);
+      const chunk = studentIds.slice(i, i + chunkSize);
+      chunk.forEach(id => {
+        batch.update(doc(db, 'students', id), {
+          enrolled: false,
+          enrolledTerm: null,
+          updatedAt: stamp
+        });
+      });
+      await batch.commit();
+      committed += chunk.length;
+    }
+
+    await logSystemAction({
+      action: 'Bulk marked students not enrolled',
+      module: 'Faculty Management',
+      entityType: 'studentBatch',
+      entityId: '',
+      description: `Marked ${studentIds.length} students not enrolled`,
+      details: { studentIds, count: studentIds.length }
+    });
+    return { success: true, count: studentIds.length };
+  } catch (error) {
+    console.error('Error bulk unenrolling students:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+export const bulkSetAllStudentsNotEnrolled = async () => {
+  try {
+    const snap = await getDocs(collection(db, 'students'));
+    const ids = snap.docs.map(docSnapshot => docSnapshot.id);
+    return await bulkSetStudentNotEnrolled(ids);
+  } catch (error) {
+    console.error('Error bulk unenrolling all students:', error);
     return { success: false, error: error.message };
   }
 };

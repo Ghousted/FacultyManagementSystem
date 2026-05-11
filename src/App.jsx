@@ -1,5 +1,6 @@
 import './App.css';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { BadgePlus } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import AuthContainer from './components/auth/AuthContainer';
 import Dashboard from './components/Dashboard';
@@ -7,12 +8,221 @@ import Layout from './components/layout/Layout';
 import AdminPanel from './components/admin/AdminPanel';
 import CurriculumPreview from './components/curriculum-checker/CurriculumPreview';
 import CurriculumChecker from './components/curriculum-checker/CurriculumChecker';
-// Import HistoryLog if it exists
-// import HistoryLog from './components/HistoryLog';
+import CurriculumCheckerMain from './components/curriculum-checker/CurriculumCheckerMain';
+import LogsPlaceholder from './components/LogsPlaceholder';
+
+const FacultyMain = lazy(() => import('./components/faculty/FacultyMain'));
+const ReportsMain = lazy(() => import('./components/reports/ReportsMain'));
+const PayablesMain = lazy(() => import('./components/payables-system/PayablesMain'));
+const StudentManagement = lazy(() => import('./components/curriculum-checker/StudentManagement'));
+const TermEnrollmentPanel = lazy(() => import('./components/curriculum-checker/TermEnrollmentPanel'));
+
+const LoadingPanel = ({ label = 'Loading module...' }) => (
+  <div className="rounded-2xl border border-blue-100 bg-white p-6 text-sm text-gray-500 shadow-sm">
+    {label}
+  </div>
+);
+
+const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) => {
+  const [tab, setTab] = useState(initialTab);
+  const [studentDetailOpen, setStudentDetailOpen] = useState(false);
+  const [openedStudentName, setOpenedStudentName] = useState('');
+    const [breadcrumbState, setBreadcrumbState] = useState({ mode: initialTab, selectedFolder: null, selectedStudent: null });
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
+
+  useEffect(() => {
+    const handleStudentDetailChange = (event) => {
+      const open = Boolean(event.detail?.open);
+      const name = event.detail?.name || '';
+      setStudentDetailOpen(open);
+      setOpenedStudentName(name);
+      // reflect detail state in top-level breadcrumb
+      setBreadcrumbState((prev) => ({ ...prev, mode: 'students', selectedStudent: open ? { name } : null }));
+    };
+
+    const handleBreadcrumb = (event) => {
+      const d = event.detail || {};
+      setBreadcrumbState((prev) => ({ ...prev, ...d }));
+    };
+
+    const handlePayablesBreadcrumb = (event) => {
+      const d = event.detail || {};
+      setBreadcrumbState((prev) => ({ ...prev, mode: 'payables', payables: d }));
+    };
+
+    window.addEventListener('student-detail-state', handleStudentDetailChange);
+    window.addEventListener('student-breadcrumb', handleBreadcrumb);
+    window.addEventListener('payables-breadcrumb', handlePayablesBreadcrumb);
+    return () => {
+      window.removeEventListener('student-detail-state', handleStudentDetailChange);
+      window.removeEventListener('student-breadcrumb', handleBreadcrumb);
+      window.removeEventListener('payables-breadcrumb', handlePayablesBreadcrumb);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (tab !== 'students') {
+      setStudentDetailOpen(false);
+      setOpenedStudentName('');
+      // clear selected student from breadcrumb when leaving students view
+      setBreadcrumbState((prev) => ({ ...prev, mode: tab, selectedStudent: null }));
+    } else {
+      // ensure mode stays in sync
+      setBreadcrumbState((prev) => ({ ...prev, mode: tab }));
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    setBreadcrumbState((prev) => ({ ...prev, mode: tab }));
+  }, [tab]);
+
+  // Unified breadcrumb at top (receives state via `student-breadcrumb` events)
+  const renderTopBreadcrumb = () => {
+    const { mode, selectedFolder, selectedStudent } = breadcrumbState || {};
+    const activeMode = mode || (tab === 'enrollment' ? 'enrollment' : 'students');
+
+    const crumbs = [{ label: 'Dashboard', onClick: () => (window.location.hash = '#/') }];
+    crumbs.push({ label: activeMode === 'enrollment' ? 'Enrollment Management' : 'Student Management', onClick: null });
+
+    if (selectedFolder) {
+      if (selectedFolder.isIrregular) {
+        crumbs.push({ label: 'Irregular', onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder } })) });
+      } else {
+        const y = selectedFolder.year;
+        const block = selectedFolder.block;
+        const yearLabel = y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : y === 4 ? '4th' : `${y}th`;
+        let label = `${yearLabel} Year`;
+        if (block) label += ` Block ${block}`;
+        crumbs.push({ label, onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder } })) });
+      }
+    }
+
+    if (selectedStudent && selectedStudent.name) {
+      crumbs.push({ label: selectedStudent.name, onClick: null });
+    }
+
+    return (
+      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+        {crumbs.map((c, i) => {
+          // Make the second breadcrumb item a button to switch between Student/Enrollment
+          if (i === 1) {
+            const isEnrollment = activeMode === 'enrollment';
+            const onClick = () => {
+              if (isEnrollment) {
+                // ensure we return to enrollment main view
+                setTab('enrollment');
+                window.dispatchEvent(new CustomEvent('reset-enrollment-manager'));
+                // clear selected student in breadcrumb as well
+                setBreadcrumbState((prev) => ({ ...prev, selectedStudent: null }));
+                setStudentDetailOpen(false);
+                setOpenedStudentName('');
+                return;
+              }
+              // switch to students view
+              setTab('students');
+              window.dispatchEvent(new CustomEvent('reset-student-management'));
+              setBreadcrumbState((prev) => ({ ...prev, selectedStudent: null }));
+              setStudentDetailOpen(false);
+              setOpenedStudentName('');
+            };
+
+            return (
+              <span key={i} className={i === crumbs.length - 1 ? 'font-medium text-blue-600' : ''}>
+                <button type="button" className="hover:underline" onClick={onClick}>{c.label}</button>
+                {i < crumbs.length - 1 && <span className="text-gray-300 mx-1">&gt;</span>}
+              </span>
+            );
+          }
+
+          return (
+            <span key={i} className={i === crumbs.length - 1 ? 'font-medium text-blue-600' : ''}>
+              {c.onClick ? (
+                <button type="button" className="hover:underline" onClick={c.onClick}>{c.label}</button>
+              ) : (
+                c.label
+              )}
+              {i < crumbs.length - 1 && <span className="text-gray-300 mx-1">&gt;</span>}
+            </span>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {renderTopBreadcrumb()}
+
+      <div className="mb-4">
+        <h2 className="text-2xl font-semibold text-gray-900">
+          {tab === 'students' ? 'Student Management' : 'Enrollment Management'}
+        </h2>
+        <p className="mt-1 text-sm text-gray-500">
+          {tab === 'students'
+            ? 'Manage student records, curriculum assignments, year levels, blocks, and their personal information.'
+            : 'Manage students enrollment for the current term.'}
+        </p>
+      </div>
+
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex gap-2 bg-gray-200/50 p-1 rounded-xl w-fit">
+          <button
+            type="button"
+            onClick={() => setTab('students')}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              tab === 'students'
+                ? 'bg-blue-500 text-white'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
+            }`}
+          >
+            Student Management
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('enrollment')}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              tab === 'enrollment'
+                ? 'bg-blue-500 text-white'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
+            }`}
+          >
+            Enrollment Management
+          </button>
+        </div>
+
+        {tab === 'students' && !studentDetailOpen && (
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('open-add-student'))}
+            className="inline-flex items-center cursor-pointer justify-center gap-2 rounded-xl bg-blue-500 px-3 py-2 text-sm text-white hover:bg-blue-600"
+          >
+            <BadgePlus className="h-4 w-4" />
+            Add Student
+          </button>
+        )}
+      </div>
+
+      <Suspense fallback={<LoadingPanel label="Loading student records..." />}>
+        {tab === 'students' ? (
+          <StudentManagement onBack={onBackToDashboard} onStudentDetailState={(open, name) => {
+            setStudentDetailOpen(open);
+            setOpenedStudentName(name || '');
+          }} />
+        ) : (
+          <TermEnrollmentPanel onBack={onBackToDashboard} />
+        )}
+      </Suspense>
+    </div>
+  );
+};
 
 function App() {
-  const { currentUser, loading, role } = useAuth();
+  const { currentUser, loading } = useAuth();
   const [route, setRoute] = useState(window.location.hash || '');
+  const [payablesBreadcrumb, setPayablesBreadcrumb] = useState(null);
 
   useEffect(() => {
     const onHashChange = () => setRoute(window.location.hash || '');
@@ -27,8 +237,229 @@ function App() {
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    const handler = (event) => {
+      setPayablesBreadcrumb(event.detail || null);
+    };
+    window.addEventListener('payables-breadcrumb', handler);
+    return () => window.removeEventListener('payables-breadcrumb', handler);
+  }, []);
+
+  const renderAppBreadcrumbs = () => {
+  if (!route.startsWith('#/payables')) return null;
+  if (!currentUser || currentUser.role !== 'admin') return null;
+
+  const d = payablesBreadcrumb || {};
+  const crumbs = [{ label: 'Dashboard', onClick: () => (window.location.hash = '#/') }];
+  crumbs.push({ label: 'Payables', onClick: null });
+
+  if (d.departmentType === 'ccs') {
+    crumbs.push({
+      label: 'CCS Department',
+      onClick: () => {
+        setPayablesBreadcrumb({ departmentType: 'ccs', selectedFolder: null });
+        window.dispatchEvent(
+          new CustomEvent('payables-breadcrumb', {
+            detail: { departmentType: 'ccs', selectedFolder: null }
+          })
+        );
+      }
+    });
+
+    const f = d.selectedFolder || null;
+    if (f) {
+      if (f.isIrregular) {
+        crumbs.push({ label: 'Irregular', onClick: null });
+      } else {
+        const y = f.year;
+        const block = f.block;
+        const yearLabel = y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : '4th';
+        crumbs.push({
+          label: `${yearLabel} Year${block ? ` Block ${block}` : ''}`,
+          onClick: null
+        });
+      }
+    }
+  } else if (d.departmentType === 'other') {
+    // Make "Other Department" clickable to reset to the list of departments
+    crumbs.push({
+      label: 'Other Department',
+      onClick: () => {
+        setPayablesBreadcrumb({ departmentType: 'other' });
+        window.dispatchEvent(
+          new CustomEvent('payables-breadcrumb', {
+            detail: { departmentType: 'other' }
+          })
+        );
+      }
+    });
+
+    // Make the department name clickable to reset to the list of folders
+    if (d.departmentName) {
+      crumbs.push({
+        label: d.departmentName,
+        onClick: () => {
+          setPayablesBreadcrumb({ departmentType: 'other', departmentName: d.departmentName, selectedFolder: null });
+          window.dispatchEvent(
+            new CustomEvent('payables-breadcrumb', {
+              detail: { departmentType: 'other', departmentName: d.departmentName, selectedFolder: null }
+            })
+          );
+        }
+      });
+    }
+
+    // Add year level and block breadcrumb if a folder is selected
+    const f = d.selectedFolder || null;
+    if (f) {
+      if (f.isIrregular) {
+        crumbs.push({ label: 'Irregular', onClick: null });
+      } else {
+        const y = f.year;
+        const block = f.block;
+        const yearLabel = y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : '4th';
+        crumbs.push({
+          label: `${yearLabel} Year${block ? ` Block ${block}` : ''}`,
+          onClick: null
+        });
+      }
+    }
+  }
+
+  return (
+    <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+      {crumbs.map((c, i) => (
+        <span key={i} className={i === crumbs.length - 1 ? 'font-medium text-blue-600' : ''}>
+          {c.onClick ? (
+            <button type="button" className="hover:underline" onClick={c.onClick}>
+              {c.label}
+            </button>
+          ) : (
+            c.label
+          )}
+          {i < crumbs.length - 1 && <span className="text-gray-300 mx-1">&gt;</span>}
+        </span>
+      ))}
+    </div>
+  );
+};
   const curriculumMakerMatch = route.match(/^#\/curriculum-maker\/?(.*)/);
   const curriculumMakerId = curriculumMakerMatch ? (curriculumMakerMatch[1] || '') : '';
+  const goDashboard = () => {
+    window.location.hash = '#/dashboard';
+    window.dispatchEvent(new CustomEvent('go-dashboard'));
+  };
+
+  const renderAuthenticatedRoute = () => {
+    if (route === '' || route === '#/dashboard') {
+      return <Dashboard />;
+    }
+
+    if (route === '#/settings') {
+      return <AdminPanel />;
+    }
+
+    if (route === '#/logs' || route === '#/history-log') {
+      return <LogsPlaceholder />;
+    }
+
+    if (route.startsWith('#/curriculum-preview')) {
+      return <CurriculumPreview />;
+    }
+
+    if (route.startsWith('#/faculty')) {
+      return (
+        <Suspense fallback={<LoadingPanel label="Loading faculty management..." />}>
+          <FacultyMain onBackToDashboard={goDashboard} />
+        </Suspense>
+      );
+    }
+
+    if (route.startsWith('#/curriculum-maker')) {
+      return (
+        <CurriculumChecker
+          initialView="curriculum-maker"
+          initialCurriculumId={curriculumMakerId}
+          onBackToDashboard={goDashboard}
+        />
+      );
+    }
+
+    if (route === '#/curriculum-checker') {
+      return (
+        <CurriculumCheckerMain
+          initialView="curriculum-checker"
+          onBackToDashboard={goDashboard}
+        />
+      );
+    }
+
+    if (route === '#/student-management') {
+      return <StudentEnrollmentHub initialTab="students" onBackToDashboard={goDashboard} />;
+    }
+
+    if (route === '#/enrollment-management') {
+      return <StudentEnrollmentHub initialTab="enrollment" onBackToDashboard={goDashboard} />;
+    }
+
+    if (route === '#/deans-list-report') {
+      return (
+        <Suspense fallback={<LoadingPanel label="Loading Dean's List report..." />}>
+          <ReportsMain initialReport="deans" onBackToDashboard={goDashboard} />
+        </Suspense>
+      );
+    }
+
+    if (route === '#/archived-classes' || route === '#/academic-records') {
+      return (
+        <Suspense fallback={<LoadingPanel label="Loading archived classes..." />}>
+          <ReportsMain initialReport="archived" onBackToDashboard={goDashboard} />
+        </Suspense>
+      );
+    }
+
+    if (route === '#/module-payments' || route === '#/reports/module-payments') {
+      return (
+        <Suspense fallback={<LoadingPanel label="Loading module payments..." />}>
+          <ReportsMain initialReport="modulePayments" onBackToDashboard={goDashboard} />
+        </Suspense>
+      );
+    }
+
+    if (route === '#/professor-cutbacks' || route === '#/reports/professor-cutbacks') {
+      return (
+        <Suspense fallback={<LoadingPanel label="Loading professor cutbacks..." />}>
+          <ReportsMain initialReport="cutbacks" onBackToDashboard={goDashboard} />
+        </Suspense>
+      );
+    }
+
+    if (route === '#/payables/ccs') {
+      return (
+        <Suspense fallback={<LoadingPanel label="Loading CCS payables..." />}>
+          <PayablesMain initialDepartment="ccs" onBackToDashboard={goDashboard} />
+        </Suspense>
+      );
+    }
+
+    if (route === '#/payables/other-departments') {
+      return (
+        <Suspense fallback={<LoadingPanel label="Loading other department payables..." />}>
+          <PayablesMain initialDepartment="other" onBackToDashboard={goDashboard} />
+        </Suspense>
+      );
+    }
+
+    if (route === '#/payables') {
+      return (
+        <Suspense fallback={<LoadingPanel label="Loading payables..." />}>
+          <PayablesMain onBackToDashboard={goDashboard} />
+        </Suspense>
+      );
+    }
+
+    return <Dashboard />;
+  };
 
   if (loading) {
     return (
@@ -43,25 +474,8 @@ function App() {
 
   return (
     <Layout>
-      {currentUser ? (
-        route === '#/settings' ? (
-          <AdminPanel />
-        ) : route === '#/history-log' ? (
-          <HistoryLog /> // Replace with your HistoryLog component
-        ) : route.startsWith('#/curriculum-preview') ? (
-          <CurriculumPreview />
-        ) : route.startsWith('#/curriculum-maker') ? (
-          <CurriculumChecker
-            initialView="curriculum-maker"
-            initialCurriculumId={curriculumMakerId}
-            onBackToDashboard={() => { window.location.hash = ''; }}
-          />
-        ) : (
-          <Dashboard />
-        )
-      ) : (
-        <AuthContainer />
-      )}
+      {currentUser && renderAppBreadcrumbs && renderAppBreadcrumbs()}
+      {currentUser ? renderAuthenticatedRoute() : <AuthContainer />}
     </Layout>
   );
 }

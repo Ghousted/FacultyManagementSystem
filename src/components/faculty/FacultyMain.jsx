@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ArrowBigLeft, CalendarRange } from 'lucide-react';
 import ProfessorList from './ProfessorList';
 import ProfessorDetail from './ProfessorDetail';
 import { getActiveTerm } from '../../models/facultyModels';
-
-const SEMESTER_LABELS = { 1: '1st Semester', 2: '2nd Semester', 3: 'Summer' };
 
 const FacultyMain = ({ onBackToDashboard }) => {
   const [activeTerm, setActiveTerm] = useState({ semester: 1, schoolYear: '' });
@@ -22,30 +19,34 @@ const FacultyMain = ({ onBackToDashboard }) => {
 
   return (
     <div>
-      <div className="mb-6 rounded-2xl border border-blue-100 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={selectedProfessor ? () => setSelectedProfessor(null) : onBackToDashboard}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:ring-offset-2"
-              aria-label="Back"
-              title="Back"
-            >
-              <ArrowBigLeft className="h-5 w-5" />
-            </button>
+      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+        <span>Dashboard</span>
+        <span className="text-gray-300">&gt;</span>
+        <button
+          type="button"
+          onClick={() => setSelectedProfessor(null)}
+          className={`text-left ${
+            selectedProfessor ? 'text-gray-600 hover:text-blue-600' : 'font-medium text-blue-600'
+          }`}
+        >
+          Faculty Management
+        </button>
+        {selectedProfessor && (
+          <>
+            <span className="text-gray-300">&gt;</span>
+            <span className="font-medium text-blue-600">{selectedProfessor.name}</span>
+          </>
+        )}
+      </div>
 
-            <div>
-              <h5 className="text-2xl font-semibold text-gray-900">
+      <div className='mb-4'>
+         <h2 className="text-2xl font-semibold text-gray-900">
                 Faculty Management
-              </h5>
-              <p className="mt-1 text-sm leading-relaxed text-gray-500">
-                Manage professors, subject assignments, and enrolled students per subject.
-              </p>
-            </div>
-          </div>
+        </h2>
+        <p className="mt-1 text-sm text-gray-500">
+                          Manage professors, subject assignments, and enrolled students per subject.
 
-          
-        </div>
+        </p>
       </div>
 
       {selectedProfessor ? (

@@ -188,7 +188,7 @@ const LoadingModal = ({ isOpen }) => {
   );
 };
 
-const ReportsModule = ({ onBackToDashboard }) => {
+const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
   const [criteria, setCriteria] = useState({
     major: 1.7,
     minor: 2.0,
@@ -516,24 +516,26 @@ const ReportsModule = ({ onBackToDashboard }) => {
 
   return (
     <div className="">
-      <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-300 mb-6">
-        <div className="flex items-center gap-6">
-          <button
-            onClick={onBackToDashboard}
-                      className="group flex cursor-pointer items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
-            aria-label="Back to dashboard"
-            title="Back to dashboard"
-          >
-                      <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
-          </button>
-          <div className="flex flex-col">
-            <h2 className="text-2xl font-medium text-blue-700">Dean's List Reports</h2>
-            <p className="text-gray-600 text-sm">
-              View detailed reports of students who have achieved academic excellence this semester, including GPA breakdowns and honors.
-            </p>
+      {!embedded && (
+        <div className=" mb-6">
+          <div className="flex items-center gap-6">
+            <button
+              onClick={onBackToDashboard}
+                        className="group flex cursor-pointer items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
+              aria-label="Back to dashboard"
+              title="Back to dashboard"
+            >
+                        <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+            </button>
+            <div className="flex flex-col">
+              <h2 className="text-2xl font-medium text-blue-700">Dean's List Reports</h2>
+              <p className="text-gray-600 text-sm">
+                View detailed reports of students who have achieved academic excellence this semester, including GPA breakdowns and honors.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
       <div className="mb-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex gap-3 flex-wrap">
@@ -638,7 +640,7 @@ const ReportsModule = ({ onBackToDashboard }) => {
         ))
       ) : deansList.length === 0 ? (
         <tr>
-          <td className="p-3 border-b text-center text-gray-500" colSpan={2}>
+          <td className="p-3 border-b border-slate-300 text-center text-gray-500" colSpan={2}>
             No data found.
           </td>
         </tr>

@@ -11,7 +11,8 @@ import {
   orderBy,
 } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { ArrowBigLeft, BadgePlus, Folder, Layers, X  } from 'lucide-react';
+import { BadgePlus, Folder, Layers, X  } from 'lucide-react';
+import { logSystemAction } from '../../utils/auditLogger';
 
 const formatBatchLabel = (id) =>
   id.replace('batch_', '').replace('_', '-');
@@ -426,7 +427,7 @@ const CreateFolderModal = ({
 };
 
 /* ---------------- MAIN ---------------- */
-const ArchivedClasses = ({ onBackToReportsMain }) => {
+const ArchivedClasses = () => {
   const [archives, setArchives] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [search, setSearch] = useState('');
@@ -532,6 +533,14 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
       students: [],
       createdAt: serverTimestamp(),
     });
+    await logSystemAction({
+      action: 'Created archive folder',
+      module: 'Reports',
+      entityType: 'archive',
+      entityId: name,
+      description: `Created archive folder: ${name}`,
+      details: { name }
+    });
 
     const snap = await getDocs(collection(db, 'archives'));
     setArchives(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
@@ -543,25 +552,23 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
 
   return (
     <div className="max-w-7xl mx-auto ">
+      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+        <span>Dashboard</span>
+        <span className="text-gray-300">&gt;</span>
+       
+        <span className="font-medium text-blue-600">Archived Classes</span>
+      </div>
     
 
-        <div className="bg-white p-8 rounded-2xl  border border-gray-300 mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <button
-            onClick={onBackToReportsMain}
-            className="group flex items-center gap-2 bg-blue-600 text-white p-2 cursor-pointer rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
-            aria-label="Back to dashboard"
-            title="Back to dashboard"
-          >
-            <ArrowBigLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-          </button>
-          <div>
-            <h5 className="text-2xl font-medium text-blue-600">Archivd Classes</h5>
+     
+
+      <div className='flex items-center justify-between mb-6'>
+           <div>
+            <h5 className="text-2xl font-medium text-gray-900">Archived Classes</h5>
             <p className="text-gray-500 text-sm">
               View and manage archived classes, organized by folders or batches, to keep track of past academic records.
             </p>
           </div>
-        </div>
            <button
           onClick={() => setIsModalOpen(true)}
           className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm"

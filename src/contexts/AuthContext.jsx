@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import { logSystemAction } from '../utils/auditLogger';
 
 const AuthContext = createContext();
 
@@ -61,6 +62,9 @@ export const AuthProvider = ({ children }) => {
         if (cachedUser) {
           const userData = JSON.parse(cachedUser);
           setCurrentUser(userData);
+          if (userData.role) {
+            setRole(userData.role);
+          }
         }
         
         if (cachedOfflineData) {
@@ -73,7 +77,6 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('cachedUser');
         localStorage.removeItem('offlineData');
       }
-      setLoading(false);
     };
 
     loadCachedData();
@@ -82,12 +85,21 @@ export const AuthProvider = ({ children }) => {
   // Cache user data
   const cacheUserData = (user) => {
     if (user) {
+      let cachedRole = role;
+      try {
+        const cachedUser = localStorage.getItem('cachedUser');
+        cachedRole = cachedUser ? JSON.parse(cachedUser).role : role;
+      } catch (error) {
+        console.error('Error reading cached user role:', error);
+      }
+
       const userData = {
         uid: user.uid,
         email: user.email,
         displayName: user.displayName,
         photoURL: user.photoURL,
         emailVerified: user.emailVerified,
+        role: user.role || cachedRole || null,
         lastSignInTime: new Date().toISOString()
       };
       localStorage.setItem('cachedUser', JSON.stringify(userData));
@@ -107,8 +119,10 @@ export const AuthProvider = ({ children }) => {
   const fetchRole = async (user) => {
     try {
       const userDoc = await getDoc(doc(db, 'users', user.uid));
+      let resolvedRole = 'admin';
+
       if (userDoc.exists()) {
-        setRole(userDoc.data().role || 'admin'); // Default to admin if no role set
+        resolvedRole = userDoc.data().role || 'admin'; // Default to admin if no role set
       } else {
         // Create user document with default admin role
         await setDoc(doc(db, 'users', user.uid), { 
@@ -116,11 +130,16 @@ export const AuthProvider = ({ children }) => {
           email: user.email || null,
           createdAt: new Date().toISOString()
         });
-        setRole('admin');
       }
+
+      setRole(resolvedRole);
+      cacheUserData({ ...user, role: resolvedRole });
+      return resolvedRole;
     } catch (error) {
       console.error('Error fetching role:', error);
       setRole('admin'); // Default to admin on error
+      cacheUserData({ ...user, role: 'admin' });
+      return 'admin';
     }
   };
 
@@ -131,6 +150,14 @@ export const AuthProvider = ({ children }) => {
       if (userId === currentUser?.uid) {
         setRole(newRole);
       }
+      await logSystemAction({
+        action: 'Updated user role',
+        module: 'User Management',
+        entityType: 'user',
+        entityId: userId,
+        description: `Updated user role to ${newRole}`,
+        details: { userId, newRole }
+      });
       return { success: true };
     } catch (error) {
       console.error('Error updating role:', error);
@@ -214,6 +241,18 @@ export const AuthProvider = ({ children }) => {
         type: 'SIGN_IN',
         data: { email, timestamp: new Date().toISOString() }
       });
+      await logSystemAction({
+        action: 'Signed in',
+        module: 'Authentication',
+        entityType: 'user',
+        entityId: result.user.uid,
+        description: `Signed in ${email}`,
+        actor: {
+          userId: result.user.uid,
+          userEmail: result.user.email,
+          userName: result.user.displayName || result.user.email
+        }
+      });
       
       return { success: true, user: result.user, offline: false };
     } catch (error) {
@@ -247,6 +286,19 @@ export const AuthProvider = ({ children }) => {
       addPendingAction({
         type: 'SIGN_OUT',
         data: { timestamp: new Date().toISOString() }
+      });
+      await logSystemAction({
+        action: 'Signed out',
+        module: 'Authentication',
+        entityType: 'user',
+        entityId: currentUser?.uid || '',
+        description: `Signed out ${currentUser?.email || ''}`.trim(),
+        actor: {
+          userId: currentUser?.uid,
+          userEmail: currentUser?.email,
+          userName: currentUser?.displayName || currentUser?.email,
+          role
+        }
       });
       
       return { success: true, offline: !isOnline };
@@ -360,13 +412,13 @@ export const AuthProvider = ({ children }) => {
 
   // Listen for auth state changes with offline handling
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         // Cache user data when online authentication succeeds
         const userData = cacheUserData(user);
         setCurrentUser(userData);
         // Fetch user role
-        fetchRole(user);
+        await fetchRole(user);
       } else {
         // For offline functionality, preserve cached user data
         // Only clear the current user state, not the cached data

@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import Logo from '../../assets/logo.png';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { ChevronDown, ChevronUp, UserCircle, ShieldCheck, LogOut } from 'lucide-react';
+import { ChevronDown, ChevronUp, UserCircle, Cog, LogOut } from 'lucide-react';
 
 const Header = () => {
   const { currentUser, role, signout } = useAuth();
@@ -111,8 +111,8 @@ const Header = () => {
                       className="w-full border-b border-gray-300 text-left px-4 py-2 text-sm cursor-pointer hover:bg-gray-100 flex items-center gap-2 transition-colors duration-200"
                       onClick={handleGoAdminPanel}
                     >
-                      <ShieldCheck className="w-4 h-4" />
-                      <span>Admin Panel</span>
+                      <Cog className="w-4 h-4" />
+                      <span>Settings</span>
                     </button>
                     
                   </div>

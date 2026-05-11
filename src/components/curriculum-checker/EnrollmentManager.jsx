@@ -18,6 +18,8 @@ import {
   bulkSetStudentEnrollment
 } from '../../models/facultyModels';
 
+// Filter students by status will be declared inside the component below
+
 const SEMESTER_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
 
 const STATUS_META = {
@@ -57,9 +59,9 @@ const normalizeTerm = (activeTerm) => ({
 });
 
 const FolderSkeleton = () => (
-  <div className="h-24 rounded-lg border border-gray-200 bg-white p-4 animate-pulse">
+  <div className="relative rounded-xl border border-gray-300 bg-white p-4 shadow-sm animate-pulse">
     <div className="flex items-center gap-3">
-      <div className="h-9 w-9 rounded-md bg-gray-200" />
+      <div className="h-10 w-10 rounded-lg bg-blue-50" />
       <div className="flex-1 space-y-2">
         <div className="h-4 w-32 rounded bg-gray-200" />
         <div className="h-3 w-20 rounded bg-gray-100" />
@@ -70,31 +72,34 @@ const FolderSkeleton = () => (
 
 const TableSkeleton = () => (
   <>
-    {Array.from({ length: 6 }).map((_, index) => (
+    {Array.from({ length: 5 }).map((_, index) => (
       <tr key={index} className="border-t border-gray-100 animate-pulse">
-        <td className="px-4 py-4">
+        <td className="px-4 py-2 ">
           <div className="h-4 w-4 rounded bg-gray-200" />
         </td>
-        <td className="px-4 py-4">
+        <td className="px-4 py-2 ">
+          <div className="h-4 w-24 rounded bg-gray-200" />
+        </td>
+        <td className="px-4 py-2 ">
           <div className="mb-2 h-4 w-40 rounded bg-gray-200" />
-          <div className="h-3 w-28 rounded bg-gray-100" />
         </td>
-        <td className="px-4 py-4">
-          <div className="h-4 w-28 rounded bg-gray-100" />
+        <td className="px-4 py-2 ">
+          <div className="h-4 w-28 rounded bg-gray-200" />
         </td>
-        <td className="px-4 py-4">
-          <div className="h-5 w-24 rounded-full bg-gray-100" />
+        <td className="px-4 py-2 ">
+          <div className="h-5 w-24 rounded-full bg-gray-200" />
         </td>
-        <td className="px-4 py-4">
-          <div className="h-4 w-24 rounded bg-gray-100" />
-        </td>
-        <td className="px-4 py-4">
-          <div className="ml-auto h-8 w-28 rounded-md bg-gray-100" />
+       
+        <td className="px-4 py-2  flex items-center gap-2">
+          <div className="h-4 w-4 rounded-md bg-gray-200" />
+          <div className="h-4 w-4 rounded-md bg-gray-200" />
+          <div className="h-4 w-4 rounded-md bg-gray-200" />
         </td>
       </tr>
     ))}
   </>
 );
+
 
 const EnrollmentManager = ({ activeTerm }) => {
   const [students, setStudents] = useState([]);
@@ -110,18 +115,84 @@ const EnrollmentManager = ({ activeTerm }) => {
   const [sortOrder, setSortOrder] = useState('asc');
 
   const term = normalizeTerm(activeTerm);
+
+  // Emit breadcrumb info to top-level App so breadcrumb appears at page top
+  useEffect(() => {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('student-breadcrumb', {
+          detail: {
+            mode: 'enrollment',
+            selectedFolder: selectedFolder || null
+          }
+        })
+      );
+    } catch (e) {
+      // noop
+    }
+  }, [selectedFolder]);
+
+  // Listen for reset events from top-level breadcrumb/button
+  useEffect(() => {
+    const onReset = () => {
+      setSelectedFolder(null);
+      setSelectedIds([]);
+    };
+
+    window.addEventListener('reset-enrollment-manager', onReset);
+    return () => window.removeEventListener('reset-enrollment-manager', onReset);
+  }, []);
+
+  // Filter students by status
+  const statusFiltered = useMemo(() => {
+    if (statusFilter === 'all') return students;
+    return students.filter((student) => student.enrollmentStatus === statusFilter);
+  }, [students, statusFilter]);
   const termIncomplete = !term.semester || !term.schoolYear;
+
+  // --- Breadcrumb Navigation ---
+  const renderBreadcrumbs = () => {
+    // Dashboard > Enrollment Management > Year Level and Block (if irregular, "Irregular" only)
+    const crumbs = [
+      { label: 'Dashboard', onClick: () => window.location.hash = '#/' },
+      { label: 'Enrollment Management', onClick: null }
+    ];
+    if (selectedFolder) {
+      if (selectedFolder.isIrregular) {
+        crumbs.push({ label: 'Irregular', onClick: null });
+      } else {
+        let label = `${getYearLabel(selectedFolder.year)} Year`;
+        if (selectedFolder.block) label += ` Block ${selectedFolder.block}`;
+        crumbs.push({ label, onClick: null });
+      }
+    }
+    return (
+      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+        {crumbs.map((c, i) => (
+          <span key={i} className={i === crumbs.length - 1 ? 'font-medium text-blue-600' : ''}>
+            {c.onClick ? (
+              <button type="button" className="hover:underline" onClick={c.onClick}>{c.label}</button>
+            ) : c.label}
+            {i < crumbs.length - 1 && <span className="text-gray-300 mx-1">&gt;</span>}
+          </span>
+        ))}
+      </div>
+    );
+  };
 
   const refresh = async () => {
     setError('');
     setLoading(true);
-
+    const minimumDelay = new Promise((resolve) => setTimeout(resolve, 200));
     try {
-      const res = await getEnrollmentRoster({
-        ...activeTerm,
-        semester: term.semester,
-        schoolYear: term.schoolYear
-      });
+      const [res] = await Promise.all([
+        getEnrollmentRoster({
+          ...activeTerm,
+          semester: term.semester,
+          schoolYear: term.schoolYear
+        }),
+        minimumDelay
+      ]);
 
       if (res.success) {
         setStudents(res.data || []);
@@ -135,30 +206,11 @@ const EnrollmentManager = ({ activeTerm }) => {
     }
   };
 
+  // Load roster on mount and when term changes
   useEffect(() => {
     refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [term.semester, term.schoolYear]);
-
-  useEffect(() => {
-    setSelectedIds([]);
-  }, [selectedFolder, statusFilter, search]);
-
-  const counts = useMemo(() => {
-    const next = { enrolled: 0, 'needs-update': 0, 'not-enrolled': 0, unset: 0 };
-
-    students.forEach((student) => {
-      next[student.enrollmentStatus] = (next[student.enrollmentStatus] || 0) + 1;
-    });
-
-    return next;
-  }, [students]);
-
-  const statusFiltered = useMemo(() => {
-    return students.filter((student) => {
-      if (statusFilter === 'all') return true;
-      return student.enrollmentStatus === statusFilter;
-    });
-  }, [students, statusFilter]);
 
   const folders = useMemo(() => {
     const map = new Map();
@@ -251,6 +303,14 @@ const EnrollmentManager = ({ activeTerm }) => {
   const selectedStudents = useMemo(() => {
     return tableStudents.filter((student) => selectedIds.includes(student.id));
   }, [tableStudents, selectedIds]);
+
+  const counts = useMemo(() => {
+    return (students || []).reduce((acc, student) => {
+      const status = student?.enrollmentStatus ?? (student?.enrolled === true ? 'enrolled' : (student?.enrolled === false ? 'not-enrolled' : 'unset'));
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, { enrolled: 0, 'needs-update': 0, 'not-enrolled': 0, unset: 0 });
+  }, [students]);
 
   const selectedFolderLabel = selectedFolder
     ? selectedFolder.isIrregular
@@ -499,35 +559,11 @@ const EnrollmentManager = ({ activeTerm }) => {
     setSelectedIds([]);
   };
 
+
+
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">Enrollment</h2>
-          <p className="mt-1 text-sm text-gray-500">
-            {term.semester ? SEMESTER_LABELS[term.semester] || `Sem ${term.semester}` : 'No semester'} ·{' '}
-            {term.schoolYear || 'No school year'}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={loading}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-60"
-          title="Refresh"
-          aria-label="Refresh"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
-
-      {termIncomplete && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>Set the active semester and school year before managing enrollment.</span>
-        </div>
-      )}
+     
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
@@ -536,42 +572,24 @@ const EnrollmentManager = ({ activeTerm }) => {
       )}
 
       <div className="">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-          <button
-            type="button"
-            onClick={() => {
-              setStatusFilter('all');
-              setSelectedFolder(null);
-              setSearch('');
-            }}
-            className={`rounded-lg p-4 text-left transition ${
-              statusFilter === 'all' ? 'border-2 border-blue-300 bg-blue-50 text-blue-900' : 'border cursor-pointer border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            <span className="block text-xs">All</span>
-            <span className="mt-1 block text-lg font-semibold">{students.length}</span>
-          </button>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+            <span className="block text-xs text-gray-600">All</span>
+                        <span className="mt-1 block text-lg font-semibold text-gray-900">{students.length}</span>
 
-          {['enrolled', 'needs-update', 'not-enrolled', 'unset'].map((key) => {
+          </div>
+
+          {['enrolled', 'needs-update', 'not-enrolled'].map((key) => {
             const meta = STATUS_META[key];
-            const active = statusFilter === key;
 
             return (
-              <button
+              <div
                 key={key}
-                type="button"
-                onClick={() => {
-                  setStatusFilter(active ? 'all' : key);
-                  setSelectedFolder(null);
-                  setSearch('');
-                }}
-              className={`rounded-lg p-4 text-left transition ${
-                  active ? 'border-2 border-blue-300 bg-blue-50 text-blue-900' : 'border cursor-pointer border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                }`}
+                className="rounded-lg border border-gray-200 bg-white p-4 text-left"
               >
-                <span className="block text-xs">{meta.label}</span>
-                <span className="mt-1 block text-lg font-semibold">{counts[key] || 0}</span>
-              </button>
+                <span className="block text-xs text-gray-600">{meta.label}</span>
+                <span className="mt-1 block text-lg font-semibold text-gray-900">{counts[key] || 0}</span>
+              </div>
             );
           })}
         </div>
@@ -579,23 +597,20 @@ const EnrollmentManager = ({ activeTerm }) => {
 
       {!selectedFolder ? (
         <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-medium text-gray-700">Sections</p>
+          <div className="flex items-center justify-between gap-4">
+             
+            <p className=" font-medium text-gray-700">Students Folders</p>
 
-            {(statusFilter !== 'all' || search) && (
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="text-sm text-gray-500 hover:text-gray-900"
-              >
-                Clear
-              </button>
-            )}
+           <p className="mt-1 text-sm text-gray-800">
+            {term.semester ? SEMESTER_LABELS[term.semester] || `Sem ${term.semester}` : 'No semester'} ·{' '}
+            {term.schoolYear || 'No school year'}
+          </p>
+           
           </div>
 
           {loading ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, index) => (
+              {Array.from({ length: 4 }).map((_, index) => (
                 <FolderSkeleton key={index} />
               ))}
             </div>
@@ -618,15 +633,15 @@ const EnrollmentManager = ({ activeTerm }) => {
                     });
                     setSearch('');
                   }}
-                  className="group rounded-lg border border-gray-200 bg-white p-4 text-left transition hover:border-gray-300 hover:bg-gray-50"
+                  className="group relative cursor-pointer rounded-xl border border-gray-300 bg-white p-4 text-left shadow-sm transition  hover:border-blue-400 hover:shadow-md"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-gray-200 bg-gray-50 text-gray-500">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
                       <Folder className="h-5 w-5" />
                     </div>
 
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-gray-900">{folder.label}</p>
+                      <p className="truncate text-sm font-semibold text-blue-800">{folder.label}</p>
                       <p className="mt-1 text-xs text-gray-500">
                         {folder.students.length} student{folder.students.length !== 1 ? 's' : ''}
                       </p>
@@ -639,31 +654,26 @@ const EnrollmentManager = ({ activeTerm }) => {
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedFolder(null);
-                  setSearch('');
-                  setSelectedIds([]);
-                }}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
-                title="Back"
-                aria-label="Back"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
+          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+            <div className="overflow-x-auto">
+             
 
-              <div>
-                <p className="text-sm font-semibold text-gray-900">{selectedFolderLabel}</p>
-                <p className="text-xs text-gray-500">
-                  {tableStudents.length} student{tableStudents.length !== 1 ? 's' : ''}
-                </p>
-              </div>
-            </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4">
+             
+            
 
             <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={refresh}
+                disabled={loading}
+                className={`p-2 rounded-xl bg-gray-200 text-gray-600 disabled:opacity-50 ${loading ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-300'}`}
+                title="Refresh"
+                aria-label="Refresh"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+
               <div className="relative min-w-0 flex-1 sm:w-72">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <input
@@ -671,15 +681,26 @@ const EnrollmentManager = ({ activeTerm }) => {
                   placeholder="Search students"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="h-9 w-full rounded-md border border-gray-300 bg-white pl-9 pr-3 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-900"
+                  className="h-9 w-full rounded-xl border border-gray-300 bg-white pl-9 pr-3 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-900"
                 />
               </div>
 
-              <button
+            
+            </div>
+
+            <div className='flex items-center gap-2'>
+
+                {hasSelected && (
+            <div className="text-xs text-slate-500">
+              {selectedIds.length} selected
+            </div>
+          )}
+
+                <button
                 type="button"
                 onClick={handleEnrollSelected}
                 disabled={termIncomplete || bulkSaving || loading || !canEnrollSelected}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+                className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 rounded-xl"
                 title="Enroll selected"
                 aria-label="Enroll selected"
               >
@@ -690,7 +711,7 @@ const EnrollmentManager = ({ activeTerm }) => {
                 type="button"
                 onClick={handleUnenrollSelected}
                 disabled={bulkSaving || loading || !canUnenrollSelected}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 rounded-xl"
                 title="Unenroll selected"
                 aria-label="Unenroll selected"
               >
@@ -699,67 +720,55 @@ const EnrollmentManager = ({ activeTerm }) => {
             </div>
           </div>
 
-          {hasSelected && (
-            <div className="text-xs text-slate-500">
-              {selectedIds.length} selected
-            </div>
-          )}
-
-          <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-            <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs font-medium uppercase text-gray-500">
+                <thead className="text-sm bg-blue-500 text-white text-left">
                   <tr>
-                    <th className="w-10 px-4 py-3">
+                    <th className="w-10 px-4 py-2 ">
                       <input
                         type="checkbox"
-                        className="h-4 w-4 rounded accent-gray-900"
+                        className="h-3 w-3 rounded accent-gray-900"
                         checked={allVisibleSelected}
                         onChange={toggleSelectAllVisible}
                       />
                     </th>
 
-                    <th className="px-4 py-3">
+                    <th className="px-4 py-2 ">
+                      Student ID
+                    </th>
+
+                    <th className="px-4 py-2 ">
                       <button
                         type="button"
                         onClick={() => handleSort('name')}
-                        className="inline-flex items-center hover:text-gray-900"
+                        className="inline-flex items-center cursor-pointer "
                       >
                         Student <SortIcon column="name" />
                       </button>
                     </th>
 
-                    <th className="px-4 py-3">
+                    <th className="px-4 py-2 ">
                       <button
                         type="button"
                         onClick={() => handleSort('yearBlock')}
-                        className="inline-flex items-center hover:text-gray-900"
+                        className="inline-flex items-center cursor-pointer"
                       >
                         Year / Block <SortIcon column="yearBlock" />
                       </button>
                     </th>
 
-                    <th className="px-4 py-3">
+                    <th className="px-4 py-2 ">
                       <button
                         type="button"
                         onClick={() => handleSort('status')}
-                        className="inline-flex items-center hover:text-gray-900"
+                        className="inline-flex items-center cursor-pointer"
                       >
                         Status <SortIcon column="status" />
                       </button>
                     </th>
 
-                    <th className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => handleSort('term')}
-                        className="inline-flex items-center hover:text-gray-900"
-                      >
-                        Term <SortIcon column="term" />
-                      </button>
-                    </th>
+                  
 
-                    <th className="px-4 py-3 text-right">Action</th>
+                    <th className="px-4 py-2  text-left">Action</th>
                   </tr>
                 </thead>
 
@@ -768,7 +777,7 @@ const EnrollmentManager = ({ activeTerm }) => {
                     <TableSkeleton />
                   ) : tableStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center text-sm text-gray-500">
+                      <td colSpan={7} className="px-4 py-12 text-center text-sm text-gray-500">
                         No students found.
                       </td>
                     </tr>
@@ -787,86 +796,87 @@ const EnrollmentManager = ({ activeTerm }) => {
 
                       return (
                         <tr key={student.id} className="border-t border-gray-100 hover:bg-gray-50">
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-2 ">
                             <input
                               type="checkbox"
-                              className="h-4 w-4 rounded accent-gray-900"
+                              className="h-3 w-3 rounded accent-gray-900"
                               checked={selectedIds.includes(student.id)}
                               onChange={() => toggleSelectStudent(student.id)}
                             />
                           </td>
 
-                          <td className="px-4 py-3">
+                            <td className="px-4 py-2  whitespace-nowrap text-gray-600">
+                              {student.studentNumber || ''}
+                            </td>
+
+                          <td className="px-4 py-2 ">
                             <p className="font-medium text-gray-900">{student.name}</p>
-                            <p className="mt-0.5 text-xs text-gray-500">{student.studentNumber || '-'}</p>
                           </td>
 
-                          <td className="whitespace-nowrap px-4 py-3 text-gray-600">
+                          <td className="whitespace-nowrap px-4 py-2  text-gray-600">
                             {student.isIrregular
                               ? `${getYearLabel(Number(student.yearLevel || 1))} Year · Irregular`
                               : `${getYearLabel(Number(student.yearLevel || 1))} Year · Block ${block}`}
                           </td>
 
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-2 ">
                             <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${meta.pill}`}>
                               {meta.label}
                             </span>
                           </td>
 
-                          <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-500">{termText}</td>
 
-                         <td className="px-4 py-3 text-right">
-  <div className="flex items-center justify-end gap-2">
-    {isEnrolledHere ? (
-      <button
-        type="button"
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          handleUnenroll(student);
-        }}
-        disabled={busy}
-        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 text-xs font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-40"
-      >
-        <UserX className="h-3.5 w-3.5" />
-        {busy ? 'Saving' : 'Unenroll'}
-      </button>
-    ) : (
-      <>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            handleEnroll(student);
-          }}
-          disabled={busy || termIncomplete}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-500 px-3 text-xs font-medium text-white transition hover:bg-blue-600 disabled:opacity-40 cursor-pointer"
-        >
-          <UserCheck className="h-3.5 w-3.5" />
-          {busy ? 'Saving' : 'Enroll'}
-        </button>
+                          <td className="px-4 py-2  text-right">
+                            <div className="flex items-center justify-start gap-2">
+                              {isEnrolledHere ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    handleUnenroll(student);
+                                  }}
+                                  disabled={busy}
+                                  title="Unenroll"
+                                    className={`p-2 rounded-full bg-gray-200 text-gray-600 disabled:opacity-50 ${busy ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-300'}`}
+                                >
+                                  <UserX className="h-3.5 w-3.5" />
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      handleEnroll(student);
+                                    }}
+                                    disabled={busy || termIncomplete}
+                                    title={termIncomplete ? 'Set active semester and school year first' : 'Enroll'}
+                                    className={`p-2 rounded-full bg-gray-200 text-gray-600 disabled:opacity-50 ${(busy || termIncomplete) ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-300'}`}
+                                  >
+                                    <UserCheck className="h-3.5 w-3.5" />
+                                  </button>
 
-        {student.enrollmentStatus !== 'not-enrolled' && (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              handleUnenroll(student);
-            }}
-            disabled={busy}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 text-xs font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-40"
-          >
-            <UserX className="h-3.5 w-3.5" />
-            {busy ? 'Saving' : 'Unenroll'}
-          </button>
-        )}
-      </>
-    )}
-  </div>
-</td>
-
+                                  {student.enrollmentStatus !== 'not-enrolled' && (
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        handleUnenroll(student);
+                                      }}
+                                      disabled={busy}
+                                      title="Unenroll"
+                                      className={`p-2 rounded-full bg-gray-200 text-gray-600 disabled:opacity-50 ${busy ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-300'}`}
+                                    >
+                                      <UserX className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       );
                     })

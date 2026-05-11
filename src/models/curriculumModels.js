@@ -62,6 +62,14 @@ export const archiveAndPromoteStudents = async (batchStartYear, batchEndYear) =>
   // 8. Commit batch
   try {
     await batch.commit();
+    await logSystemAction({
+      action: 'Archived and promoted students',
+      module: 'Curriculum Checker',
+      entityType: 'studentBatch',
+      entityId: batchName,
+      description: `Archived ${toArchive.length} students and promoted eligible students`,
+      details: { batchStartYear, batchEndYear, archivedCount: toArchive.length }
+    });
     return { success: true, message: `Archived ${toArchive.length} students and promoted others.` };
   } catch (error) {
     return { success: false, message: error.message };
@@ -80,6 +88,7 @@ import {
   orderBy
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { logSystemAction } from '../utils/auditLogger';
 
 // Curriculum Model
 export const createCurriculum = async (curriculumData) => {
@@ -90,6 +99,14 @@ export const createCurriculum = async (curriculumData) => {
       yearLevels: curriculumData.yearLevels, // Array of year levels (1-4)
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
+    });
+    await logSystemAction({
+      action: 'Created curriculum',
+      module: 'Curriculum Checker',
+      entityType: 'curriculum',
+      entityId: docRef.id,
+      description: `Created curriculum: ${curriculumData.name || 'Untitled curriculum'}`,
+      details: curriculumData
     });
     return { success: true, id: docRef.id };
   } catch (error) {
@@ -128,6 +145,14 @@ export const addCourse = async (curriculumId, yearLevel, semester, courseData) =
       isMajor: courseData.isMajor || false, // New field for major subject
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
+    });
+    await logSystemAction({
+      action: 'Added course',
+      module: 'Curriculum Checker',
+      entityType: 'course',
+      entityId: docRef.id,
+      description: `Added course: ${courseData.courseCode || ''} ${courseData.courseTitle || ''}`.trim(),
+      details: { curriculumId, yearLevel, semester, ...courseData }
     });
     return { success: true, id: docRef.id };
   } catch (error) {
@@ -176,10 +201,19 @@ export const addStudent = async (studentData) => {
       curriculumId: isIrregular ? null : studentData.curriculumId,
       completedCourses: [], // Array of course codes
       isIrregular,
+      enrolled: studentData.enrolled === true,
       semesterLoads: studentData.semesterLoads || { sem1: [], sem2: [] },
       irregularSubjects: studentData.irregularSubjects || { sem1: [], sem2: [] },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
+    });
+    await logSystemAction({
+      action: 'Added student',
+      module: 'Curriculum Checker',
+      entityType: 'student',
+      entityId: docRef.id,
+      description: `Added student: ${studentData.name || 'Unnamed student'}`,
+      details: studentData
     });
     return { success: true, id: docRef.id };
   } catch (error) {
@@ -244,6 +278,14 @@ export const updateStudentCourse = async (studentId, courseCode, isCompleted) =>
     await updateDoc(studentRef, {
       completedCourses,
       updatedAt: new Date().toISOString()
+    });
+    await logSystemAction({
+      action: isCompleted ? 'Marked course completed' : 'Unmarked course completed',
+      module: 'Curriculum Checker',
+      entityType: 'student',
+      entityId: studentId,
+      description: `${isCompleted ? 'Marked' : 'Unmarked'} ${courseCode} for student ${studentId}`,
+      details: { courseCode, isCompleted }
     });
     
     return { success: true };
@@ -463,6 +505,14 @@ export const saveDeanListCriteria = async (criteria = {}) => {
     await setDoc(DEAN_LIST_CRITERIA_DOC, payload, { merge: true });
     // Keep legacy document updated for compatibility with existing dashboards/manual checks.
     await setDoc(LEGACY_DEAN_LIST_CRITERIA_DOC, payload, { merge: true });
+    await logSystemAction({
+      action: 'Updated dean list criteria',
+      module: 'Reports',
+      entityType: 'setting',
+      entityId: 'dean_list_criteria',
+      description: 'Updated Dean\'s List criteria',
+      details: payload
+    });
     return { success: true, data: payload };
   } catch (error) {
     console.error('Error saving dean list criteria:', error);

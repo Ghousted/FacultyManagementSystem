@@ -1,95 +1,82 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowBigLeft, Building2, Laptop } from 'lucide-react';
 import PayablesSystem from './PayablesSystem';
 import OtherDepartmentPayables from './OtherDepartmentPayables';
 
-const PayablesMain = ({ onBackToDashboard }) => {
-  const [selectedDepartmentType, setSelectedDepartmentType] = useState('');
+const PayablesMain = ({ onBackToDashboard, initialDepartment = 'ccs' }) => {
+  const [selectedDepartmentType, setSelectedDepartmentType] = useState(initialDepartment || 'ccs');
 
-  const departmentCards = [
-    {
-      key: 'ccs',
-      title: 'CCS Department',
-      description: 'Manage payables related to the College of Computer Studies.',
-      icon: Laptop
-    },
-    {
-      key: 'other',
-      title: 'Other Departments',
-      description: 'Create and manage independent payables from other departments.',
-      icon: Building2
-    }
+  useEffect(() => {
+    setSelectedDepartmentType(initialDepartment || 'ccs');
+  }, [initialDepartment]);
+
+  // dispatch initial breadcrumb on mount
+  useEffect(() => {
+    const detail = selectedDepartmentType === 'ccs'
+      ? { departmentType: 'ccs', selectedFolder: null }
+      : { departmentType: 'other', departmentName: null, selectedFolder: null };
+    window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const tabs = [
+    { key: 'ccs', label: 'CCS Department', icon: Laptop },
+    { key: 'other', label: 'Other Departments', icon: Building2 }
   ];
-
-  if (selectedDepartmentType === 'ccs') {
-    return <PayablesSystem onBackToDashboard={() => setSelectedDepartmentType('')} />;
-  }
-
-  if (selectedDepartmentType === 'other') {
-    return <OtherDepartmentPayables onBackToPayablesMain={() => setSelectedDepartmentType('')} />;
-  }
 
   return (
     <div>
-      <div className="mb-6 rounded-2xl border border-blue-100 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <button
-            onClick={onBackToDashboard}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:ring-offset-2"
-            aria-label="Back to dashboard"
-            title="Back to dashboard"
-          >
-            <ArrowBigLeft className="h-5 w-5" />
-          </button>
-
-          <div>
-            <h5 className="text-2xl font-semibold text-gray-900">
-              Payables Management System
-            </h5>
-            <p className="mt-1 text-sm leading-relaxed text-gray-500">
-              Manage invoices, track payments, and handle institutional financial records.
-            </p>
-          </div>
-        </div>
-      </div>
 
     
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
-        {departmentCards.map((department) => {
-          const Icon = department.icon;
+       <div className="flex gap-2 bg-slate-200/90 p-1 rounded-xl w-fit mb-4">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const active = selectedDepartmentType === tab.key;
 
-          return (
-            <button
-              key={department.key}
-              type="button"
-              onClick={() => setSelectedDepartmentType(department.key)}
-              className="group h-64 rounded-2xl border border-gray-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-200"
-            >
-              <div className="flex h-full flex-col justify-between">
-                <div>
-                  <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600 transition group-hover:bg-blue-100">
-                    <Icon className="h-6 w-6" />
-                  </div>
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    // If clicking the already-active tab, reset that department's selection
+                    if (selectedDepartmentType === tab.key) {
+                      if (tab.key === 'ccs') {
+                        window.dispatchEvent(new CustomEvent('payables-reset', { detail: { departmentType: 'ccs' } }));
+                        window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'ccs', selectedFolder: null } }));
+                      } else {
+                        window.dispatchEvent(new CustomEvent('payables-reset', { detail: { departmentType: 'other' } }));
+                        window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'other', departmentName: null, selectedFolder: null } }));
+                      }
+                      return;
+                    }
 
-                  <h5 className="text-lg font-semibold text-gray-900">
-                    {department.title}
-                  </h5>
+                    setSelectedDepartmentType(tab.key);
+                    if (tab.key === 'ccs') {
+                      window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'ccs', selectedFolder: null } }));
+                    } else {
+                      window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'other', departmentName: null, selectedFolder: null } }));
+                    }
+                  }}
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                    active
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-gray-600 hover:bg-white hover:text-gray-900 cursor-pointer'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
 
-                  <p className="mt-2 text-sm leading-relaxed text-gray-500">
-                    {department.description}
-                  </p>
-                </div>
 
-                <div className="mt-5 flex items-center text-sm font-medium text-blue-600">
-                  Open module
-                  <i className="bi bi-chevron-right ml-2 text-xs transition group-hover:translate-x-0.5"></i>
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+      {selectedDepartmentType === 'ccs' ? (
+        <PayablesSystem onBackToDashboard={onBackToDashboard} />
+      ) : (
+        <OtherDepartmentPayables onBackToPayablesMain={onBackToDashboard} />
+      )}
     </div>
   );
 };

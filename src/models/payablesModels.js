@@ -12,6 +12,7 @@ import {
     orderBy
   } from 'firebase/firestore';
   import { db } from '../firebase';
+  import { logSystemAction } from '../utils/auditLogger';
   
   // Payables Model Functions
   export const createPayable = async (payableData, userId) => {
@@ -21,6 +22,14 @@ import {
         userId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
+      });
+      await logSystemAction({
+        action: 'Created payable',
+        module: 'Payables System',
+        entityType: 'payable',
+        entityId: docRef.id,
+        description: `Created payable: ${payableData.title || payableData.name || 'Untitled payable'}`,
+        details: payableData
       });
       return { success: true, id: docRef.id };
     } catch (error) {
@@ -51,6 +60,21 @@ import {
         ...updates,
         updatedAt: new Date().toISOString()
       });
+      const studentPaymentKeys = Object.keys(updates || {}).filter((key) => key.startsWith('studentPayments.'));
+      const isPaymentUpdate = studentPaymentKeys.length > 0;
+      const statusKey = studentPaymentKeys.find((key) => key.endsWith('.status'));
+      const status = statusKey ? updates[statusKey] : '';
+
+      await logSystemAction({
+        action: isPaymentUpdate
+          ? (status === 'fully_paid' ? 'Paid full' : 'Paid partial')
+          : 'Updated payable',
+        module: 'Payables System',
+        entityType: 'payable',
+        entityId: payableId,
+        description: isPaymentUpdate ? `Recorded ${status === 'fully_paid' ? 'full' : 'partial'} payment` : `Updated payable ${payableId}`,
+        details: { ...updates, status }
+      });
       return { success: true };
     } catch (error) {
       console.error('Error updating payable:', error);
@@ -61,6 +85,13 @@ import {
   export const deletePayable = async (payableId) => {
     try {
       await deleteDoc(doc(db, 'payables', payableId));
+      await logSystemAction({
+        action: 'Deleted payable',
+        module: 'Payables System',
+        entityType: 'payable',
+        entityId: payableId,
+        description: `Deleted payable ${payableId}`
+      });
       return { success: true };
     } catch (error) {
       console.error('Error deleting payable:', error);
@@ -75,6 +106,14 @@ import {
         ...studentPaymentData,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
+      });
+      await logSystemAction({
+        action: Number(studentPaymentData.balanceAfter) === 0 ? 'Paid full' : 'Paid partial',
+        module: 'Payables System',
+        entityType: 'studentPayment',
+        entityId: docRef.id,
+        description: `Paid ${studentPaymentData.description || 'payable'}`,
+        details: studentPaymentData
       });
       return { success: true, id: docRef.id };
     } catch (error) {
@@ -108,6 +147,14 @@ import {
       await updateDoc(doc(db, 'studentPayments', paymentId), {
         ...updates,
         updatedAt: new Date().toISOString()
+      });
+      await logSystemAction({
+        action: 'Updated student payment',
+        module: 'Payables System',
+        entityType: 'studentPayment',
+        entityId: paymentId,
+        description: `Updated student payment ${paymentId}`,
+        details: updates
       });
       return { success: true };
     } catch (error) {
@@ -210,6 +257,14 @@ import {
         ratePerStudent: safe,
         updatedAt: new Date().toISOString()
       }, { merge: true });
+      await logSystemAction({
+        action: 'Updated cutback rate',
+        module: 'Payables System',
+        entityType: 'setting',
+        entityId: 'professor_cutback',
+        description: `Set professor cutback rate to ${safe}`,
+        details: { ratePerStudent: safe }
+      });
       return { success: true, data: safe };
     } catch (error) {
       console.error('Error saving cutback rate:', error);
@@ -237,6 +292,14 @@ import {
       await updateDoc(doc(db, 'courses', courseId), {
         isOffered: !!isOffered,
         updatedAt: new Date().toISOString()
+      });
+      await logSystemAction({
+        action: isOffered ? 'Offered module' : 'Removed offered module',
+        module: 'Payables System',
+        entityType: 'course',
+        entityId: courseId,
+        description: `${isOffered ? 'Marked' : 'Unmarked'} course as offered`,
+        details: { isOffered: !!isOffered }
       });
       return { success: true };
     } catch (error) {

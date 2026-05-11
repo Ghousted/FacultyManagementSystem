@@ -5,7 +5,8 @@ import { doc, deleteDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { FileText } from 'lucide-react';
 import CurriculumPreview from './CurriculumPReview';
-import { X, ChevronUp, ChevronDown, MoreVertical, ChevronsUpDown, Pencil, Trash, Printer, BadgePlus, Check , Search, ArrowBigLeft } from 'lucide-react';
+import { X, ChevronUp, ChevronDown, MoreVertical, ChevronsUpDown, Pencil, Trash, Printer, BadgePlus, Check , Search, Folder, RefreshCw } from 'lucide-react';
+import { logSystemAction } from '../../utils/auditLogger';
 
 const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const { currentUser, isOnline } = useAuth();
@@ -16,6 +17,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [curriculumSearch, setCurriculumSearch] = useState('');
 
   const [curriculumForm, setCurriculumForm] = useState({
     name: '',
@@ -50,6 +52,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewCurriculumId, setPreviewCurriculumId] = useState(null);
   const [printOnlyOpen, setPrintOnlyOpen] = useState(false);
+  const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [sortField, setSortField] = useState('courseCode');
   const [sortDirection, setSortDirection] = useState('asc');
   const [tableFilters, setTableFilters] = useState({ 1: '', 2: '', 3: '' });
@@ -249,6 +252,11 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     return () => clearTimeout(timer);
   }, [printOnlyOpen]);
 
+  const handleConfirmPrint = () => {
+    setPrintPreviewOpen(false);
+    setPrintOnlyOpen(true);
+  };
+
   const showMessage = (message, severity = 'success') => {
     setSnackbarMessage(message);
     setSnackbarSeverity(severity);
@@ -288,21 +296,25 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setSelectedCurriculumForMenu(null);
   };
 
-  const handleEditCurriculum = () => {
-    if (!selectedCurriculumForMenu) {
+  const handleEditCurriculum = (curriculum = selectedCurriculumForMenu) => {
+    if (!curriculum) {
       // Optionally show a message or just return silently
       return;
     }
     setEditingCurriculumData({
-      name: selectedCurriculumForMenu.name,
-      description: selectedCurriculumForMenu.description,
-      yearLevels: selectedCurriculumForMenu.yearLevels
+      name: curriculum.name,
+      description: curriculum.description,
+      yearLevels: curriculum.yearLevels
     });
+    setSelectedCurriculumForMenu(curriculum);
     setEditCurriculumDialogOpen(true);
     setMenuAnchorEl(null); // Only close the menu, don't clear selectedCurriculumForMenu
   };
 
-  const handleDeleteCurriculumClick = () => {
+  const handleDeleteCurriculumClick = (curriculum = selectedCurriculumForMenu) => {
+    if (curriculum) {
+      setSelectedCurriculumForMenu(curriculum);
+    }
     setDeleteCurriculumDialogOpen(true);
     setMenuAnchorEl(null); // Only close the menu, don't clear selectedCurriculumForMenu
   };
@@ -322,6 +334,14 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       await updateDoc(curriculumRef, {
         ...editingCurriculumData,
         updatedAt: new Date()
+      });
+      await logSystemAction({
+        action: 'Updated curriculum',
+        module: 'Curriculum Checker',
+        entityType: 'curriculum',
+        entityId: selectedCurriculumForMenu.id,
+        description: `Updated curriculum: ${editingCurriculumData.name || selectedCurriculumForMenu.id}`,
+        details: editingCurriculumData
       });
       
       showMessage('Curriculum updated successfully!');
@@ -361,6 +381,14 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       batch.delete(curriculumRef);
       
       await batch.commit();
+      await logSystemAction({
+        action: 'Deleted curriculum',
+        module: 'Curriculum Checker',
+        entityType: 'curriculum',
+        entityId: selectedCurriculumForMenu.id,
+        description: `Deleted curriculum and associated courses: ${selectedCurriculumForMenu.name || selectedCurriculumForMenu.id}`,
+        details: { curriculumId: selectedCurriculumForMenu.id }
+      });
       showMessage('Curriculum and all associated courses deleted successfully!');
       
       // Clear selected curriculum if it was the one deleted
@@ -573,6 +601,14 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       }
       
       await batch.commit();
+      await logSystemAction({
+        action: 'Updated course',
+        module: 'Curriculum Checker',
+        entityType: 'course',
+        entityId: editingCourse.id,
+        description: `Updated course: ${courseForm.courseCode || editingCourse.id}`,
+        details: courseForm
+      });
       showMessage('Course updated successfully!');
       setEditingCourse(null);
       setEditingData({});
@@ -597,6 +633,13 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setError('');
     try {
       await deleteDoc(doc(db, 'courses', courseId));
+      await logSystemAction({
+        action: 'Deleted course',
+        module: 'Curriculum Checker',
+        entityType: 'course',
+        entityId: courseId,
+        description: `Deleted course ${courseId}`
+      });
       showMessage('Course deleted successfully!');
       await loadCourses(selectedCurriculum.id);
     } catch (error) {
@@ -729,6 +772,14 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
         batch.update(courseRef, { isAvailable: checked, updatedAt: new Date() });
       });
       await batch.commit();
+      await logSystemAction({
+        action: checked ? 'Marked semester courses available' : 'Marked semester courses unavailable',
+        module: 'Curriculum Checker',
+        entityType: 'courseBatch',
+        entityId: selectedCurriculum.id,
+        description: `${checked ? 'Marked available' : 'Marked unavailable'} courses for year ${yearLevel}, semester ${semester}`,
+        details: { curriculumId: selectedCurriculum.id, yearLevel, semester, isAvailable: checked }
+      });
       showMessage(`Courses ${checked ? 'marked available' : 'marked unavailable'} for this semester.`);
       await loadCourses(selectedCurriculum.id);
       await loadAllCourses();
@@ -739,122 +790,170 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     }
   };
 
-  const renderCurriculumList = () => (
-    <div className="">
-
-      <div className=" bg-white text-black p-8 rounded-2xl mb-10 flex items-center justify-between border border-gray-300 shadow-lg">
-        <div className="flex items-center gap-6">
-          <button
-            onClick={onBack}
-            aria-label="Back to dashboard"
-            title="Back to dashboard"
-            className="group cursor-pointer flex items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
-          >
-            <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
-          </button>
-          <div className="flex flex-col ">
-            <h2 className="text-2xl font-medium text-blue-600">Curriculum Maker</h2>
-            <p className="text-gray-500 text-sm">
-              Create and manage your curriculum. Click on a curriculum to view and edit its courses.
-            </p>
-          </div>         
-        </div>
-        <button
-          onClick={() => setCurriculumDialogOpen(true)}
-          className="inline-flex  cursor-pointer items-center text-sm gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700"
-        >
-          <BadgePlus className="w-4 h-4" />
-          <span>Add  Curriculum</span>
-        </button>
-      </div>
-
-       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-      {curriculums.map((curriculum) => (
-        <div
-          key={curriculum.id}
-          onClick={() => setSelectedCurriculum(curriculum)}
-          className={`relative px-4 py-8 rounded-xl border transition shadow-sm cursor-pointer hover:shadow-lg hover:-translate-y-0.5 ${
-            selectedCurriculum?.id === curriculum.id
-              ? "border-blue-600 bg-blue-50"
-              : "border-gray-300 bg-white hover:border-blue-400"
-          }`}
-        >
-          {/* Header */}
-          <div className="flex items-start justify-between h-18">
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                Curriculum
-              </p>
-              <h3 className="text-lg font-semibold text-blue-800  pr-8">{curriculum.name}</h3>
-            </div>
-
-            {/* 3 dots button */}
-            <div className="relative" data-curriculum-menu>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setOpenMenuId((prev) => (prev === curriculum.id ? null : curriculum.id));
-                }}
-                className="p-1.5 rounded-full text-gray-700 hover:bg-gray-200 cursor-pointer"
-              >
-                <MoreVertical className="w-4 h-4" />
-              </button>
-
-              {/* Dropdown */}
-              {openMenuId === curriculum.id && (
-                <div
-                  className="absolute right-0 mt-2 w-32 bg-white border border-gray-300 rounded-lg shadow-lg z-10"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    onClick={() => {
-                      setSelectedCurriculumForMenu(curriculum);
-                      handleEditCurriculum();
-                      setOpenMenuId(null);
-                    }}
-                    className="rounded-t-lg gap-2 text-left  cursor-pointer w-full px-3 py-1.5 text-sm hover:bg-gray-100"
-                  >
-                    Edit
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setSelectedCurriculumForMenu(curriculum);
-                      handleDeleteCurriculumClick();
-                      setOpenMenuId(null);
-                    }}
-                    className="rounded-t-lg gap-2 text-left  cursor-pointer w-full px-3 py-1.5 text-sm hover:bg-gray-100"
-                  >
-                    Delete
-                  </button>
-                </div>
-              )}
+  const renderCurriculumSkeleton = () => (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+      {[1, 2, 3, 4, 5, 6, 7, 8].map((item) => (
+        <div key={item} className="relative rounded-xl border border-gray-300 bg-white p-4 shadow-sm">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="h-10 w-10 animate-pulse rounded-lg bg-blue-50" />
+            <div className="flex-1">
+              <div className="mb-2 h-4 w-28 animate-pulse rounded bg-gray-100" />
+              <div className="h-3 w-20 animate-pulse rounded bg-gray-100" />
             </div>
           </div>
-          
+          <div className="h-3 w-full animate-pulse rounded bg-gray-100" />
+          <div className="mt-2 h-3 w-2/3 animate-pulse rounded bg-gray-100" />
         </div>
       ))}
     </div>
-
-      {curriculums.length === 0 && (
-        <div className="text-center py-8">
-          <div className="text-gray-600 text-lg font-medium mb-1">No curriculums yet</div>
-          <div className="text-gray-500 mb-4">Create your first curriculum to get started</div>
-          <button
-            onClick={() => setCurriculumDialogOpen(true)}
-            className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
-          >
-            <i className="bi bi-plus-lg"></i>
-            <span>Create First Curriculum</span>
-          </button>
-        </div>
-      )}
-
-      {/* Print-only preview (hidden on screen, visible only when printing) */}
-      {/* print-only preview moved to global scope so printing works from any view */}
-      
-    </div>
   );
+
+  const renderCurriculumList = () => {
+    const searchTerm = curriculumSearch.trim().toLowerCase();
+    const visibleCurriculums = searchTerm
+      ? curriculums.filter((curriculum) =>
+          [curriculum.name, curriculum.description]
+            .some((value) => (value || '').toString().toLowerCase().includes(searchTerm))
+        )
+      : curriculums;
+
+    return (
+      <div className="space-y-4">
+       <div className="flex items-center justify-between">
+        {/* Left Side */}
+        <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
+          <button
+            type="button"
+            onClick={loadCurriculums}
+            disabled={loading}
+            title="Refresh curriculums"
+            className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-gray-300 text-blue-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+
+            <input
+              value={curriculumSearch}
+              onChange={(event) => setCurriculumSearch(event.target.value)}
+              placeholder="Search curriculum"
+              className="h-10 w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+
+        </div>
+
+        {/* Right Side */}
+        <div className="flex items-center gap-2">
+          <button
+                  onClick={() => setCurriculumDialogOpen(true)}
+                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm text-white hover:bg-blue-700"
+                >
+                  <BadgePlus className="h-4 w-4" />
+                  <span>Add Curriculum</span>
+                </button>
+        </div>
+
+      </div>
+
+        {loading ? renderCurriculumSkeleton() : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {visibleCurriculums.map((curriculum) => (
+              <div
+                key={curriculum.id}
+                onClick={() => setSelectedCurriculum(curriculum)}
+                className="group relative min-h-36 cursor-pointer rounded-xl border border-gray-300 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md"
+              >
+
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                      <Folder className="h-5 w-5" />
+                    </div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Curriculum
+                    </p>
+                    <h3 className="mt-1 truncate text-base font-semibold text-blue-800">
+                      {curriculum.name}
+                    </h3>
+                    {curriculum.description && (
+                      <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-gray-500">
+                        {curriculum.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="relative shrink-0" data-curriculum-menu>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenuId((prev) => (prev === curriculum.id ? null : curriculum.id));
+                      }}
+                      className="rounded-full p-1.5 text-gray-700 hover:bg-gray-200"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+
+                    {openMenuId === curriculum.id && (
+                      <div
+                        className="absolute right-0 z-10 mt-2 w-32 rounded-lg border border-gray-300 bg-white shadow-lg"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleEditCurriculum(curriculum);
+                            setOpenMenuId(null);
+                          }}
+                          className="w-full cursor-pointer rounded-t-lg px-3 py-1.5 text-left text-sm hover:bg-gray-100"
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleDeleteCurriculumClick(curriculum);
+                            setOpenMenuId(null);
+                          }}
+                          className="w-full cursor-pointer rounded-b-lg px-3 py-1.5 text-left text-sm hover:bg-gray-100"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && curriculums.length === 0 && (
+          <div className="rounded-xl border border-gray-200 bg-white py-10 text-center shadow-sm">
+            <div className="text-lg font-medium text-gray-600">No curriculums yet</div>
+            <div className="mb-4 text-gray-500">Create your first curriculum to get started</div>
+            <button
+              onClick={() => setCurriculumDialogOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            >
+              <i className="bi bi-plus-lg"></i>
+              <span>Create First Curriculum</span>
+            </button>
+          </div>
+        )}
+
+        {!loading && curriculums.length > 0 && visibleCurriculums.length === 0 && (
+          <div className="rounded-xl border border-gray-200 bg-white py-10 text-center text-sm text-gray-500 shadow-sm">
+            No curriculum matched your search.
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderCourseTables = () => {
     if (!selectedCurriculum) return null;
@@ -866,15 +965,16 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       <div>
     
 
-      <div className="mb-6 flex flex-wrap gap-2 text-sm">
+      <div className='flex items-center justify-between gap-4'>
+        <div className="flex gap-2 bg-gray-200/50 p-1  text-sm rounded-xl w-fit">
         {[1, 2, 3, 4].map((year, idx) => (
           <button
             key={year}
             onClick={() => { setTabValue(idx); setSelectedYear(year); }}
-            className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition 
                       ${tabValue === idx 
-                        ? 'bg-blue-100 text-blue-600'
-                        : 'text-gray-800 hover:bg-gray-100'
+                        ? 'bg-blue-500 text-white'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
                       }`}
           >
             {yearLabels[idx]}
@@ -882,14 +982,28 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
         ))}
         <button
           onClick={() => { setTabValue(4); setSelectedYear('irregular'); }}
-          className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
+          className={`rounded-xl px-4 py-2 text-sm font-semibold transition 
                     ${tabValue === 4 
-                      ? 'bg-blue-100 text-blue-600'
-                      : 'text-gray-800 hover:bg-gray-100'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
                     }`}
         >
           Irregulars
         </button>
+      </div>
+
+        <button
+                    type="button"
+                    onClick={() => {
+                      if (!selectedCurriculum) return;
+                      setPreviewCurriculumId(selectedCurriculum?.id || '');
+                      setPrintPreviewOpen(true);
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-2 cursor-pointer text-sm text-white hover:bg-green-700 "
+                  >
+                    <Printer className="w-4 h-4" />
+                    Print Curriculum
+                  </button>
       </div>
 
       <div>
@@ -1238,6 +1352,23 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
 
   return (
     <div className=" max-w-7xl mx-auto flex flex-col">
+      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+        <span>Dashboard</span>
+        <span className="text-gray-300">&gt;</span>
+        <button
+          type="button"
+          onClick={() => selectedCurriculum ? setSelectedCurriculum(null) : onBack?.()}
+          className={`text-left ${selectedCurriculum ? 'text-gray-600 hover:text-blue-600' : 'font-medium text-blue-600'}`}
+        >
+          Curriculum Maker
+        </button>
+        {selectedCurriculum && (
+          <>
+            <span className="text-gray-300">&gt;</span>
+            <span className="font-medium text-blue-600">{selectedCurriculum.name}</span>
+          </>
+        )}
+      </div>
       {!currentUser && (
         <div className="mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-4 py-2">
           Please sign in to access the Curriculum Maker
@@ -1254,54 +1385,13 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       {currentUser ? (
         <div className=" w-full">
           {!selectedCurriculum ? (
-            <div className="flex-1">{renderCurriculumList()}</div>
+            <div className="flex-1">
+              {renderCurriculumList()}
+            </div>
           ) : (
-            <div className="flex-1 flex flex-col">
-              <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-300 mb-4">
-                <div className="flex items-center justify-between">
-                  
-                  <div className="flex items-center gap-6">
-                    <button
-                      onClick={() => setSelectedCurriculum(null)}
-                      aria-label="Back to list"
-                      title="Back to list"
-                      className="group flex cursor-pointer items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
-                    >
-                      <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
-                    </button>
-
-                    <div>
-                      <div className="text-2xl font-semibold text-blue-600">
-                        {selectedCurriculum?.name}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        Manage and edit courses for this curriculum.
-                      </div>
-
-                    </div>
-                  </div>
-
-                  {/* Right Side */}
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!selectedCurriculum) return;
-                        setPreviewCurriculumId(selectedCurriculum?.id || '');
-                        setPrintOnlyOpen(true);
-                      }}
-                      className="inline-flex items-center text-sm gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl cursor-pointer hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white"
-                    >
-                      <Printer className="w-4 h-4" />
-                      Print Curriculum 
-                    </button>
-                  </div>
-
-                </div>
-              </div>
+              
 
               <div>{renderCourseTables()}</div>
-            </div>
           )}
         </div>
       ) : (
@@ -1996,6 +2086,39 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                 className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {printPreviewOpen && previewCurriculumId && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full mx-4 max-h-[90vh] overflow-hidden">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h2 className="text-lg font-semibold">Print Preview</h2>
+              <button
+                onClick={() => setPrintPreviewOpen(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[70vh]">
+              <CurriculumPreview curriculumId={previewCurriculumId} />
+            </div>
+            <div className="flex justify-end gap-2 p-4 border-t">
+              <button
+                onClick={() => setPrintPreviewOpen(false)}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmPrint}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2"
+              >
+                <Printer className="w-4 h-4" />
+                Print
               </button>
             </div>
           </div>

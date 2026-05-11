@@ -269,6 +269,8 @@ export function exportDeanListToExcel(data, defaultFilename = 'deans_list.xlsx',
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), defaultFilename);
 }
 
+// ─── Shared helpers ────────────────────────────────────────────────────────────
+
 const sanitizeSheetName = (name) => {
   const cleaned = (name || 'Sheet').toString().replace(/[\\/?*[\]:]/g, '-').trim() || 'Sheet';
   return cleaned.length > 31 ? cleaned.slice(0, 31) : cleaned;
@@ -283,39 +285,143 @@ const dedupeSheetName = (wb, baseName) => {
   return `${root} (${i})`;
 };
 
+// ─── Module payment helpers ────────────────────────────────────────────────────
+
+const MOD_SEMESTER_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
+const MOD_YEAR_LABELS     = { 1: '1st Year', 2: '2nd Year', 3: '3rd Year', 4: '4th Year' };
+
+const phpAmount = (val) =>
+  val !== null && val !== undefined ? `PHP ${Number(val).toFixed(2)}` : 'No payable';
+const yearLabel = (y) => MOD_YEAR_LABELS[Number(y)] || 'Irregular';
+const termLabel = (s) => MOD_SEMESTER_LABELS[s] || (s ? `Sem ${s}` : '—');
+const blockList = (blocks = []) =>
+  blocks.map(b => b.block).filter(b => b && b !== '-').join(', ') || '—';
+
+// ─── Module detail sheet builder ──────────────────────────────────────────────
+//
+// Layout mirrors the UI table:
+//   Info block  →  Subject Code / Title / Professor / Year Level / Block(s) / Term / Amount
+//   Blank row
+//   Student table  →  Name | Classification | Block | Status | Amount Paid (PHP)
+//   Blank row
+//   Totals footer  →  Total Students / Paid / Partial / Unpaid
+
 const buildModuleSheet = (mod) => {
   const rows = [];
-  rows.push([`Module: ${mod.courseCode || ''} — ${mod.courseTitle || ''}`]);
-  rows.push([`Year Level: ${mod.yearLevel || '-'}`, `Semester: ${mod.semester || '-'}`]);
-  rows.push([`Amount: ${mod.amount != null ? Number(mod.amount).toFixed(2) : 'N/A'}`]);
-  rows.push([]);
-  rows.push(['Block', 'Student Name', 'Status', 'Paid Amount']);
+
+  // Info block
+  rows.push(['Subject Code',  mod.courseCode  || '']);
+  rows.push(['Subject Title', mod.courseTitle || '']);
+  rows.push(['Professor',     mod.professor   || '—']);
+  rows.push(['Year Level',    yearLabel(mod.yearLevel)]);
+  rows.push(['Block(s)',       blockList(mod.blocks)]);
+  rows.push(['Term',          termLabel(mod.semester)]);
+  rows.push(['Amount',        phpAmount(mod.amount)]);
+  rows.push([]); // blank separator
+
+  // Student table header
+  rows.push(['Name', 'Classification', 'Block', 'Status', 'Amount Paid (PHP)']);
 
   const blockGroups = mod.blocks || [];
   if (blockGroups.length === 0) {
-    rows.push(['—', 'No students enrolled', '', '']);
+    rows.push(['No students enrolled', '', '', '', '']);
   } else {
     blockGroups.forEach(group => {
       const students = group.students || [];
       if (students.length === 0) {
-        rows.push([group.block || '—', '(no students)', '', '']);
+        rows.push(['(no students)', '', group.block || '—', '', '']);
       } else {
-        students.forEach((s, idx) => {
+        students.forEach(s => {
           rows.push([
-            idx === 0 ? (group.block || '—') : '',
-            s.name || '',
-            s.status || 'UNPAID',
-            s.paidAmount != null ? Number(s.paidAmount).toFixed(2) : '0.00'
+            s.name        || '',
+            s.isIrregular ? 'Irregular' : 'Regular',
+            s.isIrregular ? '—' : (group.block || '—'),
+            s.status      || 'UNPAID',
+            s.paidAmount  != null ? Number(s.paidAmount).toFixed(2) : '0.00',
           ]);
         });
       }
     });
   }
 
+  // Totals footer
+  const allStudents  = blockGroups.flatMap(b => b.students || []);
+  const paidCount    = allStudents.filter(s => s.status === 'PAID').length;
+  const partialCount = allStudents.filter(s => s.status === 'PARTIAL').length;
+  const unpaidCount  = allStudents.length - paidCount - partialCount;
+
+  rows.push([]);
+  rows.push(['Total Students', allStudents.length, '', '', '']);
+  rows.push(['Paid',           paidCount,           '', '', '']);
+  rows.push(['Partial',        partialCount,         '', '', '']);
+  rows.push(['Unpaid',         unpaidCount,          '', '', '']);
+
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 10 }, { wch: 36 }, { wch: 10 }, { wch: 14 }];
+  ws['!cols'] = [
+    { wch: 32 }, // Name / Label
+    { wch: 16 }, // Classification / Value
+    { wch: 10 }, // Block
+    { wch: 10 }, // Status
+    { wch: 18 }, // Amount Paid
+  ];
   return ws;
 };
+
+// ─── Summary sheet helpers ────────────────────────────────────────────────────
+//
+// Columns match the UI table header order:
+//   Subject Code | Subject Title | Professor | Year Level | Block(s) | Term |
+//   Amount (PHP) | Total Students | Paid | Partial | Unpaid
+
+const SUMMARY_HEADER = [
+  'Subject Code',
+  'Subject Title',
+  'Professor',
+  'Year Level',
+  'Block(s)',
+  'Term',
+  'Amount (PHP)',
+  'Total Students',
+  'Paid',
+  'Partial',
+  'Unpaid',
+];
+
+const SUMMARY_COL_WIDTHS = [
+  { wch: 16 }, // Subject Code
+  { wch: 36 }, // Subject Title
+  { wch: 26 }, // Professor
+  { wch: 12 }, // Year Level
+  { wch: 12 }, // Block(s)
+  { wch: 10 }, // Term
+  { wch: 14 }, // Amount
+  { wch: 15 }, // Total Students
+  { wch:  8 }, // Paid
+  { wch:  8 }, // Partial
+  { wch:  8 }, // Unpaid
+];
+
+const buildSummaryRow = (mod) => {
+  const allStudents  = (mod.blocks || []).flatMap(b => b.students || []);
+  const paidCount    = allStudents.filter(s => s.status === 'PAID').length;
+  const partialCount = allStudents.filter(s => s.status === 'PARTIAL').length;
+  const unpaidCount  = allStudents.length - paidCount - partialCount;
+  return [
+    mod.courseCode  || '',
+    mod.courseTitle || '',
+    mod.professor   || '—',
+    yearLabel(mod.yearLevel),
+    blockList(mod.blocks),
+    termLabel(mod.semester),
+    mod.amount != null ? Number(mod.amount).toFixed(2) : 'No payable',
+    allStudents.length,
+    paidCount,
+    partialCount,
+    unpaidCount,
+  ];
+};
+
+// ─── Public: single-module export ─────────────────────────────────────────────
 
 export function exportSingleModulePaymentsToExcel(mod, filename = 'module_payments.xlsx') {
   const wb = XLSX.utils.book_new();
@@ -326,29 +432,18 @@ export function exportSingleModulePaymentsToExcel(mod, filename = 'module_paymen
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
 }
 
+// ─── Public: all-modules export ───────────────────────────────────────────────
+
 export function exportAllModulePaymentsToExcel(modules, filename = 'all_module_payments.xlsx') {
   const wb = XLSX.utils.book_new();
 
-  // Summary sheet first.
-  const summaryRows = [['Module Code', 'Module Title', 'Year', 'Sem', 'Amount', 'Total Students', 'Paid', 'Unpaid']];
-  modules.forEach(mod => {
-    const allStudents = (mod.blocks || []).flatMap(b => b.students || []);
-    const paid = allStudents.filter(s => s.status === 'PAID').length;
-    summaryRows.push([
-      mod.courseCode || '',
-      mod.courseTitle || '',
-      mod.yearLevel || '',
-      mod.semester || '',
-      mod.amount != null ? Number(mod.amount).toFixed(2) : 'N/A',
-      allStudents.length,
-      paid,
-      allStudents.length - paid
-    ]);
-  });
-  const summary = XLSX.utils.aoa_to_sheet(summaryRows);
-  summary['!cols'] = [{ wch: 14 }, { wch: 38 }, { wch: 6 }, { wch: 6 }, { wch: 12 }, { wch: 16 }, { wch: 8 }, { wch: 10 }];
+  // Sheet 1: Summary (one row per module, columns matching the UI table)
+  const summaryAoa = [SUMMARY_HEADER, ...modules.map(buildSummaryRow)];
+  const summary = XLSX.utils.aoa_to_sheet(summaryAoa);
+  summary['!cols'] = SUMMARY_COL_WIDTHS;
   XLSX.utils.book_append_sheet(wb, summary, 'Summary');
 
+  // Remaining sheets: one per module with student breakdown
   modules.forEach(mod => {
     const ws = buildModuleSheet(mod);
     const sheetName = dedupeSheetName(wb, mod.courseCode || mod.courseTitle || 'Module');
@@ -358,6 +453,8 @@ export function exportAllModulePaymentsToExcel(modules, filename = 'all_module_p
   const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
 }
+
+// ─── Professor cutback exports (unchanged) ────────────────────────────────────
 
 const buildProfessorSheet = (prof, ratePerStudent) => {
   const rows = [];
@@ -376,9 +473,9 @@ const buildProfessorSheet = (prof, ratePerStudent) => {
       const cutback = (c.studentCount || 0) * ratePerStudent;
       total += cutback;
       rows.push([
-        c.courseCode || '',
+        c.courseCode  || '',
         c.courseTitle || '',
-        c.yearLevel || '',
+        c.yearLevel   || '',
         (c.blocks || []).join(', '),
         c.studentCount || 0,
         cutback.toFixed(2)
@@ -407,15 +504,15 @@ export function exportAllProfessorCutbacksToExcel(professors, ratePerStudent, fi
 
   const summaryRows = [['Professor', 'Employee ID', 'Subjects Handled', 'Total Students', 'Total Cutback (PHP)']];
   let grandTotalStudents = 0;
-  let grandTotalCutback = 0;
+  let grandTotalCutback  = 0;
   professors.forEach(prof => {
-    const classes = prof.classes || [];
+    const classes       = prof.classes || [];
     const totalStudents = classes.reduce((sum, c) => sum + (c.studentCount || 0), 0);
-    const totalCutback = totalStudents * ratePerStudent;
+    const totalCutback  = totalStudents * ratePerStudent;
     grandTotalStudents += totalStudents;
-    grandTotalCutback += totalCutback;
+    grandTotalCutback  += totalCutback;
     summaryRows.push([
-      prof.name || '',
+      prof.name       || '',
       prof.employeeId || '',
       classes.length,
       totalStudents,

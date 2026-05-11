@@ -62,6 +62,11 @@ const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId
 
   return (
     <div>
+      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+        <span>Dashboard</span>
+        <span className="text-gray-300">&gt;</span>
+        <span className="font-medium text-blue-600">Curriculum Management System</span>
+      </div>
       <div className="mb-6 rounded-2xl border border-blue-100 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <button
