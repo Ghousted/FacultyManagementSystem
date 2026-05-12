@@ -109,6 +109,12 @@ const StudentDetailsModal = ({ isOpen, onClose, student }) => {
           </button>
         </div>
         <div className="mb-4">
+          <p className="text-sm text-gray-600">
+            Student ID: <span className="font-semibold text-gray-800">{student.id || '-'}</span>
+          </p>
+          <p className="text-sm text-gray-600">
+            Student No.: <span className="font-semibold text-gray-800">{student.studentNumber || '-'}</span>
+          </p>
           <p className="text-sm font-semibold">
               GWA: <span className="text-green-700">{parseFloat(student.gwa).toFixed(2)}</span>
           </p>
@@ -139,7 +145,7 @@ const StudentDetailsModal = ({ isOpen, onClose, student }) => {
 
 const FilenameModal = ({ isOpen, onClose, onConfirm, defaultName = 'deans_list_all_years' }) => {
   const [name, setName] = useState(defaultName);
-  const [useExactLayout, setUseExactLayout] = useState(false);
+  const useExactLayout = false;
 
   useEffect(() => setName(defaultName), [defaultName]);
 
@@ -159,7 +165,7 @@ const FilenameModal = ({ isOpen, onClose, onConfirm, defaultName = 'deans_list_a
           />
           <span className="px-3 py-1.5 text-sm bg-gray-100 border border-gray-300 border-l-0 rounded-r-lg">.xlsx</span>
         </div>
-        <div className="flex items-center justify-end gap-4 mt-8">
+        <div className="flex items-center justify-end gapx-6 py-2 mt-8">
         
           <div className="flex justify-end gap-2">
             <button onClick={onClose} className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer">Cancel</button>
@@ -180,7 +186,7 @@ const LoadingModal = ({ isOpen }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-xl shadow-lg flex flex-col items-center gap-4">
+      <div className="bg-white p-6 rounded-xl shadow-lg flex flex-col items-center gapx-6 py-2">
         <div className="animate-spin rounded-full h-10 w-10 border-t-4 border-b-4 border-blue-600"></div>
         <div className="text-sm text-gray-700">Processing export, please wait…</div>
       </div>
@@ -336,6 +342,8 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
         if (gwa === null || gwa > criteria.gwa) eligible = false;
         if (eligible && gradeDetails.length > 0) {
           deanCandidates.push({
+            id: student.id,
+            studentNumber: student.studentNumber || '',
             name: student.name,
             gwa: gwa ? gwa.toFixed(3) : '',
             grades: gradeDetails
@@ -412,6 +420,8 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
           if (gwa === null || gwa > criteria.gwa) eligible = false;
           if (eligible && gradeDetails.length > 0) {
             allCandidates.push({
+              id: student.id,
+              studentNumber: student.studentNumber || '',
               name: student.name,
               gwa: gwa ? gwa.toFixed(3) : '',
               grades: gradeDetails,
@@ -528,7 +538,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
                         <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
             </button>
             <div className="flex flex-col">
-              <h2 className="text-2xl font-medium text-blue-700">Dean's List Reports</h2>
+              <h2 className="text-2xl font-medium text-blue-700">Reports</h2>
               <p className="text-gray-600 text-sm">
                 View detailed reports of students who have achieved academic excellence this semester, including GPA breakdowns and honors.
               </p>
@@ -536,19 +546,18 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
           </div>
         </div>
       )}
-      <div className="mb-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex gap-3 flex-wrap">
+      <div className="mb-4 flex items-center gap-2 justify-between">
+        <div className="flex flex-wrap items-center justify-between gapx-6 py-2">
+  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
             {yearTabs.map((tab, idx) => (
               <button
                 key={tab.value}
                 onClick={() => setTabYear(idx)}
-                className={`px-3 py-1 font-semibold rounded-lg   transition-all flex items-center gap-1 text-sm cursor-pointer 
+              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all 
                   ${ tabYear === idx
-                    ? 'bg-blue-100 text-blue-600'
-                    : 'text-gray-800 hover:bg-gray-100'
+                        ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
                 }`}
-                style={{ boxShadow: '0 2px 12px 0 rgba(30, 64, 175, 0.10)' }}
                 title={tab.label}
               >
                 {tab.label}
@@ -556,18 +565,18 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
             ))}
           </div>
 
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="semester-dropdown"
-              className="text-base font-medium text-blue-700 flex items-center gap-1"
-            >
-              <CalendarCheck className="h-4 w-4" /> Semester:
-            </label>
+       
+
+        </div>
+
+        <div className='flex items-center gap-2 mb-'>
+            
+         
             <select
               id="semester-dropdown"
               value={tabSem}
               onChange={e => setTabSem(Number(e.target.value))}
-              className="border border-blue-300 rounded-full px-3 py-1 text-sm shadow-md focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+              className='border px-4 py-2 text-xs rounded-lg border-slate-300 focus:ring focus:ring-blue-500'
             >
               {semTabs.map((tab, idx) => (
                 <option key={tab.value} value={idx}>
@@ -575,31 +584,36 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
                 </option>
               ))}
             </select>
-          </div>
 
-          <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => setIsModalOpen(true)}
-              className="rounded-full text-sm px-3 py-1.5 cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow flex items-center gap-1"
+              className="inline-flex items-center text-xs gap-2 px-4 py-2 rounded-lg cursor-pointer text-white bg-blue-500 hover:bg-blue-600"
             >
               <Settings2 className="h-4 w-4" /> Configure
             </button>
             <button
               type="button"
               onClick={handleExportClick}
-              className="rounded-full text-sm px-3 py-1.5 cursor-pointer bg-green-600 hover:bg-green-700 text-white font-semibold shadow flex items-center gap-1"
+              className="inline-flex items-center text-xs gap-2 px-4 py-2 rounded-lg cursor-pointer text-white bg-green-500 hover:bg-green-600"
             >
-              <Download className="h-4 w-4" /> Export Excel
+              <Download className="h-4 w-4" /> Export
             </button>
+
           </div>
-        </div>
+          
       </div>
+
+      
+          
+
+
       <div className="overflow-x-auto border-x border-gray-300 rounded-xl shadow-sm mb-4">
   <table className="min-w-full text-sm border-separate border-spacing-0 rounded-xl overflow-hidden shadow-sm">
     <thead>
-      <tr className="bg-blue-100 text-left">
+      <tr className="bg-blue-500 text-white">
+       
         <th
-          className="px-2 py-1.5 border-b font-semibold text-blue-700 cursor-pointer"
+          className="px-2 py-1.5 border-b font-semibold cursor-pointer"
           onClick={() => toggleSort('name')}
           role="button"
           title="Sort by name"
@@ -612,7 +626,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
           </div>
         </th>
         <th
-          className="px-2 py-1.5 border-b font-semibold text-blue-700 text-center cursor-pointer"
+          className="px-2 py-1.5 border-b font-semibold text-center cursor-pointer"
           onClick={() => toggleSort('gwa')}
           role="button"
           title="Sort by GWA"
@@ -630,7 +644,8 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
       {loading ? (
         Array.from({ length: 5 }).map((_, idx) => (
           <tr key={idx} className="animate-pulse bg-white">
-            <td className="px-2 py-1.5 border-b border-gray-300 w-3/4">
+            
+            <td className="px-2 py-1.5 border-b border-gray-300">
               <div className="bg-gray-200 rounded-md h-5 w-3/4"></div>
             </td>
             <td className="px-2 py-1.5 border-b border-gray-200 text-center w-1/4">
@@ -640,7 +655,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
         ))
       ) : deansList.length === 0 ? (
         <tr>
-          <td className="p-3 border-b border-slate-300 text-center text-gray-500" colSpan={2}>
+          <td className="px-6 py-2 border-b border-slate-300 text-center text-gray-500" colSpan={3}>
             No data found.
           </td>
         </tr>
@@ -672,8 +687,8 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
               setIsDetailsModalOpen(true);
             }}
           >
-            <td className="p-3 border-b border-gray-300 font-semibold text-blue-700 w-3/4">{student.name}</td>
-            <td className="p-3 border-b border-gray-300 font-bold text-green-700 text-center w-1/4">{parseFloat(student.gwa).toFixed(2)}</td>
+            <td className="px-6 py-2 border-b border-gray-300 font-semibold ">{student.name}</td>
+            <td className="px-6 py-2 border-b border-gray-300 font-bold">{parseFloat(student.gwa).toFixed(2)}</td>
           </tr>
         ))
       )}
@@ -717,7 +732,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
         <button
           type="button"
           onClick={handleScrollToTop}
-          className="fixed bottom-6 right-6 z-40 cursor-pointer rounded-full bg-blue-600 text-white p-3 shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+          className="fixed bottom-6 right-6 z-40 cursor-pointer rounded-full bg-blue-600 text-white px-6 py-2 shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
           aria-label="Scroll to top"
           title="Scroll to top"
         >

@@ -46,7 +46,7 @@ const ReportsMain = ({ onBackToDashboard, initialReport = '' }) => {
   const reportCards = [
     {
       key: 'deans',
-      title: "Dean's List Report",
+      title: 'Reports',
       description: "Generate reports of students who qualified for the Dean's List each semester.",
       icon: Medal
     },
@@ -105,7 +105,13 @@ const ReportsMain = ({ onBackToDashboard, initialReport = '' }) => {
   return (
     <div>
       <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <span>Dashboard</span>
+        <button
+          type="button"
+          onClick={onBackToDashboard}
+          className="text-gray-600 hover:text-blue-600"
+        >
+          Dashboard
+        </button>
         <span className="text-gray-300">&gt;</span>
         <span className="font-medium text-blue-600">Academic Reports</span>
       </div>

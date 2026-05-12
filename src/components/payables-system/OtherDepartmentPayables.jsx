@@ -402,6 +402,12 @@ useEffect(() => {
   loadCurriculums();
 }, [loadCurriculums]);
 
+useEffect(() => {
+  if (moduleSelectorOpen && moduleSelectorContext === 'new' && moduleYearLevelFilter === 'all') {
+    setModuleYearLevelFilter('1');
+  }
+}, [moduleSelectorOpen, moduleSelectorContext, moduleYearLevelFilter]);
+
   const selectedDepartment = useMemo(
     () => departments.find((department) => department.id === selectedDepartmentId) || null,
     [departments, selectedDepartmentId]
@@ -1736,12 +1742,12 @@ const renderSortIcon = (field) => {
       {!selectedDepartment && (
         <>
           <div />
-          <div className="flex items-center justify-between mb-3 gap-2">
+          <div className="flex items-center justify-between my-4 gap-2">
             <h3 className="text-lg font-semibold text-slate-800">Departments</h3>
             <button
               type="button"
               onClick={openCreateDepartmentModal}
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer bg-blue-500 text-white hover:bg-blue-600"
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer bg-green-500 text-white hover:bg-green-600"
             >
               <BadgePlus className="w-4 h-4" />
               Add Department
@@ -1838,14 +1844,12 @@ const renderSortIcon = (field) => {
           )}
         </div>
 
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-            Student management for other departments has been moved to Student Management → Other Departments.
-          </div>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between mt-6">
+        
           <button
             type="button"
             onClick={openCreatePayableModal}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer bg-blue-500 text-white hover:bg-blue-600"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer bg-green-500 text-white hover:bg-green-600"
           >
             <BadgePlus className="w-4 h-4" />
             Add Payable
@@ -2398,7 +2402,7 @@ const renderSortIcon = (field) => {
       onClick={() => setModuleSelectorOpen(false)}
     ></div>
 
-    <div className="relative z-10 w-full max-w-3xl rounded-3xl border h-[90vh] border-slate-200 bg-white shadow-2xl">
+    <div className="relative z-10 w-full max-w-3xl rounded-3xl border h-[70vh] border-slate-200 bg-white shadow-2xl">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
         <div>
@@ -2420,9 +2424,10 @@ const renderSortIcon = (field) => {
       </div>
 
       {/* Content */}
-      <div className="max-h-[80vh] overflow-y-auto px-6 py-5">
-        {/* Year Level Filters */}
-        <div className="mb-5 flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
+      <div className="max-h-[60vh] overflow-y-auto px-6 py-5 ">
+      <div className='flex items-center justify-between gap-2 mb-4'>
+          {/* Year Level Filters */}
+  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
           {['1', '2', '3', '4'].map((y) => {
             // Determine if this year is active
             const isActive = moduleSelectorContext === 'new'
@@ -2440,20 +2445,20 @@ const renderSortIcon = (field) => {
                     handleIndividualPayableInputChange('yearLevel', y);
                   }
                 }}
-                className={`flex-1 rounded-xl px-4 py-2 text-sm font-medium transition ${
-                  isActive
-                    ? 'bg-blue-500 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-white hover:text-slate-900'
-                }`}
+                 className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                isActive
+                  ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+              }`}
               >
-                {y}th Year
+                {y}{getOrdinalSuffix(parseInt(y))} Year
               </button>
             );
           })}
         </div>
 
         {/* Curriculum and Semester Filters */}
-        <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="flex items-center gap-2">
           <select
             value={moduleSelectorContext === 'new' ? moduleCurriculumFilter : 'all'}
             onChange={(e) => {
@@ -2462,7 +2467,7 @@ const renderSortIcon = (field) => {
               }
               // For individual context, you might want to handle curriculum filtering differently
             }}
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
           >
             <option value="all">All Curriculums</option>
             {curriculums?.map((c) => (
@@ -2479,7 +2484,7 @@ const renderSortIcon = (field) => {
                 setModuleSemesterFilter(e.target.value);
               }
             }}
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
           >
             <option value="all">All Semesters</option>
             <option value="1">1st Semester</option>
@@ -2487,6 +2492,7 @@ const renderSortIcon = (field) => {
             <option value="3">Summer</option>
           </select>
         </div>
+      </div>
 
         {/* Modules Table */}
         <div className="overflow-hidden rounded-2xl border border-slate-200">

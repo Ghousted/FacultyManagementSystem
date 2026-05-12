@@ -18,6 +18,20 @@ import { logSystemAction } from '../utils/auditLogger';
 const ACTIVE_TERM_DOC = doc(db, 'settings', 'active_term');
 const DEFAULT_ACTIVE_TERM = { semester: 1, schoolYear: '' };
 
+const getStudentStatusLogLabel = async (studentIds = []) => {
+  const ids = Array.isArray(studentIds) ? studentIds.filter(Boolean) : [];
+  if (ids.length === 1) {
+    try {
+      const snap = await getDoc(doc(db, 'students', ids[0]));
+      if (snap.exists()) return snap.data()?.name || ids[0];
+    } catch {
+      return ids[0];
+    }
+    return ids[0];
+  }
+  return `${ids.length} students`;
+};
+
 // Enrollment status reasons.
 //   'enrolled'       — included in rosters for the active term.
 //   'not-enrolled'   — admin explicitly marked as not enrolled.
@@ -71,11 +85,11 @@ export const saveActiveTerm = async ({ semester, schoolYear }) => {
     };
     await setDoc(ACTIVE_TERM_DOC, payload, { merge: true });
     await logSystemAction({
-      action: 'Updated active term',
+      action: 'updated term',
       module: 'Faculty Management',
       entityType: 'setting',
       entityId: 'active_term',
-      description: `Set active term to semester ${payload.semester}, ${payload.schoolYear}`,
+      description: `updated term to semester ${payload.semester}, ${payload.schoolYear}`,
       details: payload
     });
     return { success: true, data: payload };
@@ -108,11 +122,11 @@ export const addProfessor = async (professor) => {
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Added professor',
+      action: 'Created professor',
       module: 'Faculty Management',
       entityType: 'professor',
       entityId: ref.id,
-      description: `Added professor: ${professor.name || 'Unnamed professor'}`,
+      description: `Created professor: ${professor.name || 'Unnamed professor'}`,
       details: professor
     });
     return { success: true, id: ref.id };
@@ -262,25 +276,29 @@ export const updateAssignedCourseBlocks = async (professorId, courseId, blocks) 
   }
 };
 
-export const unassignCourseFromProfessor = async (professorId, courseId) => {
+export const unassignCourseFromProfessor = async (professorId, courseId, options = {}) => {
   try {
     const ref = doc(db, 'professors', professorId);
     const snap = await getDoc(ref);
     if (!snap.exists()) return { success: false, error: 'Professor not found' };
 
-    const next = (snap.data().assignedCourses || []).filter(c => c.courseId !== courseId);
+    const professorData = snap.data() || {};
+    const professorName = professorData.name || professorId;
+    const next = (professorData.assignedCourses || []).filter(c => c.courseId !== courseId);
     await updateDoc(ref, {
       assignedCourses: next,
       updatedAt: new Date().toISOString()
     });
-    await logSystemAction({
-      action: 'Unassigned course from professor',
-      module: 'Faculty Management',
-      entityType: 'professor',
-      entityId: professorId,
-      description: `Unassigned course ${courseId} from professor ${professorId}`,
-      details: { courseId }
-    });
+    if (!options.suppressLog) {
+      await logSystemAction({
+        action: `unassigned course from ${professorName}`,
+        module: 'Faculty Management',
+        entityType: 'professor',
+        entityId: professorId,
+        description: `unassigned course from ${professorName}`,
+        details: { courseId, professorName }
+      });
+    }
     return { success: true };
   } catch (error) {
     console.error('Error unassigning course:', error);
@@ -381,12 +399,12 @@ export const setStudentEnrollment = async (studentId, activeTerm) => {
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Enrolled student',
+      action: 'Updated',
       module: 'Faculty Management',
       entityType: 'student',
       entityId: studentId,
-      description: `Enrolled student ${studentId}`,
-      details: { activeTerm: term }
+      description: `Updated student status: ${await getStudentStatusLogLabel([studentId])}`,
+      details: { activeTerm: term, status: 'active' }
     });
     return { success: true };
   } catch (error) {
@@ -402,11 +420,12 @@ export const setStudentNotEnrolled = async (studentId) => {
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Marked student not enrolled',
+      action: 'Updated',
       module: 'Faculty Management',
       entityType: 'student',
       entityId: studentId,
-      description: `Marked student ${studentId} as not enrolled`
+      description: `Updated student status: ${await getStudentStatusLogLabel([studentId])}`,
+      details: { status: 'inactive' }
     });
     return { success: true };
   } catch (error) {
@@ -427,7 +446,6 @@ export const bulkSetStudentEnrollment = async (studentIds, activeTerm) => {
 
     const chunkSize = 500;
     const stamp = new Date().toISOString();
-    let committed = 0;
 
     for (let i = 0; i < studentIds.length; i += chunkSize) {
       const batch = writeBatch(db);
@@ -440,15 +458,14 @@ export const bulkSetStudentEnrollment = async (studentIds, activeTerm) => {
         });
       });
       await batch.commit();
-      committed += chunk.length;
     }
 
     await logSystemAction({
-      action: 'Bulk enrolled students',
+      action: 'Updated',
       module: 'Faculty Management',
       entityType: 'studentBatch',
       entityId: '',
-      description: `Enrolled ${studentIds.length} students`,
+      description: `Updated ${studentIds.length} students`,
       details: { studentIds, activeTerm: term, count: studentIds.length }
     });
     return { success: true, count: studentIds.length };
@@ -458,7 +475,7 @@ export const bulkSetStudentEnrollment = async (studentIds, activeTerm) => {
   }
 };
 
-export const bulkSetStudentNotEnrolled = async (studentIds) => {
+export const bulkSetStudentNotEnrolled = async (studentIds, options = {}) => {
   try {
     if (!Array.isArray(studentIds) || studentIds.length === 0) {
       return { success: true, count: 0 };
@@ -466,7 +483,6 @@ export const bulkSetStudentNotEnrolled = async (studentIds) => {
 
     const chunkSize = 500;
     const stamp = new Date().toISOString();
-    let committed = 0;
 
     for (let i = 0; i < studentIds.length; i += chunkSize) {
       const batch = writeBatch(db);
@@ -479,17 +495,18 @@ export const bulkSetStudentNotEnrolled = async (studentIds) => {
         });
       });
       await batch.commit();
-      committed += chunk.length;
     }
 
-    await logSystemAction({
-      action: 'Bulk marked students not enrolled',
-      module: 'Faculty Management',
-      entityType: 'studentBatch',
-      entityId: '',
-      description: `Marked ${studentIds.length} students not enrolled`,
-      details: { studentIds, count: studentIds.length }
-    });
+    if (!options.suppressLog) {
+      await logSystemAction({
+        action: 'Updated',
+        module: 'Faculty Management',
+        entityType: 'studentBatch',
+        entityId: '',
+        description: `Updated ${studentIds.length} students`,
+        details: { studentIds, count: studentIds.length, status: 'inactive' }
+      });
+    }
     return { success: true, count: studentIds.length };
   } catch (error) {
     console.error('Error bulk unenrolling students:', error);
@@ -497,11 +514,11 @@ export const bulkSetStudentNotEnrolled = async (studentIds) => {
   }
 };
 
-export const bulkSetAllStudentsNotEnrolled = async () => {
+export const bulkSetAllStudentsNotEnrolled = async (options = {}) => {
   try {
     const snap = await getDocs(collection(db, 'students'));
     const ids = snap.docs.map(docSnapshot => docSnapshot.id);
-    return await bulkSetStudentNotEnrolled(ids);
+    return await bulkSetStudentNotEnrolled(ids, options);
   } catch (error) {
     console.error('Error bulk unenrolling all students:', error);
     return { success: false, error: error.message };
@@ -577,6 +594,42 @@ export const getEnrollmentRoster = async (activeTerm) => {
     return { success: true, data };
   } catch (error) {
     console.error('Error loading enrollment roster:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Unassign all professor classes when term changes
+export const unassignAllProfessorClasses = async () => {
+  try {
+    const snap = await getDocs(collection(db, 'professors'));
+    
+    if (snap.empty) {
+      return { success: true, message: 'No professors found' };
+    }
+
+    // Batch update to clear all assigned courses
+    const batch = writeBatch(db);
+    snap.docs.forEach(docSnapshot => {
+      batch.update(docSnapshot.ref, {
+        assignedCourses: [],
+        updatedAt: new Date().toISOString()
+      });
+    });
+
+    await batch.commit();
+    
+    await logSystemAction({
+      action: 'Unassigned all professor classes',
+      module: 'Faculty Management',
+      entityType: 'professor',
+      entityId: 'bulk_unassign',
+      description: `Unassigned all classes from ${snap.size} professors due to term change`,
+      details: { unassignedCount: snap.size }
+    });
+
+    return { success: true, message: `Unassigned classes from ${snap.size} professors` };
+  } catch (error) {
+    console.error('Error unassigning professor classes:', error);
     return { success: false, error: error.message };
   }
 };

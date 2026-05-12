@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Folder,
   RefreshCw,
+  Square,
   ChevronLeft,
   ChevronUp,
   ChevronDown,
@@ -105,12 +106,13 @@ const EnrollmentManager = ({ activeTerm }) => {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, _setStatusFilter] = useState('all');
   const [busyIds, setBusyIds] = useState(new Set());
   const [error, setError] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [selectMode, setSelectMode] = useState(false);
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
 
@@ -127,7 +129,7 @@ const EnrollmentManager = ({ activeTerm }) => {
           }
         })
       );
-    } catch (e) {
+    } catch {
       // noop
     }
   }, [selectedFolder]);
@@ -137,6 +139,7 @@ const EnrollmentManager = ({ activeTerm }) => {
     const onReset = () => {
       setSelectedFolder(null);
       setSelectedIds([]);
+      setSelectMode(false);
     };
 
     window.addEventListener('reset-enrollment-manager', onReset);
@@ -145,40 +148,11 @@ const EnrollmentManager = ({ activeTerm }) => {
 
   // Filter students by status
   const statusFiltered = useMemo(() => {
-    if (statusFilter === 'all') return students;
-    return students.filter((student) => student.enrollmentStatus === statusFilter);
+    const activeStudents = students.filter((student) => student.active !== false);
+    if (statusFilter === 'all') return activeStudents;
+    return activeStudents.filter((student) => student.enrollmentStatus === statusFilter);
   }, [students, statusFilter]);
   const termIncomplete = !term.semester || !term.schoolYear;
-
-  // --- Breadcrumb Navigation ---
-  const renderBreadcrumbs = () => {
-    // Dashboard > Enrollment Management > Year Level and Block (if irregular, "Irregular" only)
-    const crumbs = [
-      { label: 'Dashboard', onClick: () => window.location.hash = '#/' },
-      { label: 'Enrollment Management', onClick: null }
-    ];
-    if (selectedFolder) {
-      if (selectedFolder.isIrregular) {
-        crumbs.push({ label: 'Irregular', onClick: null });
-      } else {
-        let label = `${getYearLabel(selectedFolder.year)} Year`;
-        if (selectedFolder.block) label += ` Block ${selectedFolder.block}`;
-        crumbs.push({ label, onClick: null });
-      }
-    }
-    return (
-      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        {crumbs.map((c, i) => (
-          <span key={i} className={i === crumbs.length - 1 ? 'font-medium text-blue-600' : ''}>
-            {c.onClick ? (
-              <button type="button" className="hover:underline" onClick={c.onClick}>{c.label}</button>
-            ) : c.label}
-            {i < crumbs.length - 1 && <span className="text-gray-300 mx-1">&gt;</span>}
-          </span>
-        ))}
-      </div>
-    );
-  };
 
   const refresh = async () => {
     setError('');
@@ -308,15 +282,14 @@ const EnrollmentManager = ({ activeTerm }) => {
     return (students || []).reduce((acc, student) => {
       const status = student?.enrollmentStatus ?? (student?.enrolled === true ? 'enrolled' : (student?.enrolled === false ? 'not-enrolled' : 'unset'));
       acc[status] = (acc[status] || 0) + 1;
+      if (student?.active === false) {
+        acc.inactive += 1;
+      } else {
+        acc.active += 1;
+      }
       return acc;
-    }, { enrolled: 0, 'needs-update': 0, 'not-enrolled': 0, unset: 0 });
+    }, { enrolled: 0, 'needs-update': 0, 'not-enrolled': 0, unset: 0, active: 0, inactive: 0 });
   }, [students]);
-
-  const selectedFolderLabel = selectedFolder
-    ? selectedFolder.isIrregular
-      ? `Irregular Block ${selectedFolder.block}`
-      : `${getYearLabel(selectedFolder.year)} Year Block ${selectedFolder.block}`
-    : '';
 
   const allVisibleSelected =
     tableStudents.length > 0 && tableStudents.every((student) => selectedIds.includes(student.id));
@@ -365,6 +338,7 @@ const EnrollmentManager = ({ activeTerm }) => {
   };
 
   const toggleSelectAllVisible = () => {
+    if (!selectMode) return;
     if (allVisibleSelected) {
       setSelectedIds([]);
     } else {
@@ -552,15 +526,6 @@ const EnrollmentManager = ({ activeTerm }) => {
     }
   };
 
-  const resetFilters = () => {
-    setStatusFilter('all');
-    setSelectedFolder(null);
-    setSearch('');
-    setSelectedIds([]);
-  };
-
-
-
   return (
     <div className="space-y-5">
      
@@ -572,26 +537,29 @@ const EnrollmentManager = ({ activeTerm }) => {
       )}
 
       <div className="">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
           <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
             <span className="block text-xs text-gray-600">All</span>
                         <span className="mt-1 block text-lg font-semibold text-gray-900">{students.length}</span>
 
           </div>
 
-          {['enrolled', 'needs-update', 'not-enrolled'].map((key) => {
-            const meta = STATUS_META[key];
-
-            return (
-              <div
-                key={key}
-                className="rounded-lg border border-gray-200 bg-white p-4 text-left"
-              >
-                <span className="block text-xs text-gray-600">{meta.label}</span>
-                <span className="mt-1 block text-lg font-semibold text-gray-900">{counts[key] || 0}</span>
-              </div>
-            );
-          })}
+          <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+            <span className="block text-xs text-gray-600">Enrolled</span>
+            <span className="mt-1 block text-lg font-semibold text-gray-900">{counts.enrolled || 0}</span>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+            <span className="block text-xs text-gray-600">Active</span>
+            <span className="mt-1 block text-lg font-semibold text-gray-900">{counts.active || 0}</span>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+            <span className="block text-xs text-gray-600">Inactive</span>
+            <span className="mt-1 block text-lg font-semibold text-gray-900">{counts.inactive || 0}</span>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+            <span className="block text-xs text-gray-600">Not enrolled</span>
+            <span className="mt-1 block text-lg font-semibold text-gray-900">{counts['not-enrolled'] || 0}</span>
+          </div>
         </div>
       </div>
 
@@ -632,6 +600,8 @@ const EnrollmentManager = ({ activeTerm }) => {
                       isIrregular: folder.isIrregular
                     });
                     setSearch('');
+                    setSelectedIds([]);
+                    setSelectMode(false);
                   }}
                   className="group relative cursor-pointer rounded-xl border border-gray-300 bg-white p-4 text-left shadow-sm transition  hover:border-blue-400 hover:shadow-md"
                 >
@@ -689,6 +659,23 @@ const EnrollmentManager = ({ activeTerm }) => {
             </div>
 
             <div className='flex items-center gap-2'>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !selectMode;
+                    setSelectMode(next);
+                    if (!next) setSelectedIds([]);
+                  }}
+                  title={selectMode ? 'Turn off selection' : 'Select students'}
+                  className={`inline-flex items-center gap-2 rounded-xl border border-gray-300 px-3 py-2 text-xs transition ${
+                    selectMode
+                      ? 'bg-gray-100 text-gray-500'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  <Square className="h-4 w-4" />
+                  Select
+                </button>
 
                 {hasSelected && (
             <div className="text-xs text-slate-500">
@@ -699,7 +686,7 @@ const EnrollmentManager = ({ activeTerm }) => {
                 <button
                 type="button"
                 onClick={handleEnrollSelected}
-                disabled={termIncomplete || bulkSaving || loading || !canEnrollSelected}
+                disabled={!selectMode || termIncomplete || bulkSaving || loading || !canEnrollSelected}
                 className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 rounded-xl"
                 title="Enroll selected"
                 aria-label="Enroll selected"
@@ -710,7 +697,7 @@ const EnrollmentManager = ({ activeTerm }) => {
               <button
                 type="button"
                 onClick={handleUnenrollSelected}
-                disabled={bulkSaving || loading || !canUnenrollSelected}
+                disabled={!selectMode || bulkSaving || loading || !canUnenrollSelected}
                 className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 rounded-xl"
                 title="Unenroll selected"
                 aria-label="Unenroll selected"
@@ -724,12 +711,16 @@ const EnrollmentManager = ({ activeTerm }) => {
                 <thead className="text-sm bg-blue-500 text-white text-left">
                   <tr>
                     <th className="w-10 px-4 py-2 ">
-                      <input
-                        type="checkbox"
-                        className="h-3 w-3 rounded accent-gray-900"
-                        checked={allVisibleSelected}
-                        onChange={toggleSelectAllVisible}
-                      />
+                      {selectMode ? (
+                        <input
+                          type="checkbox"
+                          className="h-3 w-3 rounded accent-gray-900"
+                          checked={allVisibleSelected}
+                          onChange={toggleSelectAllVisible}
+                        />
+                      ) : (
+                        <span className="font-medium">#</span>
+                      )}
                     </th>
 
                     <th className="px-4 py-2 ">
@@ -782,27 +773,25 @@ const EnrollmentManager = ({ activeTerm }) => {
                       </td>
                     </tr>
                   ) : (
-                    tableStudents.map((student) => {
+                    tableStudents.map((student, index) => {
                       const meta = STATUS_META[student.enrollmentStatus] || STATUS_META.unset;
                       const block = getBlock(student);
-                      const studentTerm = student.enrolledTerm;
-                      const termText = studentTerm?.semester
-                        ? `${SEMESTER_LABELS[studentTerm.semester] || `Sem ${studentTerm.semester}`}${
-                            studentTerm.schoolYear ? ` · ${studentTerm.schoolYear}` : ''
-                          }`
-                        : '-';
                       const busy = busyIds.has(student.id);
                       const isEnrolledHere = student.enrollmentStatus === 'enrolled';
 
                       return (
                         <tr key={student.id} className="border-t border-gray-100 hover:bg-gray-50">
                           <td className="px-4 py-2 ">
-                            <input
-                              type="checkbox"
-                              className="h-3 w-3 rounded accent-gray-900"
-                              checked={selectedIds.includes(student.id)}
-                              onChange={() => toggleSelectStudent(student.id)}
-                            />
+                            {selectMode ? (
+                              <input
+                                type="checkbox"
+                                className="h-3 w-3 rounded accent-gray-900"
+                                checked={selectedIds.includes(student.id)}
+                                onChange={() => toggleSelectStudent(student.id)}
+                              />
+                            ) : (
+                              <span className="text-sm text-gray-700">{index + 1}</span>
+                            )}
                           </td>
 
                             <td className="px-4 py-2  whitespace-nowrap text-gray-600">

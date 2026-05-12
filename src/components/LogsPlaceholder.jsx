@@ -29,6 +29,8 @@ const getLogDateParts = (log) => {
 const getDisplayAction = (log) => {
   const action = (log.action || '').toLowerCase();
   const details = log.details || {};
+  if (action === 'full payment recorded') return 'Full Payment Recorded';
+  if (action === 'paid payable') return 'Paid Payable';
   if (action.includes('payment') || action.includes('paid') || log.entityType?.toLowerCase().includes('payment')) {
     const remainingBalance = Number(details.remainingBalance ?? details.balanceAfter);
     const status = (details.status || '').toString().toLowerCase();
@@ -36,7 +38,7 @@ const getDisplayAction = (log) => {
     return 'Paid (Partial)';
   }
   if (action.includes('delete') || action.includes('removed')) return 'Deleted';
-  if (action.includes('add') || action.includes('create')) return 'Added';
+  if (action.includes('add') || action.includes('create')) return 'Created';
   return 'Updated';
 };
 
@@ -209,7 +211,13 @@ const LogsPlaceholder = () => {
     <div className="space-y-4">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-500">
-        <span>Dashboard</span>
+        <button
+          type="button"
+          onClick={() => (window.location.hash = '#/dashboard')}
+          className="text-gray-600 hover:text-blue-600"
+        >
+          Dashboard
+        </button>
         <span className="text-gray-300">&gt;</span>
         <span className="font-medium text-blue-600">System Logs</span>
       </div>

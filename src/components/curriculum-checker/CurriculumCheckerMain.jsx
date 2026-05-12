@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAllCourses, getCurriculums } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { Printer, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, ArrowLeft, RefreshCcw, Folder} from 'lucide-react';
+import { Printer, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowLeft, RefreshCcw, Folder} from 'lucide-react';
 import CurriculumPreview from './CurriculumPReview';
 import ViewArchivedClasses from './ViewArchivedClasses';
 
@@ -22,7 +22,6 @@ const CurriculumCheckerMain = () => {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewTarget, setPreviewTarget] = useState(null);
   const [printOnlyOpen, setPrintOnlyOpen] = useState(false);
-  const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [expandedYears, setExpandedYears] = useState({ 1: true, 2: true, 3: true, 4: true });
   const [showEquivalentCourses, setShowEquivalentCourses] = useState(false);
   const [showAvailableCourses, setShowAvailableCourses] = useState(true);
@@ -214,11 +213,7 @@ const CurriculumCheckerMain = () => {
         courses: firstYearCourses
       },
       summerCourses: availableSummerCourses
-    });    setPrintPreviewOpen(true);
-  };
-
-  const handleConfirmPrint = () => {
-    setPrintPreviewOpen(false);
+    });
     setPrintOnlyOpen(true);
   };
 
@@ -826,7 +821,13 @@ const CurriculumCheckerMain = () => {
   return (
     <div className="flex flex-col">
       <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <span>Dashboard</span>
+        <button
+          type="button"
+          onClick={() => (window.location.hash = '#/dashboard')}
+          className="text-gray-600 hover:text-blue-600"
+        >
+          Dashboard
+        </button>
         <span className="text-gray-300">&gt;</span>
         <button
           type="button"
@@ -903,43 +904,6 @@ const CurriculumCheckerMain = () => {
               ) : (
                 <div className="text-gray-600">No preview data available.</div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-      {printPreviewOpen && previewTarget && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full mx-4 max-h-[90vh] overflow-hidden">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h2 className="text-lg font-semibold">Print Preview</h2>
-              <button
-                onClick={() => setPrintPreviewOpen(false)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            <div className="p-4 overflow-y-auto max-h-[70vh]">
-              <CurriculumPreview
-                curriculumId={previewTarget.studentCurriculum?.curriculumId || previewTarget.student?.curriculumId}
-                student={previewTarget.student}
-                summerCourses={previewTarget.summerCourses || []}
-              />
-            </div>
-            <div className="flex justify-end gap-2 p-4 border-t">
-              <button
-                onClick={() => setPrintPreviewOpen(false)}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmPrint}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2"
-              >
-                <Printer className="w-4 h-4" />
-                Print
-              </button>
             </div>
           </div>
         </div>

@@ -130,6 +130,7 @@ export const logSystemAction = async ({
   try {
     const now           = new Date();
     const resolvedActor = getActor(actor);
+    const normalizedAction = (action || '').replace(/^Added\b/i, 'Created');
 
     // Resolve description (async: may hit Firestore for a name)
     const resolvedDescription = await buildDescription({
@@ -140,7 +141,7 @@ export const logSystemAction = async ({
     });
 
     await addDoc(collection(db, 'systemLogs'), {
-      action,
+      action: normalizedAction,
       module,
       entityType,
       entityId,

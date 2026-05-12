@@ -1,4 +1,5 @@
 import { writeBatch } from 'firebase/firestore';
+import { archiveStudentPayables } from './payablesModels';
 // Archive and promote students (batch archiving, promotion, payables logic)
 export const archiveAndPromoteStudents = async (batchStartYear, batchEndYear) => {
   const batchName = `batch_${batchStartYear}_${batchEndYear}`;
@@ -62,6 +63,12 @@ export const archiveAndPromoteStudents = async (batchStartYear, batchEndYear) =>
   // 8. Commit batch
   try {
     await batch.commit();
+    
+    // Archive payables for each archived student
+    for (const student of toArchive) {
+      await archiveStudentPayables(student.id, student, batchName);
+    }
+    
     await logSystemAction({
       action: 'Archived and promoted students',
       module: 'Curriculum Checker',
@@ -147,11 +154,11 @@ export const addCourse = async (curriculumId, yearLevel, semester, courseData) =
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Added course',
+      action: 'Created course',
       module: 'Curriculum Checker',
       entityType: 'course',
       entityId: docRef.id,
-      description: `Added course: ${courseData.courseCode || ''} ${courseData.courseTitle || ''}`.trim(),
+      description: `created course ${courseData.courseCode || ''} ${courseData.courseTitle || ''}`.trim(),
       details: { curriculumId, yearLevel, semester, ...courseData }
     });
     return { success: true, id: docRef.id };
@@ -208,11 +215,11 @@ export const addStudent = async (studentData) => {
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Added student',
+      action: 'Created student',
       module: 'Curriculum Checker',
       entityType: 'student',
       entityId: docRef.id,
-      description: `Added student: ${studentData.name || 'Unnamed student'}`,
+      description: `created student ${studentData.name || 'Unnamed student'}`,
       details: studentData
     });
     return { success: true, id: docRef.id };

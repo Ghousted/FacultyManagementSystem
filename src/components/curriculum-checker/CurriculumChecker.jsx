@@ -63,7 +63,13 @@ const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId
   return (
     <div>
       <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <span>Dashboard</span>
+        <button
+          type="button"
+          onClick={onBackToDashboard}
+          className="text-gray-600 hover:text-blue-600"
+        >
+          Dashboard
+        </button>
         <span className="text-gray-300">&gt;</span>
         <span className="font-medium text-blue-600">Curriculum Management System</span>
       </div>

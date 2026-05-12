@@ -1,12 +1,11 @@
 import './App.css';
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { BadgePlus } from 'lucide-react';
+import { BadgePlus, BookMarked, FileSliders, Building2 } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import AuthContainer from './components/auth/AuthContainer';
 import Dashboard from './components/Dashboard';
 import Layout from './components/layout/Layout';
 import AdminPanel from './components/admin/AdminPanel';
-import CurriculumPreview from './components/curriculum-checker/CurriculumPreview';
 import CurriculumChecker from './components/curriculum-checker/CurriculumChecker';
 import CurriculumCheckerMain from './components/curriculum-checker/CurriculumCheckerMain';
 import LogsPlaceholder from './components/LogsPlaceholder';
@@ -14,6 +13,7 @@ import LogsPlaceholder from './components/LogsPlaceholder';
 const FacultyMain = lazy(() => import('./components/faculty/FacultyMain'));
 const ReportsMain = lazy(() => import('./components/reports/ReportsMain'));
 const PayablesMain = lazy(() => import('./components/payables-system/PayablesMain'));
+const PaymentsModule = lazy(() => import('./components/payments/PaymentsModule'));
 const StudentManagement = lazy(() => import('./components/curriculum-checker/StudentManagement'));
 const TermEnrollmentPanel = lazy(() => import('./components/curriculum-checker/TermEnrollmentPanel'));
 
@@ -81,19 +81,21 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
 
   // Unified breadcrumb at top (receives state via `student-breadcrumb` events)
   const renderTopBreadcrumb = () => {
-    const { mode, selectedFolder, selectedStudent } = breadcrumbState || {};
+    const { mode, selectedFolder, selectedStudent, selectedDepartment } = breadcrumbState || {};
     const activeMode = mode || (tab === 'enrollment' ? 'enrollment' : tab === 'other' ? 'other' : 'students');
 
-    const crumbs = [{ label: 'Dashboard', onClick: () => (window.location.hash = '#/') }];
+    const crumbs = [{ label: 'Dashboard', onClick: () => (window.location.hash = '#/dashboard') }];
     const mainLabel = activeMode === 'enrollment'
       ? 'Enrollment Management'
       : activeMode === 'other'
-        ? 'Other Departments'
+        ? 'Other Department'
         : 'Student Management';
     crumbs.push({ label: mainLabel, onClick: null });
 
     if (selectedFolder) {
-      if (selectedFolder.isIrregular) {
+      if (selectedFolder.isInactiveFolder) {
+        crumbs.push({ label: 'Archived Students', onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder } })) });
+      } else if (selectedFolder.isIrregular) {
         crumbs.push({ label: 'Irregular', onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder } })) });
       } else {
         const y = selectedFolder.year;
@@ -103,6 +105,11 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
         if (block) label += ` Block ${block}`;
         crumbs.push({ label, onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder } })) });
       }
+    }
+
+    // show selected department when in Other mode
+    if (activeMode === 'other' && selectedDepartment && (selectedDepartment.name || selectedDepartment)) {
+      crumbs.push({ label: selectedDepartment.name || selectedDepartment, onClick: null });
     }
 
     if (selectedStudent && selectedStudent.name) {
@@ -127,7 +134,11 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
                 setTab('students');
                 window.dispatchEvent(new CustomEvent('reset-student-management'));
               }
-              setBreadcrumbState((prev) => ({ ...prev, selectedStudent: null }));
+              setBreadcrumbState((prev) => ({
+                ...prev,
+                selectedDepartment: isOther ? null : prev.selectedDepartment,
+                selectedStudent: null
+              }));
               setStudentDetailOpen(false);
               setOpenedStudentName('');
             };
@@ -155,6 +166,8 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
     );
   };
 
+  const otherDepartmentOpen = tab === 'other' && Boolean(breadcrumbState?.selectedDepartment);
+
   return (
     <div>
       {renderTopBreadcrumb()}
@@ -173,52 +186,80 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
       </div>
 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex gap-2 bg-gray-200/50 p-1 rounded-xl w-fit">
-          <button
-            type="button"
-            onClick={() => setTab('students')}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-              tab === 'students'
-                ? 'bg-blue-500 text-white'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
-            }`}
-          >
-            Student Management
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('enrollment')}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-              tab === 'enrollment'
-                ? 'bg-blue-500 text-white'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
-            }`}
-          >
-            Enrollment Management
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('other')}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-              tab === 'other'
-                ? 'bg-blue-500 text-white'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
-            }`}
-          >
-            Other Departments
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
+  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setTab('students')}
+              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                tab === 'students'
+                    ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+              }`}
+            >
+              Student Management
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('enrollment')}
+              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                tab === 'enrollment'
+                    ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+              }`}
+            >
+              Enrollment Management
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('other')}
+              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                tab === 'other'
+                    ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+              }`}
+            >
+              Other Departments
+            </button>
+          </div>
+
+        
         </div>
 
         {tab === 'students' && !studentDetailOpen && (
           <button
             type="button"
             onClick={() => window.dispatchEvent(new CustomEvent('open-add-student'))}
-            className="inline-flex items-center cursor-pointer justify-center gap-2 rounded-xl bg-blue-500 px-3 py-2 text-sm text-white hover:bg-blue-600"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-xl cursor-pointer bg-green-500 text-white hover:bg-green-600 transition"
           >
             <BadgePlus className="h-4 w-4" />
             Add Student
           </button>
         )}
+
+          {tab === 'other' && !otherDepartmentOpen && (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-add-department'))}
+              className="inline-flex items-center gap-2 rounded-xl bg-green-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-600"
+            >
+              <BadgePlus className="h-4 w-4" />
+              Add Department
+            </button>
+          )}
+
+          {tab === 'other' && otherDepartmentOpen && (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-add-other-department-student'))}
+              className="inline-flex items-center gap-2 rounded-xl cursor-pointer bg-green-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-600"
+            >
+              <BadgePlus className="h-4 w-4" />
+              Add Student
+            </button>
+          )}
+          
+
       </div>
 
       <Suspense fallback={<LoadingPanel label="Loading student records..." />}>
@@ -270,7 +311,7 @@ function App() {
   if (!currentUser || currentUser.role !== 'admin') return null;
 
   const d = payablesBreadcrumb || {};
-  const crumbs = [{ label: 'Dashboard', onClick: () => (window.location.hash = '#/') }];
+  const crumbs = [{ label: 'Dashboard', onClick: () => (window.location.hash = '#/dashboard') }];
   crumbs.push({ label: 'Payables', onClick: null });
 
   if (d.departmentType === 'ccs') {
@@ -424,7 +465,7 @@ function App() {
 
     if (route === '#/deans-list-report') {
       return (
-        <Suspense fallback={<LoadingPanel label="Loading Dean's List report..." />}>
+        <Suspense fallback={<LoadingPanel label="Loading reports..." />}>
           <ReportsMain initialReport="deans" onBackToDashboard={goDashboard} />
         </Suspense>
       );
@@ -474,6 +515,14 @@ function App() {
       return (
         <Suspense fallback={<LoadingPanel label="Loading payables..." />}>
           <PayablesMain onBackToDashboard={goDashboard} />
+        </Suspense>
+      );
+    }
+
+    if (route === '#/payments') {
+      return (
+        <Suspense fallback={<LoadingPanel label="Loading payments..." />}>
+          <PaymentsModule onBackToDashboard={goDashboard} />
         </Suspense>
       );
     }

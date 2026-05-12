@@ -1,21 +1,62 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   collection,
   getDocs,
   doc,
   setDoc,
-  getDoc,
   serverTimestamp,
   query,
   where,
   orderBy,
 } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { BadgePlus, Folder, Layers, X  } from 'lucide-react';
+import {
+  ArrowBigLeft,
+  BadgePlus,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  Folder,
+  ArchiveRestore,
+  X,
+  Square,
+  Search,
+  RefreshCcw
+} from 'lucide-react';
 import { logSystemAction } from '../../utils/auditLogger';
 
 const formatBatchLabel = (id) =>
   id.replace('batch_', '').replace('_', '-');
+
+/* ---------------- SKELETON LOADING ---------------- */
+const StudentRowSkeleton = ({ selectMode }) => (
+  <tr className="border-t border-gray-300 animate-pulse">
+    <td className="px-4 py-2">
+      {selectMode ? (
+        <div className="h-3 w-3 bg-gray-200 rounded" />
+      ) : (
+        <div className="h-4 w-6 bg-gray-200 rounded" />
+      )}
+    </td>
+    <td className="px-4 py-2">
+      <div className="h-4 w-24 bg-gray-200 rounded" />
+    </td>
+    <td className="px-4 py-2">
+      <div className="h-4 w-32 bg-gray-200 rounded" />
+    </td>
+    <td className="px-4 py-2">
+      <div className="h-4 w-28 bg-gray-200 rounded" />
+    </td>
+    <td className="px-4 py-2">
+      <div className="h-4 w-32 bg-gray-200 rounded" />
+    </td>
+    <td className="px-4 py-2">
+      <div className="flex gap-2">
+        <div className="h-6 w-16 bg-gray-200 rounded" />
+      </div>
+    </td>
+  </tr>
+);
 
 /* ---------------- ITEM CARD ---------------- */
 const ItemCard = ({
@@ -23,38 +64,91 @@ const ItemCard = ({
   type,
   isSelected,
   onClick,
-  studentCount,
 }) => {
   const isBatch = type === 'batch';
 
   return (
  <button
   onClick={onClick}
-  className={`border p-4 rounded-xl border-gray-300 ${
+  className={`group relative cursor-pointer rounded-xl border bg-white p-4 text-left shadow-sm transition ${
     isSelected
-      ? ' ring bg-blue-50 ring-blue-500'
-      : 'hover:bg-gray-50 cursor-pointer hover:border-gray-400 transition-colors'
+      ? 'border-blue-500 bg-blue-50 shadow-md ring-2 ring-blue-200'
+      : 'border-gray-300 hover:border-blue-400 hover:shadow-md'
   }`}
 >
-  {/* Top Row */}
-  <div className="flex items-start justify-between">
-    <div className="flex items-center gap-2">
-      <Folder className={`w-4 h-4 ${isSelected ? 'text-blue-600' : 'text-gray-500'}`} />
-      <div>
-        <div className={`text-sm font-semibold ${
-          isSelected ? 'text-blue-700' : 'text-gray-900'
-        }`}>
-          Batch {isBatch ? formatBatchLabel(item.id) : item.name || item.id}
-        </div>
-      </div>
+  <div className="flex items-center gap-3">
+    <div
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+        isSelected
+          ? 'bg-blue-100 text-blue-700'
+          : 'bg-blue-50 text-blue-600'
+      }`}
+    >
+      <Folder className="h-5 w-5" />
+    </div>
+
+    <div className="min-w-0">
+      <p
+        className={`truncate text-sm font-semibold ${
+          isSelected ? 'text-blue-800' : 'text-gray-900'
+        }`}
+      >
+        Batch {isBatch ? formatBatchLabel(item.id) : item.name || item.id}
+      </p>
+
+     
     </div>
   </div>
 </button>
   );
 };
 
+const SortIcon = ({ active, direction }) => {
+  if (!active) return <ChevronsUpDown className="ml-1 inline-block h-3.5 w-3.5 opacity-60" />;
+  return direction === 'asc'
+    ? <ChevronUp className="ml-1 inline-block h-3.5 w-3.5" />
+    : <ChevronDown className="ml-1 inline-block h-3.5 w-3.5" />;
+};
+
 /* ---------------- STUDENT TABLE ---------------- */
-const StudentList = ({ students, curriculums, itemName, isBatch }) => {
+const StudentList = ({
+  students,
+  curriculums,
+  isBatch,
+  sortBy,
+  sortDir,
+  onSort,
+  onViewStudent,
+  onUnarchiveStudent,
+  selectMode,
+  selectedIds,
+  onToggleSelect,
+  loading,
+}) => {
+  if (loading) {
+    return (
+      <div className="overflow-x-auto rounded-xl border border-gray-300 mt-6">
+        <table className="min-w-full text-sm">
+          <thead className='bg-blue-500 text-white'>
+            <tr className="text-left text-sm border-b border-gray-300">
+              {selectMode ? <th className="p-4 w-12"></th> : <th className="p-4 w-12">#</th>}
+              <th className="p-4 ">Student No.</th>
+              <th className="p-4">Name</th>
+              <th className="p-4">Curriculum</th>
+              <th className="p-4">Status</th>
+              <th className="p-4 w-12%">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...Array(5)].map((_, index) => (
+              <StudentRowSkeleton key={index} selectMode={selectMode} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   if (!students || students.length === 0) {
     return (
       <div className="text-sm text-gray-500 p-6 text-center">
@@ -66,49 +160,108 @@ const StudentList = ({ students, curriculums, itemName, isBatch }) => {
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-300 mt-6">
       <table className="min-w-full text-sm ">
-        <thead>
-          <tr className="text-left text-xs text-gray-500 uppercase border-b border-gray-300">
-            <th className="p-4 w-20%">Student No.</th>
-            <th className="p-4 w-30% ">Name</th>
-            <th className="p-4 w-30%">Curriculum</th>
-            <th className="p-4 w-20%">Status</th>
+        <thead className='bg-blue-500 text-white'>
+          <tr className="text-left text-sm  border-b border-gray-300">
+            {selectMode ? (
+              <th className="p-4 w-12">
+                <input
+                  type="checkbox"
+                  className="h-3 w-3"
+                  checked={students.length > 0 && students.every(s => selectedIds.includes(s.id))}
+                  onChange={() => {
+                    if (students.length > 0 && students.every(s => selectedIds.includes(s.id))) {
+                      onToggleSelect([]);
+                    } else {
+                      onToggleSelect(students.map(s => s.id));
+                    }
+                  }}
+                />
+              </th>
+            ) : (
+              <th className="p-4 w-12">#</th>
+            )}
+            {[
+              ['studentNumber', 'Student No.'],
+              ['name', 'Name'],
+              ['curriculum', 'Curriculum'],
+              ['status', 'Status'],
+            ].map(([key, label]) => (
+              <th key={key} className="p-4">
+                <button
+                  type="button"
+                  onClick={() => onSort(key)}
+                  className="inline-flex items-center"
+                >
+                  {label}
+                  <SortIcon active={sortBy === key} direction={sortDir} />
+                </button>
+              </th>
+            ))}
             <th className="p-4 w-12%">Actions</th>
           </tr>
         </thead>
 
         <tbody>
-          {students.map((student) => {
+          {students.map((student, index) => {
             const pending = (student.payables || []).filter(
               (p) => p.status !== 'paid'
             ).length;
+            
+            // Calculate total balance from all unpaid payables
+            const totalBalance = (student.payables || [])
+              .filter(p => p.status !== 'paid')
+              .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
             return (
               <tr
                 key={student.id}
-                className="border-b border-gray-300 hover:bg-slate-50"
+                className="cursor-pointer border-b border-gray-300 hover:bg-slate-50"
+                onClick={() => onViewStudent(student)}
               >
-                <td className="px-4 py-2 w-20% text-gray-700">{student.studentNumber || ''}</td>
-                <td className="px-4 py-2 w-30%">{student.name}</td>
+                {selectMode ? (
+                  <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      className="h-3 w-3"
+                      checked={selectedIds.includes(student.id)}
+                      onChange={() => onToggleSelect(student.id)}
+                    />
+                  </td>
+                ) : (
+                  <td className="px-4 py-2 text-gray-700 text-center">{index + 1}</td>
+                )}
+                <td className="px-4 py-2 text-gray-700">{student.studentNumber || ''}</td>
+                <td className="px-4 py-2">{student.name}</td>
 
-                <td className="px-4 py-2 w-30% text-gray-600">
+                <td className="px-4 py-2 text-gray-600">
                   {curriculums[student.curriculumId] || student.curriculumId || ''}
                 </td>
-                <td className="px-4 py-2 w-20% text-gray-700">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${pending > 0 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                    {pending > 0 ? 'Pending' : 'Settled'}
-                  </span>
+                <td className="px-4 py-2 text-gray-700">
+                  {pending > 0 ? (
+                    <div>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                        Pending ({pending})
+                      </span>
+                      <div className="text-sm font-semibold text-red-600 mt-1">
+                        Balance: ₱{totalBalance.toFixed(2)}
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                      Settled
+                    </span>
+                  )}
                 </td>
 
                 <td className="px-4 py-2 w-12% text-right">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      const ev = new CustomEvent('archived:viewStudent', { detail: { student } });
-                      window.dispatchEvent(ev);
+                      onUnarchiveStudent(student);
                     }}
-                    className="px-2 py-1 text-xs bg-blue-600 text-white rounded-lg"
+className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gray-500"
                   >
-                    View
+                    <ArchiveRestore className="h-4 w-4" />
                   </button>
                 </td>
               </tr>
@@ -121,7 +274,7 @@ const StudentList = ({ students, curriculums, itemName, isBatch }) => {
 };
 
 /* ---------------- STUDENT DETAIL MODAL (Grades & Payables) ---------------- */
-const GradesTable = ({ grades, curriculumCourses = {}, student = {} }) => {
+const GradesTable = ({ grades, curriculumCourses = {}, student = {}, yearFilter = null }) => {
   if (!grades || Object.keys(grades).length === 0) return <p className="text-sm text-gray-500">No grade records available.</p>;
 
   // Normalize shape used in ViewArchivedClasses. If it's already nested, keep it.
@@ -138,7 +291,9 @@ const GradesTable = ({ grades, curriculumCourses = {}, student = {} }) => {
   // If curriculumCourses provided, render subjects according to curriculum structure
   if (curriculumCourses && Object.keys(curriculumCourses).length > 0) {
     // curriculumCourses expected shape: { [yearLevel]: { [semesterLabel]: [course, ...] } }
-    const yearLevels = Object.keys(curriculumCourses).sort((a, b) => Number(a) - Number(b));
+    const yearLevels = Object.keys(curriculumCourses)
+      .filter((year) => !yearFilter || Number(year) === Number(yearFilter))
+      .sort((a, b) => Number(a) - Number(b));
 
     const semesterOrder = ['1st Semester', '2nd Semester', 'Summer'];
 
@@ -239,7 +394,13 @@ const GradesTable = ({ grades, curriculumCourses = {}, student = {} }) => {
   }
 
   // Fallback: render from nested grades structure
-  const years = Object.keys(normalized).sort();
+  const years = Object.keys(normalized)
+    .filter((year) => {
+      if (!yearFilter) return true;
+      const match = year.match(/\d+/);
+      return match ? Number(match[0]) === Number(yearFilter) : false;
+    })
+    .sort();
 
   return (
     <div className="space-y-6">
@@ -328,7 +489,7 @@ const PayablesTable = ({ payables }) => {
 };
 
 const StudentDetailModal = ({ student, curriculums, curriculumCourses = {}, onClose }) => {
-  const [tab, setTab] = useState('curriculum');
+  const [tab, setTab] = useState('1');
   if (!student) return null;
 
   return (
@@ -352,23 +513,28 @@ const StudentDetailModal = ({ student, curriculums, curriculumCourses = {}, onCl
       </div>
     </div>
 
-    <div className="flex gap-2 mb-4">
-      <button
-        onClick={() => setTab('curriculum')}
-        className={`px-3 py-1 ${tab === 'curriculum' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-600 hover:text-gray-800'}`}
-      >
-        Curriculum
-      </button>
-      <button
-        onClick={() => setTab('payables')}
-        className={`px-3 py-1 ${tab === 'payables' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-600 hover:text-gray-800'}`}
-      >
-        Payables
-      </button>
+    <div className="flex flex-wrap gap-2 mb-4">
+      {[1, 2, 3, 4].map((year) => (
+        <button
+          key={year}
+          onClick={() => setTab(String(year))}
+          className={`px-3 py-1 ${tab === String(year) ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-600 hover:text-gray-800'}`}
+        >
+          {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
+        </button>
+      ))}
+     
     </div>
 
     <div className="overflow-y-auto max-h-[calc(80vh-140px)] pr-2">
-      {tab === 'curriculum' && <GradesTable grades={student.grades} curriculumCourses={curriculumCourses} student={student} />}
+      {['1', '2', '3', '4'].includes(tab) && (
+        <GradesTable
+          grades={student.grades}
+          curriculumCourses={curriculumCourses}
+          student={student}
+          yearFilter={Number(tab)}
+        />
+      )}
       {tab === 'payables' && <PayablesTable payables={student.payables || []} />}
     </div>
   </div>
@@ -426,11 +592,82 @@ const CreateFolderModal = ({
   );
 };
 
+const UnarchiveModal = ({
+  student,
+  year,
+  block,
+  setYear,
+  setBlock,
+  onClose,
+  onConfirm,
+  saving,
+}) => {
+  if (!student) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-lg">
+        <h3 className="text-lg font-semibold">Unarchive Student</h3>
+        <p className="text-sm text-gray-500 mb-5">
+          Choose where {student.name || 'this student'} should appear in Student Management.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+            <select
+              value={year || 1}
+              onChange={(e) => setYear(Number(e.target.value))}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              {[1, 2, 3, 4].map((value) => (
+                <option key={value} value={value}>
+                  {value === 1 ? '1st' : value === 2 ? '2nd' : value === 3 ? '3rd' : '4th'} Year
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">Block</label>
+            <select
+              value={block || 'A'}
+              onChange={(e) => setBlock(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              {['A', 'B', 'C', 'D', 'E'].map((value) => (
+                <option key={value} value={value}>Block {value}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 mt-6">
+          <button
+            onClick={onClose}
+            className="px-3 py-2 text-sm border rounded-lg"
+          >
+            Cancel
+          </button>
+
+          <button
+            onClick={onConfirm}
+            disabled={saving}
+            className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg disabled:opacity-50"
+          >
+            {saving ? 'Restoring...' : 'Unarchive'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ---------------- MAIN ---------------- */
-const ArchivedClasses = () => {
+const ArchivedClasses = ({ onBackToReportsMain }) => {
   const [archives, setArchives] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [search, setSearch] = useState('');
+  const [search] = useState('');
   const [curriculums, setCurriculums] = useState({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newFolder, setNewFolder] = useState('');
@@ -438,12 +675,31 @@ const ArchivedClasses = () => {
   const [loading, setLoading] = useState(true);
   const [modalStudent, setModalStudent] = useState(null);
   const [modalCurriculumCourses, setModalCurriculumCourses] = useState({});
+  const [sortBy, setSortBy] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+  const [unarchiveTarget, setUnarchiveTarget] = useState(null);
+  const [unarchiveYear, setUnarchiveYear] = useState(1);
+  const [unarchiveBlock, setUnarchiveBlock] = useState('A');
+  const [unarchiving, setUnarchiving] = useState(false);
+  
+  // Selection state for bulk actions
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  
+  // Search and refresh state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [success, setSuccess] = useState('');
 
   /* ---------------- FETCH ---------------- */
-  useEffect(() => {
-    const fetchData = async () => {
+  const fetchData = async (showRefreshLoading = false) => {
+    if (showRefreshLoading) {
+      setRefreshing(true);
+    } else {
       setLoading(true);
+    }
 
+    try {
       const snap = await getDocs(collection(db, 'archives'));
       setArchives(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
@@ -456,50 +712,61 @@ const ArchivedClasses = () => {
         map[d.id] = d.data().name || d.id;
       });
       setCurriculums(map);
-
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+    } finally {
       setLoading(false);
-    };
+      setRefreshing(false);
+    }
+  };
 
+  useEffect(() => {
     fetchData();
-
-    const handleView = async (e) => {
-      const student = e.detail.student || null;
-      setModalStudent(student);
-
-      // fetch curriculum courses for this student's curriculum
-      try {
-        if (student && student.curriculumId) {
-          const q = query(
-            collection(db, 'courses'),
-            where('curriculumId', '==', student.curriculumId),
-            orderBy('yearLevel'),
-            orderBy('semester')
-          );
-          const snap = await getDocs(q);
-          const courses = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-          // group into { yearLevel: { '1st Semester': [], '2nd Semester': [], 'Summer': [] } }
-          const grouped = {};
-          courses.forEach((c) => {
-            const y = String(c.yearLevel || '0');
-            const semNum = c.semester;
-            const semLabel = semNum === 1 ? '1st Semester' : semNum === 2 ? '2nd Semester' : semNum === 3 ? 'Summer' : `Semester ${semNum}`;
-            if (!grouped[y]) grouped[y] = {};
-            if (!grouped[y][semLabel]) grouped[y][semLabel] = [];
-            grouped[y][semLabel].push(c);
-          });
-
-          setModalCurriculumCourses((prev) => ({ ...prev, [student.curriculumId]: grouped }));
-        }
-      } catch (err) {
-        // ignore fetch errors; modal will fallback to grades-only rendering
-        console.error('Failed to load curriculum courses', err);
-      }
-    };
-
-    window.addEventListener('archived:viewStudent', handleView);
-    return () => window.removeEventListener('archived:viewStudent', handleView);
   }, []);
+
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => {
+        setSuccess('');
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [success]);
+
+  const handleRefresh = () => {
+    fetchData(true);
+  };
+
+  const openStudentModal = async (student) => {
+    setModalStudent(student);
+
+    try {
+      if (student && student.curriculumId && !modalCurriculumCourses[student.curriculumId]) {
+        const q = query(
+          collection(db, 'courses'),
+          where('curriculumId', '==', student.curriculumId),
+          orderBy('yearLevel'),
+          orderBy('semester')
+        );
+        const snap = await getDocs(q);
+        const courses = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+        const grouped = {};
+        courses.forEach((c) => {
+          const y = String(c.yearLevel || '0');
+          const semNum = c.semester;
+          const semLabel = semNum === 1 ? '1st Semester' : semNum === 2 ? '2nd Semester' : semNum === 3 ? 'Summer' : `Semester ${semNum}`;
+          if (!grouped[y]) grouped[y] = {};
+          if (!grouped[y][semLabel]) grouped[y][semLabel] = [];
+          grouped[y][semLabel].push(c);
+        });
+
+        setModalCurriculumCourses((prev) => ({ ...prev, [student.curriculumId]: grouped }));
+      }
+    } catch (err) {
+      console.error('Failed to load curriculum courses', err);
+    }
+  };
 
   /* ---------------- FILTER ---------------- */
   const filtered = archives.filter((a) =>
@@ -520,6 +787,149 @@ const ArchivedClasses = () => {
     ...folders.map((f) => ({ ...f, type: 'folder' })),
     ...batches.map((b) => ({ ...b, type: 'batch' })),
   ];
+
+  const handleSort = (key) => {
+    if (sortBy === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(key);
+      setSortDir('asc');
+    }
+  };
+
+  const sortedSelectedStudents = useMemo(() => {
+    const list = (selectedItem?.students || []).slice();
+    return list.sort((a, b) => {
+      const pendingA = (a.payables || []).some((p) => p.status !== 'paid') ? 'pending' : 'settled';
+      const pendingB = (b.payables || []).some((p) => p.status !== 'paid') ? 'pending' : 'settled';
+      const values = {
+        studentNumber: [(a.studentNumber || '').toString(), (b.studentNumber || '').toString()],
+        name: [(a.name || '').toString(), (b.name || '').toString()],
+        curriculum: [
+          (curriculums[a.curriculumId] || a.curriculumId || '').toString(),
+          (curriculums[b.curriculumId] || b.curriculumId || '').toString()
+        ],
+        status: [pendingA, pendingB],
+      };
+      const [aValue, bValue] = values[sortBy] || values.name;
+      return sortDir === 'asc'
+        ? aValue.localeCompare(bValue)
+        : bValue.localeCompare(aValue);
+    });
+  }, [curriculums, selectedItem?.students, sortBy, sortDir]);
+
+  // Filter students based on search term
+  const filteredSelectedStudents = useMemo(() => {
+    if (!selectedItem?.students || !searchTerm) return sortedSelectedStudents;
+    
+    return sortedSelectedStudents.filter(student => 
+      (student.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+       student.studentNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+       (curriculums[student.curriculumId]?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+       student.curriculumId?.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+  }, [sortedSelectedStudents, searchTerm, curriculums, selectedItem?.students]);
+
+  const openUnarchiveModal = (student) => {
+    setUnarchiveTarget(student);
+    setUnarchiveYear(Number(student.yearLevel) || 1);
+    setUnarchiveBlock((student.block || 'A').toString().trim().toUpperCase() || 'A');
+  };
+
+  // Toggle a single student's selection
+  const toggleSelectId = (id) => {
+    setSelectedIds(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(x => x !== id);
+      }
+      return [...prev, id];
+    });
+  };
+
+  // Handle selection toggle (single ID or array)
+  const handleToggleSelect = (idOrArray) => {
+    if (Array.isArray(idOrArray)) {
+      setSelectedIds(idOrArray);
+    } else {
+      toggleSelectId(idOrArray);
+    }
+  };
+
+  // Handle bulk unarchive for selected students
+  const handleBulkUnarchive = async () => {
+    if (selectedIds.length === 0) return;
+    
+    setUnarchiving(true);
+    try {
+      const selectedStudents = (selectedItem?.students || []).filter(student => 
+        selectedIds.includes(student.id)
+      );
+      
+      // Restore all selected students to default year/block
+      const restorePromises = selectedStudents.map(async (student) => {
+        const restoredStudent = {
+          ...student,
+          yearLevel: Number(student.yearLevel) || 1,
+          block: (student.block || 'A').toString().trim().toUpperCase() || 'A',
+          active: true,
+          inactiveAt: null,
+          inactiveYear: null,
+          updatedAt: new Date().toISOString(),
+        };
+
+        // Update student in main collection
+        await setDoc(doc(db, 'students', student.id), restoredStudent, { merge: true });
+        
+        return student.id;
+      });
+
+      const restoredIds = await Promise.all(restorePromises);
+      
+      // Remove restored students from archive
+      const remainingStudents = (selectedItem.students || []).filter(student => 
+        !restoredIds.includes(student.id)
+      );
+      
+      await setDoc(
+        doc(db, 'archives', selectedItem.id),
+        {
+          students: remainingStudents,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      // Log bulk action
+      await logSystemAction({
+        action: 'Archived classes',
+        module: 'Reports',
+        entityType: 'studentBatch',
+        entityId: '',
+        description: `Bulk unarchived ${selectedIds.length} students from ${selectedItem.name || selectedItem.id}`,
+        details: {
+          archiveId: selectedItem.id,
+          studentIds: selectedIds,
+          count: selectedIds.length
+        }
+      });
+
+      // Update local state
+      setArchives(prev =>
+        prev.map(archive =>
+          archive.id === selectedItem.id
+            ? { ...archive, students: remainingStudents }
+            : archive
+        )
+      );
+      setSelectedItem(prev => prev ? { ...prev, students: remainingStudents } : prev);
+      setSelectedIds([]);
+      setSuccess(`${selectedIds.length} students successfully unarchived!`);
+    } catch (err) {
+      alert(`Failed to unarchive students: ${err.message}`);
+    } finally {
+      setUnarchiving(false);
+    }
+  };
 
   /* ---------------- CREATE ---------------- */
   const handleCreate = async () => {
@@ -550,73 +960,228 @@ const ArchivedClasses = () => {
     setCreating(false);
   };
 
+  const handleUnarchive = async () => {
+    if (!selectedItem || !unarchiveTarget?.id) return;
+
+    setUnarchiving(true);
+    try {
+      const restoredStudent = {
+        ...unarchiveTarget,
+        yearLevel: Number(unarchiveYear) || 1,
+        block: unarchiveBlock,
+        active: true,
+        inactiveAt: null,
+        inactiveYear: null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await setDoc(doc(db, 'students', unarchiveTarget.id), restoredStudent, { merge: true });
+
+      const nextStudents = (selectedItem.students || []).filter((student) => student.id !== unarchiveTarget.id);
+      await setDoc(
+        doc(db, 'archives', selectedItem.id),
+        {
+          students: nextStudents,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      await logSystemAction({
+        action: 'Archived classes',
+        module: 'Reports',
+        entityType: 'student',
+        entityId: unarchiveTarget.id,
+        description: `Unarchived ${unarchiveTarget.name || unarchiveTarget.id}`,
+        details: {
+          archiveId: selectedItem.id,
+          studentId: unarchiveTarget.id,
+          yearLevel: restoredStudent.yearLevel,
+          block: restoredStudent.block,
+        }
+      });
+
+      setArchives((prev) =>
+        prev.map((archive) =>
+          archive.id === selectedItem.id
+            ? { ...archive, students: nextStudents }
+            : archive
+        )
+      );
+      setSelectedItem((prev) => prev ? { ...prev, students: nextStudents } : prev);
+      setUnarchiveTarget(null);
+    } catch (err) {
+      alert(`Failed to unarchive student: ${err.message}`);
+    } finally {
+      setUnarchiving(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto ">
       <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <span>Dashboard</span>
+        <button
+          type="button"
+          onClick={onBackToReportsMain}
+          className="hover:text-blue-600 hover:underline"
+        >
+          Dashboard
+        </button>
         <span className="text-gray-300">&gt;</span>
-       
-        <span className="font-medium text-blue-600">Archived Classes</span>
+        {selectedItem ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setSelectedItem(null)}
+              className="hover:text-blue-600 hover:underline"
+            >
+              Archived Classes
+            </button>
+            <span className="text-gray-300">&gt;</span>
+            <span className="font-medium text-blue-600">
+              {selectedItem.type === 'batch' ? `Batch ${selectedItem.name}` : selectedItem.name || selectedItem.id}
+            </span>
+          </>
+        ) : (
+          <span className="font-medium text-blue-600">Archived Classes</span>
+        )}
       </div>
-    
-
-     
 
       <div className='flex items-center justify-between mb-6'>
            <div>
             <h5 className="text-2xl font-medium text-gray-900">Archived Classes</h5>
             <p className="text-gray-500 text-sm">
-              View and manage archived classes, organized by folders or batches, to keep track of past academic records.
+             View and manage archived classes, organized by folders or batches, to keep track of past academic records.
             </p>
+            {success && (
+              <div className="mt-2 p-2 bg-green-100 border border-green-300 text-green-700 rounded-lg text-sm">
+                {success}
+              </div>
+            )}
           </div>
-           <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm"
-        >
-          <BadgePlus className="w-4 h-4" />
-          Create Batch / Folder
-        </button>
+            {!selectedItem && (
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="flex items-center gap-2 bg-green-500 cursor-pointer hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm"
+              >
+                <BadgePlus className="w-4 h-4" />
+                Create Batch / Folder
+              </button>
+            )}
+          
       </div>
 
-     
+      <div>
+            {selectedItem && (
+              <>
 
-      {/* GRID */}
-      {loading ? (
-        <p className="text-gray-500">Loading...</p>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          {allItems.map((item) => (
-            <ItemCard
-              key={item.id}
-              item={item}
-              type={item.type}
-              isSelected={
-                selectedItem?.id === item.id &&
-                selectedItem?.type === item.type
-              }
-              studentCount={(item.students || []).length}
-              onClick={() =>
-                setSelectedItem({
-                  ...item,
-                  name:
-                    item.type === 'batch'
-                      ? formatBatchLabel(item.id)
-                      : item.name,
-                })
-              }
-            />
-          ))}
-        </div>
+                <div className='flex items-center gap-2 justify-between'>
+                 <div className='flex items-center gap-2'>
+                   <button
+                  type="button"
+                  onClick={() => {
+                    const next = !selectMode;
+                    setSelectMode(next);
+                    if (!next) setSelectedIds([]);
+                  }}
+                  title={selectMode ? 'Turn off selection' : 'Select students'}
+                  className={`inline-flex items-center gap-2 p-2 border border-gray-300 cursor-pointer rounded-xl transition 
+                      ${selectMode 
+                        ? 'bg-gray-100 text-gray-400'
+                        : 'hover:bg-gray-100 text-gray-700 bg-gray-200'
+                      }`}
+                >
+                  <Square className="w-4 h-4" />
+                  <span className="text-xs">Select</span>
+                </button>
+
+                {selectMode && selectedIds.length > 0 && (
+                  <button
+                    onClick={handleBulkUnarchive}
+                    disabled={unarchiving}
+                    className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gray-500"
+                    title={`Unarchive ${selectedIds.length} selected student${selectedIds.length > 1 ? 's' : ''}`}
+                  >
+                    <ArchiveRestore className="w-4 h-4" />
+                  </button>
+                )}
+                
+                 </div>
+                <div className='flex items-center gap-2'>
+                    <button
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                                     className="p-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
+
+                  title="Refresh data"
+                >
+                  <RefreshCcw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                </button>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Search students..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                </div>
+            
+                </div>
+                
+              
+                      
+              </>
+            )}
+            
+          </div>
+
+       {/* GRID */}
+      {!selectedItem && (
+        loading ? (
+          <p className="text-gray-500">Loading...</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            {allItems.map((item) => (
+              <ItemCard
+                key={item.id}
+                item={item}
+                type={item.type}
+                isSelected={false}
+                onClick={() =>
+                  setSelectedItem({
+                    ...item,
+                    name:
+                      item.type === 'batch'
+                        ? formatBatchLabel(item.id)
+                        : item.name,
+                  })
+                }
+              />
+            ))}
+          </div>
+        )
       )}
 
       {/* STUDENTS */}
       {selectedItem && (
         <div >
           <StudentList
-            students={selectedItem.students}
+            students={filteredSelectedStudents}
             curriculums={curriculums}
-            itemName={selectedItem.name}
             isBatch={selectedItem.type === 'batch'}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onSort={handleSort}
+            onViewStudent={openStudentModal}
+            onUnarchiveStudent={openUnarchiveModal}
+            selectMode={selectMode}
+            selectedIds={selectedIds}
+            onToggleSelect={handleToggleSelect}
+            loading={refreshing}
           />
         </div>
       )}
@@ -636,6 +1201,17 @@ const ArchivedClasses = () => {
         curriculums={curriculums}
         curriculumCourses={modalCurriculumCourses[modalStudent?.curriculumId] || {}}
         onClose={() => setModalStudent(null)}
+      />
+
+      <UnarchiveModal
+        student={unarchiveTarget}
+        year={unarchiveYear}
+        block={unarchiveBlock}
+        setYear={setUnarchiveYear}
+        setBlock={setUnarchiveBlock}
+        onClose={() => setUnarchiveTarget(null)}
+        onConfirm={handleUnarchive}
+        saving={unarchiving}
       />
     </div>
   );

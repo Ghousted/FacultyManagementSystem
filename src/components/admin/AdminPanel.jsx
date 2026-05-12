@@ -98,7 +98,13 @@ const AdminPanel = () => {
     return (
       <div className="">
         <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-          <span>Dashboard</span>
+          <button
+          type="button"
+          onClick={() => (window.location.hash = '#/dashboard')}
+          className="text-gray-600 hover:text-blue-600"
+        >
+          Dashboard
+        </button>
           <span className="text-gray-300">&gt;</span>
           <span className="font-medium text-blue-600">Settings</span>
         </div>
@@ -116,7 +122,13 @@ const AdminPanel = () => {
   return (
     <div className="">
       <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <span>Dashboard</span>
+        <button
+          type="button"
+          onClick={() => (window.location.hash = '#/dashboard')}
+          className="text-gray-600 hover:text-blue-600"
+        >
+          Dashboard
+        </button>
         <span className="text-gray-300">&gt;</span>
         <span className="font-medium text-blue-600">Settings</span>
       </div>

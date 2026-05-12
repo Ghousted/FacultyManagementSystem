@@ -52,7 +52,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewCurriculumId, setPreviewCurriculumId] = useState(null);
   const [printOnlyOpen, setPrintOnlyOpen] = useState(false);
-  const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [sortField, setSortField] = useState('courseCode');
   const [sortDirection, setSortDirection] = useState('asc');
   const [tableFilters, setTableFilters] = useState({ 1: '', 2: '', 3: '' });
@@ -251,11 +250,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     }, 700);
     return () => clearTimeout(timer);
   }, [printOnlyOpen]);
-
-  const handleConfirmPrint = () => {
-    setPrintPreviewOpen(false);
-    setPrintOnlyOpen(true);
-  };
 
   const showMessage = (message, severity = 'success') => {
     setSnackbarMessage(message);
@@ -966,30 +960,21 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     
 
       <div className='flex items-center justify-between gap-4'>
-        <div className="flex gap-2 bg-gray-200/50 p-1  text-sm rounded-xl w-fit">
+  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
         {[1, 2, 3, 4].map((year, idx) => (
           <button
             key={year}
             onClick={() => { setTabValue(idx); setSelectedYear(year); }}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold transition 
+              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all 
                       ${tabValue === idx 
-                        ? 'bg-blue-500 text-white'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
-                      }`}
+                      ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+              }`}
           >
             {yearLabels[idx]}
           </button>
         ))}
-        <button
-          onClick={() => { setTabValue(4); setSelectedYear('irregular'); }}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold transition 
-                    ${tabValue === 4 
-                      ? 'bg-blue-500 text-white'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
-                    }`}
-        >
-          Irregulars
-        </button>
+      
       </div>
 
         <button
@@ -997,9 +982,9 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                     onClick={() => {
                       if (!selectedCurriculum) return;
                       setPreviewCurriculumId(selectedCurriculum?.id || '');
-                      setPrintPreviewOpen(true);
+                      setPrintOnlyOpen(true);
                     }}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-2 cursor-pointer text-sm text-white hover:bg-green-700 "
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-500 px-4 py-2 cursor-pointer text-sm text-white hover:bg-green-600 "
                   >
                     <Printer className="w-4 h-4" />
                     Print Curriculum
@@ -1353,7 +1338,13 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   return (
     <div className=" max-w-7xl mx-auto flex flex-col">
       <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <span>Dashboard</span>
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-gray-600 hover:text-blue-600"
+        >
+          Dashboard
+        </button>
         <span className="text-gray-300">&gt;</span>
         <button
           type="button"
@@ -2086,39 +2077,6 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                 className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {printPreviewOpen && previewCurriculumId && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full mx-4 max-h-[90vh] overflow-hidden">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h2 className="text-lg font-semibold">Print Preview</h2>
-              <button
-                onClick={() => setPrintPreviewOpen(false)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            <div className="p-4 overflow-y-auto max-h-[70vh]">
-              <CurriculumPreview curriculumId={previewCurriculumId} />
-            </div>
-            <div className="flex justify-end gap-2 p-4 border-t">
-              <button
-                onClick={() => setPrintPreviewOpen(false)}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmPrint}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2"
-              >
-                <Printer className="w-4 h-4" />
-                Print
               </button>
             </div>
           </div>

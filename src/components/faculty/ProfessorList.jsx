@@ -167,8 +167,8 @@ const ProfessorList = ({ onSelectProfessor }) => {
 
   return (
     <div>
-      <div className="bg-white border border-gray-300 rounded-2xl shadow-sm">
-        <div className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-300">
+
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col sm:flex-row gap-2">
             <button
               onClick={refresh}
@@ -193,19 +193,18 @@ const ProfessorList = ({ onSelectProfessor }) => {
 
           <button
             onClick={openCreate}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm cursor-pointer"
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Add Professor
           </button>
         </div>
 
-        {error && (
-          <div className="m-4 px-3 py-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg">
-            {error}
-          </div>
-        )}
 
-        <div className="overflow-x-auto">
+
+      <div className="">
+        
+        
+        <div className="overflow-x-auto bg-white border border-gray-300 rounded-2xl ">
           <table className="w-full table-fixed text-sm">
             <thead className="bg-blue-500 text-left text-white text-sm tracking-wide">
               <tr>

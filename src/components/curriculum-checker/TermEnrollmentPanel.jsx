@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CalendarRange, Pencil, Check, X } from 'lucide-react';
-import { getActiveTerm, saveActiveTerm, bulkSetAllStudentsNotEnrolled } from '../../models/facultyModels';
+import { getActiveTerm, saveActiveTerm, bulkSetAllStudentsNotEnrolled, unassignAllProfessorClasses } from '../../models/facultyModels';
+import { clearAllOfferedModules } from '../../models/payablesModels';
 import EnrollmentManager from './EnrollmentManager';
 
 const SEMESTER_LABELS = { 1: '1st Semester', 2: '2nd Semester', 3: 'Summer' };
@@ -52,7 +53,24 @@ const TermEnrollmentPanel = ({ headerOnly = false }) => {
         (previousActiveTerm.schoolYear || '') !== (nextTerm.schoolYear || '');
 
       if (termChanged) {
-        const unenrollRes = await bulkSetAllStudentsNotEnrolled();
+        // Clear all offered modules when term changes
+        const clearRes = await clearAllOfferedModules();
+        if (!clearRes.success) {
+          setTermError(
+            `Term saved, but failed to clear offered modules: ${clearRes.error || 'Unknown error'}`
+          );
+        }
+
+        // Unassign all professor classes when term changes
+        const unassignRes = await unassignAllProfessorClasses();
+        if (!unassignRes.success) {
+          setTermError(
+            `Term saved, but failed to unassign professor classes: ${unassignRes.error || 'Unknown error'}`
+          );
+        }
+
+        // Unenroll all students for fresh start
+        const unenrollRes = await bulkSetAllStudentsNotEnrolled({ suppressLog: true });
         if (!unenrollRes.success) {
           setTermError(
             `Term saved, but failed to unenroll students: ${unenrollRes.error || 'Unknown error'}`

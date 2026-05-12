@@ -29,7 +29,7 @@ const PayablesMain = ({ onBackToDashboard, initialDepartment = 'ccs' }) => {
 
     
 
-       <div className="flex gap-2 bg-slate-200/90 p-1 rounded-xl w-fit mb-4">
+  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1 mt-2">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const active = selectedDepartmentType === tab.key;
@@ -58,10 +58,10 @@ const PayablesMain = ({ onBackToDashboard, initialDepartment = 'ccs' }) => {
                       window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'other', departmentName: null, selectedFolder: null } }));
                     }
                   }}
-                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
                     active
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-gray-600 hover:bg-white hover:text-gray-900 cursor-pointer'
+                      ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
                   }`}
                 >
                   <Icon className="h-4 w-4" />

@@ -45,7 +45,7 @@ const navItemsByRole = {
 
     { label: 'Student Management', hash: '#/student-management', icon: Users },
 
-    { label: "Dean's List Report", hash: '#/deans-list-report', icon: Medal },
+    { label: 'Reports', hash: '#/deans-list-report', icon: Medal },
     { label: 'Archive Classes', hash: '#/archived-classes', icon: Archive }
   ],
 

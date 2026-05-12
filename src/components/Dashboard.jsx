@@ -430,14 +430,6 @@ const Dashboard = () => {
     );
   }
 
-  if (selectedSystem === "Dean's List Report") {
-    return (
-      <Suspense fallback={<p className="p-4 text-sm text-gray-500">Loading Dean's List Report...</p>}>
-        <ReportsMain initialReport="deans" onBackToDashboard={handleBackToDashboard} />
-      </Suspense>
-    );
-  }
-
   if (selectedSystem === 'Faculty Management') {
     return (
       <Suspense fallback={<p className="p-4 text-sm text-gray-500">Loading Faculty Management...</p>}>
@@ -518,11 +510,14 @@ const Dashboard = () => {
                 <Medal className="h-5 w-5" />
               </div>
               <div>
-                <h4 className="text-lg font-semibold text-gray-900">Dean's List Report</h4>
-                <p className="text-sm text-gray-500">Current academic excellence report.</p>
+                <h4 className="text-lg font-semibold text-gray-900">Dean's List Reports</h4>
+                <p className="text-sm text-gray-500">
+                                  View detailed reports of students who have achieved academic excellence this semester, including GPA breakdowns and honors.
+
+                </p>
               </div>
             </div>
-            <Suspense fallback={<p className="p-4 text-sm text-gray-500">Loading Dean's List Report...</p>}>
+            <Suspense fallback={<p className="p-4 text-sm text-gray-500">Loading Reports...</p>}>
               <ReportsModule embedded />
             </Suspense>
           </section>

@@ -313,7 +313,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
         const coursesToUnassign = [...professor.assignedCourses];
         await Promise.all(
           coursesToUnassign.map(course =>
-            unassignCourseFromProfessor(professorId, course.courseId)
+            unassignCourseFromProfessor(professorId, course.courseId, { suppressLog: true })
           )
         );
         // Refresh professor data
@@ -876,7 +876,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
               >
                 <RefreshCw className={`h-4 w-4 ${tableLoading ? 'animate-spin' : ''}`} />
               </button>
-              <div className="flex gap-2 bg-slate-200/50 p-1.5 rounded-xl w-fit">
+  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
                 {YEAR_TABS.map(year => {
                   const active = assignedYearTab === year.value;
                   return (
@@ -884,11 +884,11 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                       key={year.value}
                       type="button"
                       onClick={() => setAssignedYearTab(year.value)}
-                      className={`rounded-lg px-3 py-1 text-sm font-semibold transition ${
+              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
                         active
-                          ? 'bg-blue-600 text-white shadow-sm'
-                          : 'text-gray-600 hover:bg-gray-100 hover:text-blue-600 cursor-pointer'
-                      }`}
+                          ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+              }`}
                     >
                       {year.label}
                     </button>
@@ -898,7 +898,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
             </div>
               <button
         onClick={openPicker}
-        className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-500  cursor-pointer px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600"
+        className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-500  cursor-pointer px-4 py-2 text-sm font-medium text-white transition hover:bg-green-600"
       >
         <Plus className="h-4 w-4" />
         Assign Subject
@@ -912,10 +912,10 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
   <table className="w-full table-fixed text-sm">
 
     {/* HEADER */}
-    <thead className="bg-blue-600 text-left text-xs uppercase tracking-wide text-white">
+    <thead className="bg-blue-600 text-left text-sm tracking-wide text-white">
       <tr>
         <th
-          className="w-[15%] cursor-pointer select-none px-4 py-2  "
+          className="w-[15%] cursor-pointer select-none p-4  "
           onClick={() => handleSort('courseCode')}
         >
           Subject Code <SortIcon column="courseCode" />
@@ -1338,7 +1338,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 
                <div>
                  {pickerCurriculumId && (
-        <div className="flex gap-2 bg-gray-200/50 p-1 rounded-xl w-fit">
+  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
                     {YEAR_TABS.map(year => {
                       const isActive = pickerYearTab === year.value;
                       const count = pickerYearCounts[year.value] || 0;
@@ -1348,10 +1348,11 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                           key={year.value}
                           type="button"
                           onClick={() => setPickerYearTab(year.value)}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
                             isActive
-                             ? 'bg-blue-500 text-white'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
+                               ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+           
                           }`}
                         >
                           {year.label}
@@ -1590,10 +1591,10 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
               key={year.value}
               type="button"
               onClick={() => setOtherYearTab(year.value)}
-              className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
                 isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-700 hover:bg-white hover:text-gray-900'
+                  ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
               }`}
             >
               {year.label}
@@ -1604,44 +1605,48 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
         })}
       </div>
 
+      
+
       {/* Filters */}
-      <div className="w-full lg:w-[520px]">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[180px_1fr]">
-          <select
-            value={forceActiveSemester ? String(activeSemester) : otherSemesterFilter}
-            onChange={(e) => {
-              if (forceActiveSemester) return;
-              setOtherSemesterFilter(e.target.value);
-            }}
-            disabled={!otherCurriculumId || forceActiveSemester}
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 disabled:bg-gray-50"
-          >
-            {forceActiveSemester ? (
-              <option value={String(activeSemester)}>
-                {SEMESTER_LABELS[activeSemester] || `Sem ${activeSemester}`} (Active term)
-              </option>
-            ) : (
-              <>
-                <option value="all">All semesters</option>
-                <option value="1">1st Sem</option>
-                <option value="2">2nd Sem</option>
-                <option value="3">Summer</option>
-              </>
-            )}
-          </select>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Course code or title..."
-              value={otherSubjectSearch}
-              onChange={(e) => setOtherSubjectSearch(e.target.value)}
-              disabled={!otherCurriculumId}
-              className="w-full rounded-lg border border-gray-300 py-2.5 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 disabled:bg-gray-50"
-            />
-          </div>
+<div className="w-full lg:w-[520px]">
+  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+    
+    {/* Block Filter */}
+    <div className="">
+      {!otherSelectedClass ? (
+        <p className="text-sm text-gray-500">
+          Select a class first.
+        </p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Blocks
+          </span>
+
+          <BlockToggle
+            value={otherBlocks}
+            onChange={setOtherBlocks}
+            availableBlocks={otherSelectedClass?.blocks || []}
+          />
         </div>
-      </div>
+      )}
+    </div>
+
+    {/* Search */}
+    <div className="relative flex-1">
+      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+
+      <input
+        type="text"
+        placeholder="Search course code or title..."
+        value={otherSubjectSearch}
+        onChange={(e) => setOtherSubjectSearch(e.target.value)}
+        disabled={!otherCurriculumId}
+        className="w-full rounded-xl border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm transition focus:border-blue-400 focus:outline-none focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-50"
+      />
+    </div>
+  </div>
+</div>
     </div>
   )}
 </div>
@@ -1748,28 +1753,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                     </div>
                   </div>
 
-                {/* Folder 4: Blocks (after subjects) */}
-                <details open className="rounded-xl border border-gray-200 bg-white">
-                  <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
-                    Blocks
-                    <span className="ml-2 text-xs font-medium text-gray-500">(step 4)</span>
-                  </summary>
-                  <div className="border-t border-gray-200 bg-gray-50/40 p-4">
-                    {!otherSelectedClass ? (
-                      <p className="text-sm text-gray-500">Select a class first.</p>
-                    ) : (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-semibold text-gray-600">Block(s)</span>
-                        <BlockToggle
-                          value={otherBlocks}
-                          onChange={setOtherBlocks}
-                          availableBlocks={otherSelectedClass?.blocks || []}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </details>
-
+              
               </div>
             )}
             </div>

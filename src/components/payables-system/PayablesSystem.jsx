@@ -46,7 +46,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   const [moduleSelectorOpen, setModuleSelectorOpen] = useState(false);
   const [moduleSelectorContext, setModuleSelectorContext] = useState('new');
   const [moduleSortConfig, setModuleSortConfig] = useState({ key: 'courseCode', direction: 'ascending' });
-  const [moduleYearLevelFilter, setModuleYearLevelFilter] = useState('all');
+  const [moduleYearLevelFilter, setModuleYearLevelFilter] = useState('1');
   const [moduleCurriculumFilter, setModuleCurriculumFilter] = useState('all');
   const [moduleSemesterFilter, setModuleSemesterFilter] = useState('all');
   const [curriculums, setCurriculums] = useState([]);
@@ -1265,7 +1265,7 @@ useEffect(() => {
       <div className="mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className='flex items-start gap-2'>
           {selectedFolder && (
-            <div className='flex items-start gap-2'>
+            <div className='flex items-start gap-2 mt-4'>
               <button
                 type="button"
                 onClick={() => {
@@ -1299,7 +1299,7 @@ useEffect(() => {
             Modules
           </button>
           <button
-            className="px-3 py-1.5 bg-blue-600 cursor-pointer text-sm text-white rounded-lg hover:bg-blue-700"
+            className="px-3 py-1.5 bg-green-500 cursor-pointer text-sm text-white rounded-lg hover:bg-green-600"
             onClick={handleAddPayable}
           >
             <BadgePlus className='w-4 h-4 inline-flex mr-1 mb-0.5' />
@@ -1840,7 +1840,7 @@ useEffect(() => {
       onClick={() => setModuleSelectorOpen(false)}
     ></div>
 
-    <div className="relative z-10 w-full max-w-3xl rounded-3xl border h-[90vh] border-slate-200 bg-white shadow-2xl">
+    <div className="relative z-10 w-full max-w-3xl rounded-3xl border h-[70vh] border-slate-200 bg-white shadow-2xl">
       
       <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
         <div>
@@ -1861,35 +1861,53 @@ useEffect(() => {
         </button>
       </div>
 
-      <div className="max-h-[80vh] overflow-y-auto px-6 py-5">
-        
-        <div className="mb-5 flex flex-wrap gap-2 rounded-2xl bg-slate-100 p-1">
-          {[ '1', '2', '3', '4'].map((y) => (
-            <button
-              key={y}
-              type="button"
-              onClick={() => setModuleYearLevelFilter(y)}
-              className={`flex-1 rounded-xl px-4 py-2 text-sm font-medium transition ${
-                moduleYearLevelFilter === y
-                  ? 'bg-blue-500 text-white shadow-sm'
-                  : 'text-slate-600 hover:bg-white hover:text-slate-900'
+      <div className="max-h-[60vh] overflow-y-auto px-6 py-5">
+      <div className='flex items-center justify-between gap-2 mb-4'>
+          {/* Year Level Filters */}
+  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+          {['1', '2', '3', '4'].map((y) => {
+            // Determine if this year is active
+            const isActive = moduleSelectorContext === 'new'
+              ? moduleYearLevelFilter === y
+              : individualPayableForm.yearLevel === y;
+
+            return (
+              <button
+                key={y}
+                type="button"
+                onClick={() => {
+                  if (moduleSelectorContext === 'new') {
+                    setModuleYearLevelFilter(y);
+                  } else {
+                    handleIndividualPayableInputChange('yearLevel', y);
+                  }
+                }}
+                 className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                isActive
+                  ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
               }`}
-            >
-              {y === 'all'
-                ? 'All Years'
-                : `${y}${['1', '2', '3'].includes(y) ? getOrdinalSuffix(y) : 'th'} Year`}
-            </button>
-          ))}
+              >
+                {y}{getOrdinalSuffix(parseInt(y))} Year
+              </button>
+            );
+          })}
         </div>
 
-        <div className="mb-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+        {/* Curriculum and Semester Filters */}
+        <div className="flex items-center gap-2">
           <select
-            value={moduleCurriculumFilter}
-            onChange={(e) => setModuleCurriculumFilter(e.target.value)}
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+            value={moduleSelectorContext === 'new' ? moduleCurriculumFilter : 'all'}
+            onChange={(e) => {
+              if (moduleSelectorContext === 'new') {
+                setModuleCurriculumFilter(e.target.value);
+              }
+              // For individual context, you might want to handle curriculum filtering differently
+            }}
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
           >
             <option value="all">All Curriculums</option>
-            {curriculums.map((c) => (
+            {curriculums?.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
@@ -1897,9 +1915,13 @@ useEffect(() => {
           </select>
 
           <select
-            value={moduleSemesterFilter}
-            onChange={(e) => setModuleSemesterFilter(e.target.value)}
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+            value={moduleSelectorContext === 'new' ? moduleSemesterFilter : 'all'}
+            onChange={(e) => {
+              if (moduleSelectorContext === 'new') {
+                setModuleSemesterFilter(e.target.value);
+              }
+            }}
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
           >
             <option value="all">All Semesters</option>
             <option value="1">1st Semester</option>
@@ -1907,6 +1929,7 @@ useEffect(() => {
             <option value="3">Summer</option>
           </select>
         </div>
+      </div>
 
         <div className="overflow-hidden rounded-2xl border border-slate-200">
           <div className="overflow-x-auto">
