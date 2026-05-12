@@ -82,10 +82,15 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
   // Unified breadcrumb at top (receives state via `student-breadcrumb` events)
   const renderTopBreadcrumb = () => {
     const { mode, selectedFolder, selectedStudent } = breadcrumbState || {};
-    const activeMode = mode || (tab === 'enrollment' ? 'enrollment' : 'students');
+    const activeMode = mode || (tab === 'enrollment' ? 'enrollment' : tab === 'other' ? 'other' : 'students');
 
     const crumbs = [{ label: 'Dashboard', onClick: () => (window.location.hash = '#/') }];
-    crumbs.push({ label: activeMode === 'enrollment' ? 'Enrollment Management' : 'Student Management', onClick: null });
+    const mainLabel = activeMode === 'enrollment'
+      ? 'Enrollment Management'
+      : activeMode === 'other'
+        ? 'Other Departments'
+        : 'Student Management';
+    crumbs.push({ label: mainLabel, onClick: null });
 
     if (selectedFolder) {
       if (selectedFolder.isIrregular) {
@@ -110,20 +115,18 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
           // Make the second breadcrumb item a button to switch between Student/Enrollment
           if (i === 1) {
             const isEnrollment = activeMode === 'enrollment';
+            const isOther = activeMode === 'other';
             const onClick = () => {
               if (isEnrollment) {
-                // ensure we return to enrollment main view
                 setTab('enrollment');
                 window.dispatchEvent(new CustomEvent('reset-enrollment-manager'));
-                // clear selected student in breadcrumb as well
-                setBreadcrumbState((prev) => ({ ...prev, selectedStudent: null }));
-                setStudentDetailOpen(false);
-                setOpenedStudentName('');
-                return;
+              } else if (isOther) {
+                setTab('other');
+                window.dispatchEvent(new CustomEvent('reset-student-management'));
+              } else {
+                setTab('students');
+                window.dispatchEvent(new CustomEvent('reset-student-management'));
               }
-              // switch to students view
-              setTab('students');
-              window.dispatchEvent(new CustomEvent('reset-student-management'));
               setBreadcrumbState((prev) => ({ ...prev, selectedStudent: null }));
               setStudentDetailOpen(false);
               setOpenedStudentName('');
@@ -158,12 +161,14 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
 
       <div className="mb-4">
         <h2 className="text-2xl font-semibold text-gray-900">
-          {tab === 'students' ? 'Student Management' : 'Enrollment Management'}
+          {tab === 'students' ? 'Student Management' : tab === 'enrollment' ? 'Enrollment Management' : 'Other Departments'}
         </h2>
         <p className="mt-1 text-sm text-gray-500">
           {tab === 'students'
             ? 'Manage student records, curriculum assignments, year levels, blocks, and their personal information.'
-            : 'Manage students enrollment for the current term.'}
+            : tab === 'enrollment'
+              ? 'Manage students enrollment for the current term.'
+              : 'Manage other department records and students in one place.'}
         </p>
       </div>
 
@@ -191,6 +196,17 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
           >
             Enrollment Management
           </button>
+          <button
+            type="button"
+            onClick={() => setTab('other')}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              tab === 'other'
+                ? 'bg-blue-500 text-white'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
+            }`}
+          >
+            Other Departments
+          </button>
         </div>
 
         {tab === 'students' && !studentDetailOpen && (
@@ -206,11 +222,15 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
       </div>
 
       <Suspense fallback={<LoadingPanel label="Loading student records..." />}>
-        {tab === 'students' ? (
-          <StudentManagement onBack={onBackToDashboard} onStudentDetailState={(open, name) => {
-            setStudentDetailOpen(open);
-            setOpenedStudentName(name || '');
-          }} />
+        {tab === 'students' || tab === 'other' ? (
+          <StudentManagement
+            onBack={onBackToDashboard}
+            initialSection={tab === 'other' ? 'other' : 'students'}
+            onStudentDetailState={(open, name) => {
+              setStudentDetailOpen(open);
+              setOpenedStudentName(name || '');
+            }}
+          />
         ) : (
           <TermEnrollmentPanel onBack={onBackToDashboard} />
         )}

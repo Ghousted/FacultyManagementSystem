@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   Plus,
   Trash2,
@@ -71,13 +71,16 @@ const BlockToggle = ({ value, onChange, availableBlocks = [] }) => {
   );
 };
 
-const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
+const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, viewMode }) => {
   const [professor, setProfessor] = useState(null);
   const [studentsSource, setStudentsSource] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
   const [error, setError] = useState('');
   const [assignedYearTab, setAssignedYearTab] = useState(1);
+
+  const activeSemester = Number(activeTerm?.semester);
+  const forceActiveSemester = [1, 2, 3].includes(activeSemester);
 
   const [sortBy, setSortBy] = useState('courseCode');
   const [sortOrder, setSortOrder] = useState('asc');
@@ -89,12 +92,14 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
   const [pickerCourses, setPickerCourses] = useState([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerSemesterFilter, setPickerSemesterFilter] = useState('all');
   // ── NEW: year tab inside picker for CCS subjects ──
   const [pickerYearTab, setPickerYearTab] = useState(1);
-  const [pendingCourse, setPendingCourse] = useState(null);
-  const [pendingBlocks, setPendingBlocks] = useState([]);
-  const [pendingError, setPendingError] = useState('');
-  const [savingAssignment, setSavingAssignment] = useState(false);
+  // ── NEW: sorting inside CCS picker table ──
+  const [pickerSortBy, setPickerSortBy] = useState('courseCode');
+  const [pickerSortOrder, setPickerSortOrder] = useState('asc');
+  const [pickerError, setPickerError] = useState('');
+  const [savingCourseIds, setSavingCourseIds] = useState(() => new Set());
   // ── course IDs already assigned to ANY other professor (system-wide) ──
   const [allAssignedCourseIds, setAllAssignedCourseIds] = useState(new Set());
 
@@ -107,10 +112,9 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
   const [otherCurriculumCourses, setOtherCurriculumCourses] = useState([]);
   const [otherCurriculumLoading, setOtherCurriculumLoading] = useState(false);
   const [otherSubjectSearch, setOtherSubjectSearch] = useState('');
-  const [otherSelectedCourse, setOtherSelectedCourse] = useState(null);
   const [otherBlocks, setOtherBlocks] = useState([]);
   const [otherError, setOtherError] = useState('');
-  const [savingOther, setSavingOther] = useState(false);
+  const [otherSemesterFilter, setOtherSemesterFilter] = useState('all');
   // ── sort + year-tab state for Other Dept subject table ──
   const [otherSortBy, setOtherSortBy] = useState('courseCode');
   const [otherSortOrder, setOtherSortOrder] = useState('asc');
@@ -129,7 +133,15 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
 
   const [confirmUnassign, setConfirmUnassign] = useState(null);
 
+  // Ref to track previous term to detect changes
+  const previousTermRef = useRef(null);
+
   const assignedCourses = professor?.assignedCourses || [];
+
+  const currentProfessorAssignedCourseIds = useMemo(
+    () => new Set(assignedCourses.map(c => c.courseId)),
+    [assignedCourses]
+  );
 
   const getYearLabel = (year) => {
     const n = Number(year);
@@ -254,11 +266,75 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
   useEffect(() => { refreshProfessor(); }, [professorId]);
 
   useEffect(() => {
+    if (viewMode === 'detail') setPickerOpen(false);
+  }, [viewMode]);
+
+  useEffect(() => {
+    onViewModeChange?.(pickerOpen ? 'assign' : 'detail');
+  }, [pickerOpen, onViewModeChange]);
+
+  useEffect(() => {
+    return () => onViewModeChange?.('detail');
+  }, [onViewModeChange]);
+
+  useEffect(() => {
     if (!selectedSubject) return;
     const onKey = (e) => { if (e.key === 'Escape') closeStudentsModal(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedSubject]);
+
+  // Reset all assigned subjects when activeTerm changes
+  useEffect(() => {
+    const resetAssignmentsOnTermChange = async () => {
+      // Create a string representation of the current term
+      const currentTermStr = `${activeTerm?.semester}-${activeTerm?.schoolYear}`;
+      const previousTermStr = previousTermRef.current;
+
+      // Only reset if term actually changed and it's not the initial mount
+      if (previousTermStr === null) {
+        // First mount, just set the ref
+        previousTermRef.current = currentTermStr;
+        return;
+      }
+
+      if (previousTermStr === currentTermStr) {
+        // Term hasn't changed
+        return;
+      }
+
+      // Term has changed, reset assignments
+      previousTermRef.current = currentTermStr;
+
+      if (!professor?.assignedCourses || professor.assignedCourses.length === 0) return;
+
+      try {
+        // Unassign all courses immediately
+        const coursesToUnassign = [...professor.assignedCourses];
+        await Promise.all(
+          coursesToUnassign.map(course =>
+            unassignCourseFromProfessor(professorId, course.courseId)
+          )
+        );
+        // Refresh professor data
+        await refreshProfessor({ tableOnly: true });
+        
+        // Refresh allAssignedCourseIds to allow reassignment
+        const allProfsSnap = await getDocs(collection(db, 'professors'));
+        const taken = new Set();
+        allProfsSnap.forEach(snap => {
+          if (snap.id === professorId) return;
+          const courses = snap.data()?.assignedCourses || [];
+          courses.forEach(c => taken.add(c.courseId));
+        });
+        setAllAssignedCourseIds(taken);
+      } catch (err) {
+        console.error('Failed to reset assignments:', err);
+      }
+    };
+
+    resetAssignmentsOnTermChange();
+  }, [activeTerm]);
 
   const closeStudentsModal = () => {
     setSelectedSubject(null);
@@ -324,19 +400,22 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
     setOtherCurriculumId('');
     setOtherCurriculumCourses([]);
     setOtherSubjectSearch('');
-    setOtherSelectedCourse(null);
     setOtherBlocks([]);
     setOtherError('');
     setOtherYearTab(1);
+    setOtherSemesterFilter('all');
   };
 
   const openPicker = async () => {
     setPickerOpen(true);
+    setSavingCourseIds(new Set());
     setPickerTab('ccs');
     setPickerSearch('');
+    setPickerSemesterFilter('all');
     setPickerCurriculumId('');
     setPickerCourses([]);
     setPickerYearTab(1); // ── NEW: reset to 1st Year on open
+    setPickerError('');
     resetOtherForm();
     const [curRes, deptRes, studentsRes, allProfsSnap] = await Promise.all([
       getCurriculums(),
@@ -383,12 +462,11 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
 
   useEffect(() => {
     const loadOtherCurriculumCourses = async () => {
-      if (!otherCurriculumId) { setOtherCurriculumCourses([]); setOtherSelectedCourse(null); return; }
+      if (!otherCurriculumId) { setOtherCurriculumCourses([]); return; }
       setOtherCurriculumLoading(true);
       const res = await getCoursesByCurriculum(otherCurriculumId);
       if (res.success) setOtherCurriculumCourses(res.data);
       setOtherCurriculumLoading(false);
-      setOtherSelectedCourse(null);
     };
     loadOtherCurriculumCourses();
   }, [otherCurriculumId]);
@@ -399,13 +477,51 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
     return pickerCourses.filter(c => {
       const matchesYear = Number(c.yearLevel) === pickerYearTab;
       if (!matchesYear) return false;
+      if (forceActiveSemester && Number(c.semester) !== activeSemester) return false;
+      if (!forceActiveSemester && pickerSemesterFilter !== 'all' && Number(c.semester) !== Number(pickerSemesterFilter)) return false;
       if (!q) return true;
       return (
         (c.courseCode || '').toLowerCase().includes(q) ||
         (c.courseTitle || '').toLowerCase().includes(q)
       );
     });
-  }, [pickerCourses, pickerSearch, pickerYearTab]);
+  }, [pickerCourses, pickerSearch, pickerYearTab, pickerSemesterFilter, forceActiveSemester, activeSemester]);
+
+  const handlePickerSort = (col) => {
+    if (pickerSortBy === col) {
+      setPickerSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setPickerSortBy(col);
+      setPickerSortOrder('asc');
+    }
+  };
+
+  const PickerSortIcon = ({ col }) => {
+    if (pickerSortBy !== col) return <ChevronsUpDown className="ml-1 inline-flex h-3 w-3 opacity-60" />;
+    return pickerSortOrder === 'asc'
+      ? <ChevronUp className="ml-1 inline-flex h-3 w-3" />
+      : <ChevronDown className="ml-1 inline-flex h-3 w-3" />;
+  };
+
+  const sortedPickerCourses = useMemo(() => {
+    const list = [...filteredPickerCourses];
+    return list.sort((a, b) => {
+      if (pickerSortBy === 'units') {
+        const aVal = Number(a.units) || 0;
+        const bVal = Number(b.units) || 0;
+        return pickerSortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+      if (pickerSortBy === 'semester') {
+        const aVal = Number(a.semester) || 0;
+        const bVal = Number(b.semester) || 0;
+        return pickerSortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+      const aVal = (a[pickerSortBy] || '').toString();
+      const bVal = (b[pickerSortBy] || '').toString();
+      const cmp = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' });
+      return pickerSortOrder === 'asc' ? cmp : -cmp;
+    });
+  }, [filteredPickerCourses, pickerSortBy, pickerSortOrder]);
 
   // ── NEW: count per year tab for badge display ──
   const pickerYearCounts = useMemo(() => {
@@ -413,6 +529,8 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
       const q = pickerSearch.trim().toLowerCase();
       acc[year.value] = pickerCourses.filter(c => {
         if (Number(c.yearLevel) !== year.value) return false;
+        if (forceActiveSemester && Number(c.semester) !== activeSemester) return false;
+        if (!forceActiveSemester && pickerSemesterFilter !== 'all' && Number(c.semester) !== Number(pickerSemesterFilter)) return false;
         if (!q) return true;
         return (
           (c.courseCode || '').toLowerCase().includes(q) ||
@@ -421,16 +539,20 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
       }).length;
       return acc;
     }, {});
-  }, [pickerCourses, pickerSearch]);
+  }, [pickerCourses, pickerSearch, pickerSemesterFilter, forceActiveSemester, activeSemester]);
 
   const filteredOtherCourses = useMemo(() => {
     const q = otherSubjectSearch.trim().toLowerCase();
-    if (!q) return otherCurriculumCourses;
-    return otherCurriculumCourses.filter(c =>
-      (c.courseCode || '').toLowerCase().includes(q) ||
-      (c.courseTitle || '').toLowerCase().includes(q)
-    );
-  }, [otherCurriculumCourses, otherSubjectSearch]);
+    return otherCurriculumCourses.filter(c => {
+      if (forceActiveSemester && Number(c.semester) !== activeSemester) return false;
+      if (!forceActiveSemester && otherSemesterFilter !== 'all' && Number(c.semester) !== Number(otherSemesterFilter)) return false;
+      if (!q) return true;
+      return (
+        (c.courseCode || '').toLowerCase().includes(q) ||
+        (c.courseTitle || '').toLowerCase().includes(q)
+      );
+    });
+  }, [otherCurriculumCourses, otherSubjectSearch, otherSemesterFilter, forceActiveSemester, activeSemester]);
 
   // ── NEW: sorted other dept courses ──
   const handleOtherSort = (col) => {
@@ -477,86 +599,92 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
       : <ChevronDown className="ml-1 inline-flex h-3 w-3" />;
   };
 
-  const assignedCourseIds = useMemo(
-    () => new Set([
-      ...assignedCourses.map(c => c.courseId),
-      ...allAssignedCourseIds
-    ]),
-    [assignedCourses, allAssignedCourseIds]
-  );
-
-  const startAssign = (course) => {
-    setPendingError('');
-    setPendingCourse(course);
-    setPendingBlocks([]);
-  };
-
-  const cancelAssign = () => {
-    setPendingCourse(null);
-    setPendingBlocks([]);
-    setPendingError('');
-  };
-
-  const confirmAssign = async () => {
-    if (!pendingCourse) return;
-    setPendingError('');
-    if (pendingBlocks.length === 0) { setPendingError('Select at least one block.'); return; }
-    const curriculum = curriculums.find(c => c.id === pickerCurriculumId);
-    setSavingAssignment(true);
-    const res = await assignCourseToProfessor(professorId, {
-      courseId: pendingCourse.id,
-      courseCode: pendingCourse.courseCode,
-      courseTitle: pendingCourse.courseTitle,
-      curriculumId: pickerCurriculumId,
-      curriculumName: curriculum?.name || '',
-      yearLevel: pendingCourse.yearLevel,
-      semester: pendingCourse.semester,
-      units: pendingCourse.units,
-      blocks: pendingBlocks
+  const setCourseSaving = (courseId, isSaving) => {
+    setSavingCourseIds(prev => {
+      const next = new Set(prev);
+      if (isSaving) next.add(courseId);
+      else next.delete(courseId);
+      return next;
     });
-    setSavingAssignment(false);
-    if (res.success) {
-      cancelAssign();
-      setPickerOpen(false);
+  };
+
+  const toggleCcsAssignment = async (course, nextChecked) => {
+    if (!pickerCurriculumId) {
+      setPickerError('Select a curriculum first.');
+      return;
+    }
+    if (!course?.id) return;
+    const courseId = course.id;
+    if (allAssignedCourseIds.has(courseId)) return;
+
+    setPickerError('');
+    setError('');
+    setCourseSaving(courseId, true);
+    try {
+      if (nextChecked) {
+        const curriculum = curriculums.find(c => c.id === pickerCurriculumId);
+        const blocks = getBlocksForYear(course.yearLevel, false);
+        const res = await assignCourseToProfessor(professorId, {
+          courseId,
+          courseCode: course.courseCode,
+          courseTitle: course.courseTitle,
+          curriculumId: pickerCurriculumId,
+          curriculumName: curriculum?.name || '',
+          yearLevel: course.yearLevel,
+          semester: course.semester,
+          units: course.units,
+          blocks
+        });
+        if (!res.success) setPickerError(res.error || 'Failed to assign subject.');
+      } else {
+        const res = await unassignCourseFromProfessor(professorId, courseId);
+        if (!res.success) setPickerError(res.error || 'Failed to unassign subject.');
+      }
       await refreshProfessor({ tableOnly: true });
-    } else {
-      setPendingError(res.error || 'Failed to assign subject.');
+    } finally {
+      setCourseSaving(courseId, false);
     }
   };
 
-  const handleAssignOther = async () => {
+  const toggleOtherAssignment = async (subject, nextChecked) => {
     setOtherError('');
-    if (!otherSelectedClass) { setOtherError('Select a class.'); return; }
-    if (!otherSelectedCourse) { setOtherError('Pick a subject from a curriculum.'); return; }
-    if (otherBlocks.length === 0) { setOtherError('Select at least one block.'); return; }
-    const dept = otherDepts.find(d => d.id === otherDeptId);
-    const curriculum = curriculums.find(c => c.id === otherCurriculumId);
-    const subject = otherSelectedCourse;
+    setError('');
+    if (!otherSelectedClass) { setOtherError('Select a class first.'); return; }
+    if (!otherCurriculumId) { setOtherError('Select a curriculum first.'); return; }
+    if (nextChecked && otherBlocks.length === 0) { setOtherError('Select at least one block.'); return; }
+    if (!subject?.id) return;
+
     const courseId = `other::${otherDeptId}::${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}::${subject.id}`;
-    if (assignedCourseIds.has(courseId)) { setOtherError('This subject is already assigned to another professor.'); return; }
-    setSavingOther(true);
-    const res = await assignCourseToProfessor(professorId, {
-      source: 'other-department',
-      courseId,
-      subjectId: subject.id,
-      courseCode: subject.courseCode,
-      courseTitle: subject.courseTitle,
-      curriculumId: otherCurriculumId,
-      curriculumName: curriculum?.name || '',
-      departmentId: otherDeptId,
-      departmentName: dept?.name || '',
-      classCourse: otherSelectedClass.course,
-      yearLevel: otherSelectedClass.yearLevel,
-      units: Number(subject.units) || 0,
-      blocks: otherBlocks
-    });
-    setSavingOther(false);
-    if (res.success) {
-      resetOtherForm();
-      setPickerOpen(false);
+    if (allAssignedCourseIds.has(courseId)) return;
+
+    setCourseSaving(courseId, true);
+    try {
+      if (nextChecked) {
+        const dept = otherDepts.find(d => d.id === otherDeptId);
+        const curriculum = curriculums.find(c => c.id === otherCurriculumId);
+        const res = await assignCourseToProfessor(professorId, {
+          source: 'other-department',
+          courseId,
+          subjectId: subject.id,
+          courseCode: subject.courseCode,
+          courseTitle: subject.courseTitle,
+          curriculumId: otherCurriculumId,
+          curriculumName: curriculum?.name || '',
+          departmentId: otherDeptId,
+          departmentName: dept?.name || '',
+          classCourse: otherSelectedClass.course,
+          yearLevel: otherSelectedClass.yearLevel,
+          units: Number(subject.units) || 0,
+          blocks: otherBlocks
+        });
+        if (!res.success) setOtherError(res.error || 'Failed to assign class.');
+      } else {
+        const res = await unassignCourseFromProfessor(professorId, courseId);
+        if (!res.success) setOtherError(res.error || 'Failed to unassign class.');
+      }
       await refreshProfessor({ tableOnly: true });
-    } else {
-      setOtherError(res.error || 'Failed to assign class.');
+    } finally {
+      setCourseSaving(courseId, false);
     }
   };
 
@@ -665,6 +793,8 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
 
   return (
     <div className="space-y-5">
+      {!pickerOpen && (
+        <>
      {/* ── Professor Header ── */}
 <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
   <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
@@ -699,26 +829,12 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
     {/* Right (Button + Stats stacked) */}
     <div className="flex flex-col items-end gap-3">
 
-      <button
-        onClick={openPicker}
-        className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-500  cursor-pointer px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600"
-      >
-        <Plus className="h-4 w-4" />
-        Assign Subject
-      </button>
-
+    
       {/* Stats (right aligned) */}
       <div className="flex flex-col items-end gap-2 text-right">
 
-        <div className="text-sm text-gray-500">
-          Subjects assigned:
-          <span className="ml-2 font-semibold text-gray-900">
-            {assignedCourses.length}
-          </span>
-        </div>
-
-        <div className="text-sm text-gray-500">
-          Active Term:
+           <div className="text-sm text-gray-500">
+         
           <span className="ml-2 font-semibold text-gray-900">
             {SEMESTER_LABELS[activeTerm?.semester] || '1st Sem'}
             {activeTerm?.schoolYear
@@ -726,6 +842,15 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
               : ''}
           </span>
         </div>
+
+        <div className="text-sm text-gray-900">
+          Assigned Subjects:
+          <span className="ml-2 font-semibold text-gray-900">
+            {assignedCourses.length}
+          </span>
+        </div>
+
+       
 
       </div>
 
@@ -771,6 +896,15 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
                 })}
               </div>
             </div>
+              <button
+        onClick={openPicker}
+        className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-500  cursor-pointer px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600"
+      >
+        <Plus className="h-4 w-4" />
+        Assign Subject
+      </button>
+
+
           </div>
 
           <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
@@ -805,8 +939,12 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
           className="w-[20%] cursor-pointer select-none px-4 py-2  "
           onClick={() => handleSort('yearBlock')}
         >
-          Course & Yr. Lvl. <SortIcon column="yearBlock" />
+          Course & Yr. Lvl. & Blocks<SortIcon column="yearBlock" />
         </th>
+
+       
+
+        
 
         <th
           className="w-[15%] cursor-pointer select-none px-4 py-2  "
@@ -831,6 +969,8 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
             <td className="px-4 py-2  "><div className="h-4 w-56 animate-pulse rounded bg-gray-100" /></td>
             <td className="px-4 py-2  "><div className="h-4 w-10 animate-pulse rounded bg-gray-100" /></td>
             <td className="px-4 py-2  "><div className="h-5 w-44 animate-pulse rounded bg-gray-100" /></td>
+                        <td className="px-4 py-2  "><div className="h-4 w-10 animate-pulse rounded bg-gray-100" /></td>
+
             <td className="px-4 py-2  "><div className="h-4 w-32 animate-pulse rounded bg-gray-100" /></td>
             <td className="px-4 py-2  "><div className="ml-auto h-7 w-12 animate-pulse rounded bg-gray-100" /></td>
           </tr>
@@ -885,7 +1025,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
 
               <td className="px-4 py-2  " onClick={(e) => e.stopPropagation()}>
                 <div className="flex flex-col gap-2">
-                  <span className="text-xs font-medium text-gray-600">
+                  <span className="text-sm  text-gray-600">
                     {getYearBlockLabel(c)}
                   </span>
 
@@ -899,6 +1039,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
                 </div>
               </td>
 
+          
               <td className="px-4 py-2   text-gray-600">
                 <div className="truncate" title={c.source === 'other-department'
                   ? c.departmentName
@@ -959,6 +1100,9 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
   </table>
 </div>
         </div>
+
+        </>
+      )}
 
       {/* ── Students modal ── */}
       {selectedSubject && (
@@ -1132,96 +1276,127 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
         </div>
       )}
 
-      {/* ── Assign picker modal ── */}
+      {/* ── Assign picker (page view) ── */}
       {pickerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="flex h-[78vh] w-full max-w-5xl flex-col rounded-2xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <div>
-                <h6 className="text-lg font-semibold text-gray-900">Assign Class</h6>
-                <p className="text-sm text-gray-500">Choose a subject source, then select the class or block assignment.</p>
-              </div>
-              <button onClick={() => setPickerOpen(false)} className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+        <div className="">
+          
 
-            <div className="border-b border-gray-200 px-6 py-3">
-              <div className="grid grid-cols-2 gap-2 rounded-xl bg-gray-100 p-1">
-                <button
-                  onClick={() => setPickerTab('ccs')}
-                  className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
-                    pickerTab === 'ccs' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  <Laptop className="h-4 w-4" /> CCS Curriculum
-                </button>
-                <button
-                  onClick={() => setPickerTab('other')}
-                  className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
-                    pickerTab === 'other' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  <Building2 className="h-4 w-4" /> Other Department
-                </button>
-              </div>
-            </div>
+            {/* Content card */}
+            <div className="">
+              <div className="">
+                
 
-            {pickerTab === 'ccs' ? (
-              <div className="flex min-h-0 flex-1 flex-col p-6">
-                {/* ── Curriculum selector + search ── */}
-                <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-[280px_1fr]">
+                {(pickerError || otherError) && (
+                  <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {pickerTab === 'ccs' ? pickerError : otherError}
+                  </div>
+                )}
+
+                <div className="mb-4 ">
+                  <div className="w-full flex border-b border-gray-200">
+  <button
+    type="button"
+    onClick={() => {
+      setPickerTab('ccs');
+      setPickerError('');
+      setOtherError('');
+    }}
+    className={`relative -mb-px flex-1 inline-flex items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+      pickerTab === 'ccs'
+        ? 'border-blue-600 text-blue-600'
+        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 cursor-pointer'
+    }`}
+  >
+    <Laptop className="h-4 w-4" />
+    CCS Curriculum
+  </button>
+
+  <button
+    type="button"
+    onClick={() => {
+      setPickerTab('other');
+      setPickerError('');
+      setOtherError('');
+    }}
+    className={`relative -mb-px flex-1 inline-flex items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+      pickerTab === 'other'
+        ? 'border-blue-600 text-blue-600'
+        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 cursor-pointer'
+    }`}
+  >
+    <Building2 className="h-4 w-4" />
+    Other Department
+  </button>
+</div>
+                </div>
+
+                {/* Body (scroll area) */}
+                <div className="w-full mt-4">
+              {pickerTab === 'ccs' ? (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className='flex items-center gap-4 justify-between'>
+                
+               <div>
+                 {pickerCurriculumId && (
+        <div className="flex gap-2 bg-gray-200/50 p-1 rounded-xl w-fit">
+                    {YEAR_TABS.map(year => {
+                      const isActive = pickerYearTab === year.value;
+                      const count = pickerYearCounts[year.value] || 0;
+
+                      return (
+                        <button
+                          key={year.value}
+                          type="button"
+                          onClick={() => setPickerYearTab(year.value)}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                            isActive
+                             ? 'bg-blue-500 text-white'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
+                          }`}
+                        >
+                          {year.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+               </div>
+
+                   <div className="flex items-center gap-2 mb-4">
                   <select
                     value={pickerCurriculumId}
-                    onChange={(e) => { setPickerCurriculumId(e.target.value); setPickerYearTab(1); }}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    onChange={(e) => {
+                      setPickerCurriculumId(e.target.value);
+                      setPickerYearTab(1);
+                      setPickerError('');
+                    }}
+                    className={`rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 ${
+                      pickerCurriculumId
+                        ? 'border-blue-300 bg-blue-50/30 ring-1 ring-inset ring-blue-200'
+                        : 'border-gray-300 bg-white'
+                    }`}
                   >
                     <option value="">Select a curriculum...</option>
                     {curriculums.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Search course code or title..."
-                      value={pickerSearch}
-                      onChange={(e) => setPickerSearch(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-                      disabled={!pickerCurriculumId}
-                    />
-                  </div>
+                   
+                    <div className="relative w-80">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Search course code or title..."
+                        value={pickerSearch}
+                        onChange={(e) => setPickerSearch(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 py-2.5 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1"
+                        disabled={!pickerCurriculumId}
+                      />
+                    </div>
                 </div>
 
-                {/* ── NEW: Year-level tabs inside picker ── */}
-                {pickerCurriculumId && (
-                  <div className="mb-3 flex gap-1.5 rounded-xl bg-slate-100 p-1.5 w-fit">
-                    {YEAR_TABS.map(year => {
-                      const isActive = pickerYearTab === year.value;
-                      const count = pickerYearCounts[year.value] || 0;
-                      return (
-                        <button
-                          key={year.value}
-                          type="button"
-                          onClick={() => setPickerYearTab(year.value)}
-                          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                            isActive
-                              ? 'bg-blue-600 text-white shadow-sm'
-                              : 'text-gray-600 hover:bg-white hover:text-blue-600'
-                          }`}
-                        >
-                          {year.label}
-                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                            isActive ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600'
-                          }`}>
-                            {count}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+
+                </div>
 
                 {/* ── Subject list as table ── */}
                 <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-gray-200">
@@ -1229,7 +1404,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
                     <p className="p-8 text-center text-sm text-gray-500">Select a curriculum to view its subjects.</p>
                   ) : pickerLoading ? (
                     <p className="p-8 text-center text-sm text-gray-500">Loading subjects...</p>
-                  ) : filteredPickerCourses.length === 0 ? (
+                  ) : sortedPickerCourses.length === 0 ? (
                     <p className="p-8 text-center text-sm text-gray-500">
                       {pickerSearch
                         ? 'No subjects match your search for this year level.'
@@ -1239,47 +1414,71 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
                         <tr>
-                          <th className="px-4 py-2   font-semibold">Code</th>
-                          <th className="px-4 py-2   font-semibold">Title</th>
-                          <th className="px-4 py-2   font-semibold">Units</th>
-                          <th className="px-4 py-2   font-semibold">Semester</th>
-                          <th className="px-4 py-2   font-semibold text-right">Action</th>
+                          <th className="w-[92px] px-4 py-2 font-semibold">Select</th>
+                          <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handlePickerSort('courseCode')}>
+                            Code <PickerSortIcon col="courseCode" />
+                          </th>
+                          <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handlePickerSort('courseTitle')}>
+                            Title <PickerSortIcon col="courseTitle" />
+                          </th>
+                          <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handlePickerSort('units')}>
+                            Units <PickerSortIcon col="units" />
+                          </th>
+                          <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handlePickerSort('semester')}>
+                            Semester <PickerSortIcon col="semester" />
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 bg-white">
-                        {filteredPickerCourses.map(course => {
-                          const taken = assignedCourseIds.has(course.id);
+                        {sortedPickerCourses.map(course => {
+                          const assignedToThis = currentProfessorAssignedCourseIds.has(course.id);
+                          const assignedElsewhere = allAssignedCourseIds.has(course.id);
+                          const isSaving = savingCourseIds.has(course.id);
+                          const tooltip = assignedElsewhere
+                            ? 'Already assigned to another professor'
+                            : assignedToThis
+                              ? 'Already assigned to this professor'
+                              : 'Select this subject';
                           return (
                             <tr
                               key={course.id}
-                              className={`transition ${taken ? 'opacity-60' : 'hover:bg-blue-50/40'}`}
+                              className={`transition ${
+                                assignedElsewhere
+                                  ? 'opacity-60'
+                                  : assignedToThis
+                                    ? 'bg-green-50/70'
+                                    : 'hover:bg-green-50/50'
+                              }`}
                             >
-                              <td className="px-4 py-2   font-semibold text-gray-900 whitespace-nowrap">
+                              <td className="px-4 py-2">
+                                <div className="inline-flex items-center gap-2" title={tooltip}>
+                                  <input
+                                    type="checkbox"
+                                    checked={assignedToThis}
+                                    disabled={assignedElsewhere || isSaving}
+                                    onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      toggleCcsAssignment(course, checked);
+                                    }}
+                                    aria-label={`Select ${course.courseCode}`}
+                                    className="h-4 w-4 cursor-pointer rounded border-gray-300 text-blue-600 accent-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed"
+                                  />
+                                 
+                                </div>
+                              </td>
+                              <td className="px-4 py-2 font-semibold text-gray-900 whitespace-nowrap">
                                 {course.courseCode}
                               </td>
-                              <td className="px-4 py-2   text-gray-700">
+                              <td className="px-4 py-2 text-gray-700">
                                 <div className="truncate max-w-[260px]" title={course.courseTitle}>
                                   {course.courseTitle}
                                 </div>
                               </td>
-                              <td className="px-4 py-2   text-gray-600 whitespace-nowrap">
+                              <td className="px-4 py-2 text-gray-600 whitespace-nowrap">
                                 {Number(course.units) > 0 ? course.units : '—'}
                               </td>
-                              <td className="px-4 py-2   text-gray-600 whitespace-nowrap">
+                              <td className="px-4 py-2 text-gray-600 whitespace-nowrap">
                                 {SEMESTER_LABELS[course.semester] || `Sem ${course.semester}`}
-                              </td>
-                              <td className="px-4 py-2   text-right">
-                                <button
-                                  onClick={() => startAssign(course)}
-                                  disabled={taken}
-                                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                                    taken
-                                      ? 'cursor-not-allowed bg-gray-100 text-gray-400'
-                                      : 'bg-blue-600 text-white hover:bg-blue-700'
-                                  }`}
-                                >
-                                  {taken ? 'Assigned' : 'Assign'}
-                                </button>
                               </td>
                             </tr>
                           );
@@ -1290,292 +1489,293 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack }) => {
                 </div>
               </div>
             ) : (
-              <div className="flex min-h-0 flex-1 flex-col p-6 gap-4">
+              <div className="flex min-h-0 flex-1 flex-col gap-4">
 
-                {/* ── Row 1: Department + Class + Curriculum + Search + Blocks ── */}
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[220px_220px_220px_1fr_auto]">
+                {/* ── Folders / Accordions: step-by-step flow ── */}
 
-                  {/* Department */}
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Department</label>
-                    <select
-                      value={otherDeptId}
-                      onChange={(e) => { setOtherDeptId(e.target.value); setOtherYearTab(1); }}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-                    >
-                      <option value="">Select department...</option>
-                      {otherDepts.map(d => (
-                        <option key={d.id} value={d.id}>
-                          {d.name}{d.code ? ` (${d.code})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+               <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                      {/* Department */}
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-600">Department</label>
+                        <select
+                          value={otherDeptId}
+                          onChange={(e) => { setOtherDeptId(e.target.value); setOtherYearTab(1); }}
+                          className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 ${
+                            otherDeptId
+                              ? 'border-blue-300 bg-white ring-1 ring-inset ring-blue-200'
+                              : 'border-gray-300 bg-white'
+                          }`}
+                        >
+                          <option value="">Select department...</option>
+                          {otherDepts.map(d => (
+                            <option key={d.id} value={d.id}>
+                              {d.name}{d.code ? ` (${d.code})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  {/* Class */}
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Class</label>
-                    <select
-                      value={otherSelectedClass
-                        ? `${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}`
-                        : ''}
-                      onChange={(e) => {
-                        const found = otherClasses.find(c =>
-                          `${c.course.toLowerCase()}::${c.yearLevel}` === e.target.value
-                        );
-                        setOtherSelectedClass(found || null);
-                        setOtherBlocks([]);
-                      }}
-                      disabled={!otherDeptId || otherClassesLoading}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50"
-                    >
-                      <option value="">
-                        {otherClassesLoading ? 'Loading...' : 'Select class...'}
-                      </option>
-                      {otherClasses.map(c => {
-                        const key = `${c.course.toLowerCase()}::${c.yearLevel}`;
-                        return (
-                          <option key={key} value={key}>
-                            {c.course} · Year {c.yearLevel}
+                      {/* Class */}
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-600">Class</label>
+                        <select
+                          value={otherSelectedClass
+                            ? `${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}`
+                            : ''}
+                          onChange={(e) => {
+                            const found = otherClasses.find(c =>
+                              `${c.course.toLowerCase()}::${c.yearLevel}` === e.target.value
+                            );
+                            setOtherSelectedClass(found || null);
+                            setOtherBlocks([]);
+                            setOtherError('');
+                          }}
+                          disabled={!otherDeptId || otherClassesLoading}
+                          className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 disabled:bg-gray-50 ${
+                            otherSelectedClass
+                              ? 'border-blue-300 bg-white ring-1 ring-inset ring-blue-200'
+                              : 'border-gray-300 bg-white'
+                          }`}
+                        >
+                          <option value="">
+                            {otherClassesLoading ? 'Loading...' : 'Select class...'}
                           </option>
-                        );
-                      })}
-                    </select>
-                  </div>
+                          {otherClasses.map(c => {
+                            const key = `${c.course.toLowerCase()}::${c.yearLevel}`;
+                            return (
+                              <option key={key} value={key}>
+                                {c.course} · Year {c.yearLevel}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
 
-                  {/* Curriculum */}
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Curriculum</label>
-                    <select
-                      value={otherCurriculumId}
-                      onChange={(e) => { setOtherCurriculumId(e.target.value); setOtherYearTab(1); }}
-                      disabled={!otherSelectedClass}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50"
-                    >
-                      <option value="">Select curriculum...</option>
-                      {curriculums.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                       {/* Curriculum */}
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-600">Curriculum</label>
+                        <select
+                          value={otherCurriculumId}
+                          onChange={(e) => { setOtherCurriculumId(e.target.value); setOtherYearTab(1); }}
+                          disabled={!otherSelectedClass}
+                          className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 disabled:bg-gray-50 ${
+                            otherCurriculumId
+                              ? 'border-blue-300 bg-white ring-1 ring-inset ring-blue-200'
+                              : 'border-gray-300 bg-white'
+                          }`}
+                        >
+                          <option value="">Select curriculum...</option>
+                          {curriculums.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
 
-                  {/* Search Subject */}
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Search Subject</label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="text"
-                        placeholder="Course code or title..."
-                        value={otherSubjectSearch}
-                        onChange={(e) => setOtherSubjectSearch(e.target.value)}
-                        disabled={!otherCurriculumId}
-                        className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50"
-                      />
+
+                    </div>
+
+                 
+                  <div className="border-t border-gray-200 bg-gray-50/40 pt-2">
+  {otherCurriculumId && (
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      
+      {/* Year Tabs */}
+      <div className="flex flex-wrap gap-2 rounded-xl bg-gray-200/60 p-1 w-fit">
+        {YEAR_TABS.map(year => {
+          const isActive = otherYearTab === year.value;
+          const count = otherYearCounts[year.value] || 0;
+
+          return (
+            <button
+              key={year.value}
+              type="button"
+              onClick={() => setOtherYearTab(year.value)}
+              className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+                isActive
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-700 hover:bg-white hover:text-gray-900'
+              }`}
+            >
+              {year.label}
+
+             
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Filters */}
+      <div className="w-full lg:w-[520px]">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[180px_1fr]">
+          <select
+            value={forceActiveSemester ? String(activeSemester) : otherSemesterFilter}
+            onChange={(e) => {
+              if (forceActiveSemester) return;
+              setOtherSemesterFilter(e.target.value);
+            }}
+            disabled={!otherCurriculumId || forceActiveSemester}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 disabled:bg-gray-50"
+          >
+            {forceActiveSemester ? (
+              <option value={String(activeSemester)}>
+                {SEMESTER_LABELS[activeSemester] || `Sem ${activeSemester}`} (Active term)
+              </option>
+            ) : (
+              <>
+                <option value="all">All semesters</option>
+                <option value="1">1st Sem</option>
+                <option value="2">2nd Sem</option>
+                <option value="3">Summer</option>
+              </>
+            )}
+          </select>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Course code or title..."
+              value={otherSubjectSearch}
+              onChange={(e) => setOtherSubjectSearch(e.target.value)}
+              disabled={!otherCurriculumId}
+              className="w-full rounded-lg border border-gray-300 py-2.5 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 disabled:bg-gray-50"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
+</div>
+             
+
+                <div className="border-t border-gray-200">
+                    <div className="min-h-0 max-h-[38vh] overflow-y-auto">
+                      {!otherSelectedClass ? (
+                        <p className="p-8 text-center text-sm text-gray-500">Select a department and class first.</p>
+                      ) : !otherCurriculumId ? (
+                        <p className="p-8 text-center text-sm text-gray-500">Select a curriculum to see subjects.</p>
+                      ) : otherCurriculumLoading ? (
+                        <p className="p-8 text-center text-sm text-gray-500">Loading subjects...</p>
+                      ) : sortedOtherCourses.length === 0 ? (
+                        <p className="p-8 text-center text-sm text-gray-500">
+                          {otherSubjectSearch
+                            ? 'No subjects match your search for this year level.'
+                            : `No subjects found for ${YEAR_TABS.find(y => y.value === otherYearTab)?.label}.`}
+                        </p>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead className="sticky top-0 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
+                            <tr>
+                              <th className="w-[92px] px-4 py-2 font-semibold">Select</th>
+                              <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handleOtherSort('courseCode')}>
+                                Code <OtherSortIcon col="courseCode" />
+                              </th>
+                              <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handleOtherSort('courseTitle')}>
+                                Title <OtherSortIcon col="courseTitle" />
+                              </th>
+                              <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handleOtherSort('units')}>
+                                Units <OtherSortIcon col="units" />
+                              </th>
+                              <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handleOtherSort('semester')}>
+                                Semester <OtherSortIcon col="semester" />
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 bg-white">
+                            {sortedOtherCourses.map(course => {
+                              const otherCourseId = otherSelectedClass
+                                ? `other::${otherDeptId}::${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}::${course.id}`
+                                : null;
+                              const assignedToThis = otherCourseId ? currentProfessorAssignedCourseIds.has(otherCourseId) : false;
+                              const assignedElsewhere = otherCourseId ? allAssignedCourseIds.has(otherCourseId) : false;
+                              const isSaving = otherCourseId ? savingCourseIds.has(otherCourseId) : false;
+                              const missingBlocksForAssign = !assignedToThis && otherBlocks.length === 0;
+                              const tooltip = assignedElsewhere
+                                ? 'Already assigned to another professor'
+                                : assignedToThis
+                                  ? 'Already assigned to this professor'
+                                  : 'Select this subject';
+                              return (
+                                <tr
+                                  key={course.id}
+                                  className={`transition ${
+                                    assignedElsewhere
+                                      ? 'cursor-not-allowed opacity-50'
+                                      : assignedToThis
+                                        ? 'bg-green-100'
+                                        : 'hover:bg-green-50/50'
+                                  }`}
+                                >
+                                  <td className="px-4 py-2">
+                                    <div className="inline-flex items-center gap-2" title={tooltip}>
+                                      <input
+                                        type="checkbox"
+                                        checked={assignedToThis}
+                                        disabled={!otherCourseId || assignedElsewhere || isSaving || missingBlocksForAssign}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          toggleOtherAssignment(course, checked);
+                                        }}
+                                        aria-label={`Select ${course.courseCode}`}
+                                        className="h-4 w-4 cursor-pointer rounded border-gray-300 text-blue-600 accent-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed"
+                                      />
+                                      {(assignedElsewhere || assignedToThis) && (
+                                        <span className="hidden sm:inline rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+                                          {isSaving ? 'Saving...' : 'Assigned'}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-2 font-semibold text-gray-900 whitespace-nowrap">
+                                    {course.courseCode}
+                                  </td>
+                                  <td className="px-4 py-2 text-gray-700">
+                                    <div className="truncate max-w-[320px]" title={course.courseTitle}>
+                                      {course.courseTitle}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-2 text-gray-600 whitespace-nowrap">
+                                    {Number(course.units) > 0 ? course.units : '—'}
+                                  </td>
+                                  <td className="px-4 py-2 text-gray-600 whitespace-nowrap">
+                                    {SEMESTER_LABELS[course.semester] || `Sem ${course.semester}`}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
                     </div>
                   </div>
 
-                  {/* Block(s) */}
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600">Block(s)</label>
-                    <BlockToggle
-                      value={otherBlocks}
-                      onChange={setOtherBlocks}
-                      availableBlocks={otherSelectedClass?.blocks || []}
-                    />
+                {/* Folder 4: Blocks (after subjects) */}
+                <details open className="rounded-xl border border-gray-200 bg-white">
+                  <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
+                    Blocks
+                    <span className="ml-2 text-xs font-medium text-gray-500">(step 4)</span>
+                  </summary>
+                  <div className="border-t border-gray-200 bg-gray-50/40 p-4">
+                    {!otherSelectedClass ? (
+                      <p className="text-sm text-gray-500">Select a class first.</p>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-semibold text-gray-600">Block(s)</span>
+                        <BlockToggle
+                          value={otherBlocks}
+                          onChange={setOtherBlocks}
+                          availableBlocks={otherSelectedClass?.blocks || []}
+                        />
+                      </div>
+                    )}
                   </div>
-
-                </div>
-
-                {/* ── Row 2: Year tabs ── */}
-                {otherCurriculumId && (
-                  <div className="flex gap-1.5 rounded-xl bg-slate-100 p-1.5 w-fit">
-                    {YEAR_TABS.map(year => {
-                      const isActive = otherYearTab === year.value;
-                      const count = otherYearCounts[year.value] || 0;
-                      return (
-                        <button
-                          key={year.value}
-                          type="button"
-                          onClick={() => setOtherYearTab(year.value)}
-                          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                            isActive
-                              ? 'bg-blue-600 text-white shadow-sm'
-                              : 'text-gray-600 hover:bg-white hover:text-blue-600'
-                          }`}
-                        >
-                          {year.label}
-                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                            isActive ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600'
-                          }`}>
-                            {count}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* ── Row 3: Subject table (full-width, flex-1) ── */}
-                <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-gray-200">
-                  {!otherSelectedClass ? (
-                    <p className="p-8 text-center text-sm text-gray-500">Select a department and class first.</p>
-                  ) : !otherCurriculumId ? (
-                    <p className="p-8 text-center text-sm text-gray-500">Select a curriculum to see subjects.</p>
-                  ) : otherCurriculumLoading ? (
-                    <p className="p-8 text-center text-sm text-gray-500">Loading subjects...</p>
-                  ) : sortedOtherCourses.length === 0 ? (
-                    <p className="p-8 text-center text-sm text-gray-500">
-                      {otherSubjectSearch
-                        ? 'No subjects match your search for this year level.'
-                        : `No subjects found for ${YEAR_TABS.find(y => y.value === otherYearTab)?.label}.`}
-                    </p>
-                  ) : (
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
-                        <tr>
-                          <th className="cursor-pointer select-none px-4 py-2   font-semibold" onClick={() => handleOtherSort('courseCode')}>
-                            Code <OtherSortIcon col="courseCode" />
-                          </th>
-                          <th className="cursor-pointer select-none px-4 py-2   font-semibold" onClick={() => handleOtherSort('courseTitle')}>
-                            Title <OtherSortIcon col="courseTitle" />
-                          </th>
-                          <th className="cursor-pointer select-none px-4 py-2   font-semibold" onClick={() => handleOtherSort('units')}>
-                            Units <OtherSortIcon col="units" />
-                          </th>
-                          <th className="cursor-pointer select-none px-4 py-2   font-semibold" onClick={() => handleOtherSort('semester')}>
-                            Semester <OtherSortIcon col="semester" />
-                          </th>
-                          <th className="px-4 py-2   font-semibold text-right">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 bg-white">
-                        {sortedOtherCourses.map(course => {
-                          const isSelected = otherSelectedCourse?.id === course.id;
-                          // Build the same courseId key used in handleAssignOther to check if already assigned
-                          const otherCourseId = otherSelectedClass
-                            ? `other::${otherDeptId}::${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}::${course.id}`
-                            : null;
-                          const takenByOther = otherCourseId ? assignedCourseIds.has(otherCourseId) : false;
-                          return (
-                            <tr
-                              key={course.id}
-                              onClick={() => { if (!takenByOther) setOtherSelectedCourse(course); }}
-                              className={`transition ${
-                                takenByOther
-                                  ? 'cursor-not-allowed opacity-50'
-                                  : isSelected
-                                    ? 'cursor-pointer bg-blue-50 ring-1 ring-inset ring-blue-200'
-                                    : 'cursor-pointer hover:bg-blue-50/40'
-                              }`}
-                            >
-                              <td className="px-4 py-2   font-semibold text-gray-900 whitespace-nowrap">
-                                <div className="flex items-center gap-1.5">
-                                  {isSelected && !takenByOther && <Check className="h-3.5 w-3.5 shrink-0 text-blue-600" />}
-                                  {course.courseCode}
-                                </div>
-                              </td>
-                              <td className="px-4 py-2   text-gray-700">
-                                <div className="truncate max-w-[320px]" title={course.courseTitle}>
-                                  {course.courseTitle}
-                                </div>
-                              </td>
-                              <td className="px-4 py-2   text-gray-600 whitespace-nowrap">
-                                {Number(course.units) > 0 ? course.units : '—'}
-                              </td>
-                              <td className="px-4 py-2   text-gray-600 whitespace-nowrap">
-                                {SEMESTER_LABELS[course.semester] || `Sem ${course.semester}`}
-                              </td>
-                              <td className="px-4 py-2   text-right">
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                  takenByOther
-                                    ? 'bg-gray-100 text-gray-400'
-                                    : isSelected
-                                      ? 'bg-blue-600 text-white'
-                                      : 'bg-gray-100 text-gray-500'
-                                }`}>
-                                  {takenByOther ? 'Assigned' : isSelected ? 'Selected' : 'Click to select'}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-
-                {/* ── Footer: error + action buttons ── */}
-                <div className="flex items-center justify-between gap-3 pt-1">
-                  {otherError
-                    ? <p className="text-xs text-red-500">{otherError}</p>
-                    : <span />
-                  }
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setPickerOpen(false)}
-                      disabled={savingOther}
-                      className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleAssignOther}
-                      disabled={savingOther || !otherSelectedClass}
-                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
-                    >
-                      {savingOther ? 'Assigning...' : 'Assign Class'}
-                    </button>
-                  </div>
-                </div>
+                </details>
 
               </div>
             )}
-          </div>
-        </div>
-      )}
+            </div>
 
-      {/* ── Block selection modal ── */}
-      {pendingCourse && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <h6 className="mb-1 text-lg font-semibold text-gray-800">Which blocks?</h6>
-            <p className="mb-4 text-sm text-gray-500">
-              Select from the current blocks available for Year {pendingCourse.yearLevel}.
-            </p>
-            <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-gray-800">{pendingCourse.courseCode}</span>
-                <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs text-gray-600">
-                  Year {pendingCourse.yearLevel} · {SEMESTER_LABELS[pendingCourse.semester] || `Sem ${pendingCourse.semester}`}
-                </span>
               </div>
-              <p className="mt-0.5 text-sm text-gray-600">{pendingCourse.courseTitle}</p>
             </div>
-            <p className="mb-2 text-sm font-medium text-gray-700">Block(s)</p>
-            <BlockToggle
-              value={pendingBlocks}
-              onChange={setPendingBlocks}
-              availableBlocks={getBlocksForYear(pendingCourse.yearLevel, false)}
-            />
-            {pendingError && <p className="mt-3 text-xs text-red-500">{pendingError}</p>}
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                onClick={cancelAssign}
-                disabled={savingAssignment}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmAssign}
-                disabled={savingAssignment || pendingBlocks.length === 0}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
-              >
-                {savingAssignment ? 'Assigning...' : 'Assign'}
-              </button>
-            </div>
-          </div>
         </div>
       )}
 

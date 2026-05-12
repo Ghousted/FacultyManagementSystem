@@ -61,7 +61,9 @@ const RateModal = ({ isOpen, onClose, currentRate, onSave, isSaving }) => {
     <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
       <div className="bg-white p-6 rounded-3xl shadow-2xl w-96 max-w-full">
         <h3 className="text-xl font-bold text-blue-700 mb-2">Configure Cutback Rate</h3>
-        <p className="text-sm text-gray-600 mb-4">Amount (PHP) paid to a professor per student per class.</p>
+        <p className="text-sm text-gray-600 mb-4">
+          Amount professors cutback per student handled per class. Current rate is <span className="font-semibold text-emerald-700">PHP {currentRate.toFixed(2)}</span>.
+        </p>
         <div className="flex items-center">
           <span className="px-3 py-1.5 text-sm bg-gray-100 border border-gray-300 border-r-0 rounded-l-lg">PHP</span>
           <input

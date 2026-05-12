@@ -1838,18 +1838,10 @@ const renderSortIcon = (field) => {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-
-            <button
-            type="button"
-            onClick={openCreateStudentModal}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer bg-green-500 text-white hover:bg-green-600"
-          >
-            <BadgePlus className="w-4 h-4" />
-            Add Student
-          </button>
-
-
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+            Student management for other departments has been moved to Student Management → Other Departments.
+          </div>
           <button
             type="button"
             onClick={openCreatePayableModal}
@@ -2026,25 +2018,10 @@ const renderSortIcon = (field) => {
           </td>
 
           <td className="px-3 py-2 w-[15%] text-right">
-            <div
-              className="flex justify-end items-center gap-1"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <button
-                type="button"
-                onClick={() => handleEditStudent(student)}
-                className="p-1 rounded-full text-gray-700 hover:bg-gray-300 cursor-pointer"
-              >
-                <Pencil className="w-4 h-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDeleteStudent(student.id)}
-                className="p-1 rounded-full text-gray-700 hover:bg-gray-300 cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+            <div className="flex justify-end items-center gap-1" onClick={(event) => event.stopPropagation()}>
+              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-500">
+                Managed in Student Management
+              </span>
             </div>
           </td>
         </tr>

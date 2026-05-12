@@ -13,7 +13,8 @@ import { getActiveTerm } from '../../models/facultyModels';
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc, collection, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { BadgePlus, Pencil, Folder, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown, RefreshCcw, ChevronLeft, Plus, Funnel, X, FolderArchive } from 'lucide-react';
+import OtherDepartmentManagement from './OtherDepartmentManagement';
+import { BadgePlus, Pencil, Folder, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown, RefreshCcw, ChevronLeft, Plus, Funnel, X, FolderArchive, MoreVertical } from 'lucide-react';
 import { logSystemAction } from '../../utils/auditLogger';
 
 const SEMESTER_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
@@ -72,7 +73,7 @@ const RowSkeleton = () => (
   </tr>
 );
 
-const StudentManagement = ({ onBack }) => {
+const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   const { currentUser } = useAuth();
   const [students, setStudents] = useState([]);
   const [curriculums, setCurriculums] = useState([]);
@@ -86,6 +87,12 @@ const StudentManagement = ({ onBack }) => {
   const [success, setSuccess] = useState('');
   const [studentListTab, setStudentListTab] = useState(1);
   const [courseTab, setCourseTab] = useState(0);
+  const [studentSection, setStudentSection] = useState(initialSection);
+
+  useEffect(() => {
+    setStudentSection(initialSection);
+  }, [initialSection]);
+
   const handleSelectStudent = (student) => {
     setSelectedStudent(student);
     setCourseTab(student.yearLevel - 1);
@@ -343,6 +350,10 @@ const StudentManagement = ({ onBack }) => {
   }, [currentUser, loadStudents, loadCurriculums, loadAllCourses]);
 
   useEffect(() => {
+    setStudentSection(initialSection);
+  }, [initialSection]);
+
+  useEffect(() => {
     const loadActiveTerm = async () => {
       if (!currentUser) return;
 
@@ -438,6 +449,13 @@ const StudentManagement = ({ onBack }) => {
   useEffect(() => {
     setSelectedFolder(null);
   }, [studentListTab]);
+
+  useEffect(() => {
+    setSelectedFolder(null);
+    setSelectedStudent(null);
+    setSelectedIds([]);
+    setSearchTerm('');
+  }, [studentSection]);
 
   // Clear temporary display overrides when user navigates between folders
   useEffect(() => {
@@ -844,7 +862,7 @@ const StudentManagement = ({ onBack }) => {
       window.dispatchEvent(
         new CustomEvent('student-breadcrumb', {
           detail: {
-            mode: 'students',
+            mode: studentSection,
             selectedFolder: selectedFolder || null,
             selectedStudent: selectedStudent || null
           }
@@ -853,7 +871,7 @@ const StudentManagement = ({ onBack }) => {
     } catch (e) {
       // ignore in environments without window
     }
-  }, [selectedFolder, selectedStudent]);
+  }, [studentSection, selectedFolder, selectedStudent]);
 
   // Derive available blocks dynamically from existing students
   const getAvailableBlocks = () => {
@@ -1922,6 +1940,14 @@ const StudentManagement = ({ onBack }) => {
     </div>
   );
 
+  const switchStudentSection = (section) => {
+    setStudentSection(section);
+    setSelectedStudent(null);
+    setSelectedFolder(null);
+    setSelectedIds([]);
+    setSearchTerm('');
+  };
+
   const renderCourseTables = () => {
     if (!selectedStudent) return null;
 
@@ -2335,20 +2361,22 @@ const StudentManagement = ({ onBack }) => {
       {success && <div className="mb-2 rounded border border-green-200 bg-green-50 text-green-800 px-4 py-2">{success}</div>}
 
       {currentUser ? (
-  <div className="flex-1 flex flex-col">
-    {!selectedStudent ? (
-      <div className="flex-1">
-        <div>{renderStudentList()}</div>
-      </div>
-    ) : (
-      <div className="flex-1 flex flex-col">
-        <div className="w-full">
-          {renderCourseTables()}
+        <div className="flex-1 flex flex-col">
+          <div></div>
+          {!selectedStudent && (
+            <div className="flex-1">
+              <div>{studentSection === 'other' ? <OtherDepartmentManagement /> : renderStudentList()}</div>
+            </div>
+          )}
+          {selectedStudent && (
+            <div className="flex-1 flex flex-col">
+              <div className="w-full">
+                {renderCourseTables()}
+              </div>
+            </div>
+          )}
         </div>
-      </div>
-    )}
-  </div>
-) : (
+      ) : (
 
         <div className="flex-1 flex items-center justify-center">
           <div className="p-6 text-center border border-gray-200 rounded bg-gray-50 text-gray-600">
