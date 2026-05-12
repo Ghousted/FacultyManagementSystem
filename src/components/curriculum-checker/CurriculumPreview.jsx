@@ -185,7 +185,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                   <p>GWA: {gwa1 !== null ? gwa1.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '')}</p>
                 </div>
 
-                <div className="">
+                <div className="recommended-section">
                   <span className='mr-1'>Recommended for:</span>
 
                   <div className="flex items-center gap-4">
@@ -226,6 +226,13 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                     </div>
                   </div>
                 </div>
+
+                {/* Print-specific recommendation text for Curriculum Checker */}
+                {student && (calculateDeansListerEligibility(student, 1, yr) || scholarshipEligibility.eligible) && (
+                  <div className="print-recommendation">
+                    Recommended for Dean's Lister{scholarshipEligibility.eligible && scholarshipEligibility.percentage > 0 ? ` & ${scholarshipEligibility.percentage}% Scholarship.` : '.'}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-end text-xs mt-5 gap-4">
@@ -274,7 +281,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                         <p>GWA: {gwaSummer !== null ? gwaSummer.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '')}</p>
                       </div>
 
-                      <div className="">
+                      <div className="recommended-section">
                         <span>Recommended for:</span>
 
                         <div className="flex items-center gap-4">
@@ -315,6 +322,13 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                           </div>
                         </div>
                       </div>
+
+                      {/* Print-specific recommendation text for Curriculum Checker */}
+                      {student && (calculateDeansListerEligibility(student, 3, yr) || scholarshipEligibility.eligible) && (
+                        <div className="print-recommendation">
+                          Recommended for Dean's Lister{scholarshipEligibility.eligible && scholarshipEligibility.percentage > 0 ? ` & ${scholarshipEligibility.percentage}% Scholarship.` : '.'}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -357,7 +371,7 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                     <p>GWA: {gwa2 !== null ? gwa2.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '')}</p>
                   </div>
 
-                  <div className="">
+                  <div className="recommended-section">
                     <span>Recommended for:</span>
 
                     <div className="flex items-center gap-4">
@@ -399,6 +413,13 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                       </div>
                     </div>
                   </div>
+
+                  {/* Print-specific recommendation text for Curriculum Checker */}
+                  {student && (calculateDeansListerEligibility(student, 2, yr) || scholarshipEligibility.eligible) && (
+                    <div className="print-recommendation">
+                      Recommended for Dean's Lister{scholarshipEligibility.eligible && scholarshipEligibility.percentage > 0 ? ` & ${scholarshipEligibility.percentage}% Scholarship.` : '.'}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-end text-xs mt-5 gap-4">
@@ -523,6 +544,12 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                 .semester-box th:nth-child(2), .semester-box td:nth-child(2) { width: 12%; text-align: left; font-size: 9px; }
                 .semester-box th:nth-child(3), .semester-box td:nth-child(3) { width: 72%; text-align: left; font-size: 9px; }
                 .semester-box th:nth-child(4), .semester-box td:nth-child(4) { width: 5%; text-align: center; font-size: 9px; }
+                
+                /* Hide Recommended for sections when printing */
+                .recommended-section { display: none !important; }
+                
+                /* Show special print text for Dean's Lister and Scholarship */
+                .print-recommendation { display: block !important; font-size: 9px; margin-top: 2px; color: #000; }
               }
               @media screen {
                   .preview-meta { position: absolute; right: 1rem; top: 1rem; display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
@@ -538,6 +565,9 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                 .semester-col { padding-right: 1rem; }
                 .year-columns { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
                 .semester-box { width: 100%; }
+                
+                /* Hide print-specific elements on screen */
+                .print-recommendation { display: none !important; }
               }
             `}</style>
 
