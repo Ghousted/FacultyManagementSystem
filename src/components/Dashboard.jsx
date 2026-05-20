@@ -4,6 +4,7 @@ import { BookCheck, PhilippinePeso, Archive, GraduationCap, Medal, Users, Wallet
 import { db } from '../firebase';
 import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
 import { getStudents } from '../models/curriculumModels';
+import { getActiveTerm } from '../models/facultyModels';
 
 const CurriculumCheckerMain = lazy(() => import('./curriculum-checker/CurriculumCheckerMain'));
 const PayablesMain = lazy(() => import('./payables-system/PayablesMain'));
@@ -19,6 +20,7 @@ const Dashboard = () => {
   const [userName, setUserName] = useState('');
   const [adminStats, setAdminStats] = useState({
     latestStudents: [],
+    activeTerm: null,
     weeklyPaid: 0,
     monthlyPaid: 0,
     totalPaid: 0,
@@ -84,16 +86,25 @@ const Dashboard = () => {
         weekStart.setDate(now.getDate() - 7);
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-        const [studentsResult, payablesSnapshot, studentPaymentsSnapshot] = await Promise.all([
+        const [studentsResult, activeTermResult, payablesSnapshot, studentPaymentsSnapshot] = await Promise.all([
           getStudents(),
+          getActiveTerm(),
           getDocs(collection(db, 'payables')).catch(() => ({ docs: [] })),
           getDocs(collection(db, 'studentPayments')).catch(() => ({ docs: [] }))
         ]);
 
         const students = studentsResult.success ? studentsResult.data : [];
-        const latestStudents = [...students].sort((a, b) => {
-          const aDate = toDate(a.enrolledAt || a.createdAt || a.updatedAt)?.getTime() || 0;
-          const bDate = toDate(b.enrolledAt || b.createdAt || b.updatedAt)?.getTime() || 0;
+        const activeTerm = activeTermResult.success ? activeTermResult.data : null;
+        const latestStudents = students.filter((student) => {
+          const term = student.enrolledTerm || {};
+          return (
+            student.enrolled === true &&
+            Number(term.semester) === Number(activeTerm?.semester) &&
+            (term.schoolYear || '') === (activeTerm?.schoolYear || '')
+          );
+        }).sort((a, b) => {
+          const aDate = toDate(a.enrolledAt || a.updatedAt || a.createdAt)?.getTime() || 0;
+          const bDate = toDate(b.enrolledAt || b.updatedAt || b.createdAt)?.getTime() || 0;
           return bDate - aDate;
         });
 
@@ -124,6 +135,7 @@ const Dashboard = () => {
 
         setAdminStats({
           latestStudents: latestStudents.slice(0, 5),
+          activeTerm,
           weeklyPaid,
           monthlyPaid,
           totalPaid,
@@ -177,6 +189,13 @@ const Dashboard = () => {
 
     const block = (student?.block || 'A').toString().trim().toUpperCase();
     return `${year} - Blk ${block || 'A'}`;
+  };
+
+  const getTermLabel = (term) => {
+    if (!term?.semester || !term?.schoolYear) return 'current term';
+    const sem = Number(term.semester);
+    const semLabel = sem === 1 ? '1st Sem' : sem === 2 ? '2nd Sem' : sem === 3 ? 'Summer' : `Sem ${sem}`;
+    return `${semLabel} ${term.schoolYear}`;
   };
 
   const getStudentLevelBlock = (student) => {
@@ -529,7 +548,7 @@ const Dashboard = () => {
               </div>
               <div>
                 <h4 className="text-lg font-semibold text-gray-900">Latest Enrollees</h4>
-                <p className="text-sm text-gray-500">Newest 5 students enrolled.</p>
+                <p className="text-sm text-gray-500">Newest 5 students enrolled in {getTermLabel(adminStats.activeTerm)}.</p>
               </div>
             </div>
 
@@ -550,7 +569,7 @@ const Dashboard = () => {
                 ))
               ) : (
                 <div className="rounded-lg border border-dashed border-gray-200 p-4 text-center text-sm text-gray-500">
-                  No enrollees yet.
+                  No enrollees for {getTermLabel(adminStats.activeTerm)} yet.
                 </div>
               )}
             </div>

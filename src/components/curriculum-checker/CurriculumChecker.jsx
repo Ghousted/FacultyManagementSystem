@@ -4,6 +4,7 @@ import StudentManagement from './StudentManagement';
 import CurriculumCheckerMain from './CurriculumCheckerMain';
 import TermEnrollmentPanel from './TermEnrollmentPanel';
 import { ArrowBigLeft, NotebookPen, Users, BookCheck, UserCheck } from 'lucide-react';
+import Breadcrumbs from '../common/Breadcrumbs';
 
 const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId }) => {
   const [currentView, setCurrentView] = useState(initialView || 'main');
@@ -62,17 +63,7 @@ const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId
 
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <button
-          type="button"
-          onClick={onBackToDashboard}
-          className="text-gray-600 hover:text-blue-600"
-        >
-          Dashboard
-        </button>
-        <span className="text-gray-300">&gt;</span>
-        <span className="font-medium text-blue-600">Curriculum Management System</span>
-      </div>
+      <Breadcrumbs items={[{ label: 'Curriculum Management System' }]} />
       <div className="mb-6 rounded-2xl border border-blue-100 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <button

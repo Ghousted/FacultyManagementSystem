@@ -50,6 +50,18 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   const [moduleCurriculumFilter, setModuleCurriculumFilter] = useState('all');
   const [moduleSemesterFilter, setModuleSemesterFilter] = useState('all');
   const [curriculums, setCurriculums] = useState([]);
+  const [individualPayableDialogOpen, setIndividualPayableDialogOpen] = useState(false);
+  const [individualPayableForm, setIndividualPayableForm] = useState({
+    type: '',
+    amount: '',
+    yearLevel: '',
+    category: 'general',
+    moduleId: '',
+    moduleCode: '',
+    moduleTitle: '',
+    moduleCurriculumId: '',
+    selectedModuleIds: []
+  });
 
   useEffect(() => {
     const handlePayablesBreadcrumb = (event) => {
@@ -104,9 +116,19 @@ useEffect(() => {
   // Now `filteredAndSortedModules` can safely use `offeredModules`
   const filteredAndSortedModules = useMemo(() => {
     let result = offeredModules.filter((module) => {
-      if (moduleYearLevelFilter !== 'all' && module.yearLevel !== Number(moduleYearLevelFilter)) return false;
-      if (moduleCurriculumFilter !== 'all' && module.curriculumId !== moduleCurriculumFilter) return false;
-      if (moduleSemesterFilter !== 'all' && module.semester !== Number(moduleSemesterFilter)) return false;
+      const yearFilter = moduleSelectorContext === 'individual'
+        ? individualPayableForm.yearLevel
+        : moduleYearLevelFilter;
+      const curriculumFilter = moduleSelectorContext === 'individual'
+        ? 'all'
+        : moduleCurriculumFilter;
+      const semesterFilter = moduleSelectorContext === 'individual'
+        ? 'all'
+        : moduleSemesterFilter;
+
+      if (yearFilter && yearFilter !== 'all' && module.yearLevel !== Number(yearFilter)) return false;
+      if (curriculumFilter !== 'all' && module.curriculumId !== curriculumFilter) return false;
+      if (semesterFilter !== 'all' && module.semester !== Number(semesterFilter)) return false;
       return true;
     });
 
@@ -134,13 +156,45 @@ useEffect(() => {
     });
 
     return result;
-  }, [offeredModules, moduleSortConfig, moduleYearLevelFilter, moduleCurriculumFilter, moduleSemesterFilter]);
+  }, [
+    offeredModules,
+    moduleSortConfig,
+    moduleSelectorContext,
+    moduleYearLevelFilter,
+    moduleCurriculumFilter,
+    moduleSemesterFilter,
+    individualPayableForm.yearLevel
+  ]);
 
   const getOrdinalSuffix = (n) => {
     const s = ['th', 'st', 'nd', 'rd'];
     const v = n % 100;
     return s[(v - 20) % 10] || s[v] || s[0];
   };
+
+  // Derive available blocks dynamically from loaded students
+  const getAvailableBlocks = useCallback(() => {
+    const set = new Set();
+    students.forEach(s => {
+      const block = s && s.block && String(s.block).trim() !== '' ? String(s.block).trim().toUpperCase() : 'A';
+      set.add(block);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [students]);
+
+  const getBlocksForYear = useCallback((year, isIrregular = false) => {
+    if (isIrregular) return [];
+    const set = new Set();
+    students.forEach(s => {
+      if ((Number(s.yearLevel) === Number(year)) && !s.isIrregular) {
+        const block = s && s.block && String(s.block).trim() !== '' ? String(s.block).trim().toUpperCase() : 'A';
+        set.add(block);
+      }
+    });
+    const blocks = Array.from(set).sort((a, b) => a.localeCompare(b));
+    if (blocks.length === 0) return ['A'];
+    return blocks;
+  }, [students]);
 
   const [moduleManagementOpen, setModuleManagementOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
@@ -161,6 +215,7 @@ useEffect(() => {
     status: 'unpaid',
     paidAmount: '0',
     yearLevel: 'all',
+    block: 'all',
     category: 'general',
     moduleId: '',
     moduleCode: '',
@@ -215,19 +270,6 @@ useEffect(() => {
     if (Array.isArray(mode)) return mode.length === 1 ? mode[0] : mode.join(',');
     return String(mode);
   };
-
-  const [individualPayableDialogOpen, setIndividualPayableDialogOpen] = useState(false);
-  const [individualPayableForm, setIndividualPayableForm] = useState({
-    type: '',
-    amount: '',
-    yearLevel: '',
-    category: 'general',
-    moduleId: '',
-    moduleCode: '',
-    moduleTitle: '',
-    moduleCurriculumId: '',
-    selectedModuleIds: []
-  });
 
   const individualSelectedModuleIds = individualPayableForm?.selectedModuleIds || [];
   const individualSelectedModules = useMemo(
@@ -401,12 +443,21 @@ useEffect(() => {
 };
 
   const handleAddPayable = () => {
+    // Prefill yearLevel and block based on currently selected folder (if any)
+    let defaultYearLevel = tabValue === 4 ? 'irregular' : (tabValue + 1).toString();
+    let defaultBlock = 'all';
+    if (selectedFolder) {
+      defaultBlock = selectedFolder.block || 'all';
+      defaultYearLevel = selectedFolder.isIrregular ? 'irregular' : (selectedFolder.year ? String(selectedFolder.year) : defaultYearLevel);
+    }
+
     setNewPayableForm({
       type: '',
       amount: '',
       status: 'unpaid',
       paidAmount: '0',
-      yearLevel: tabValue === 4 ? 'irregular' : (tabValue + 1).toString(),
+      yearLevel: defaultYearLevel,
+      block: defaultBlock,
       category: 'general',
       moduleId: '',
       moduleCode: '',
@@ -418,8 +469,9 @@ useEffect(() => {
     setAddPayableDialogOpen(true);
   };
 
-  const handleAddIndividualPayable = () => {
+const handleAddIndividualPayable = () => {
   if (!selectedStudentModal) return;
+  loadOfferedModules();
   setIndividualPayableForm({
     type: '',
     amount: '',
@@ -455,7 +507,8 @@ useEffect(() => {
         const result = await updatePayable(newPayableForm.id, {
           type: newPayableForm.type,
           amount: parseFloat(newPayableForm.amount),
-          yearLevel: targetYear === 'irregular' || targetYear === 'all' ? targetYear : parseInt(targetYear)
+          yearLevel: targetYear === 'irregular' || targetYear === 'all' ? targetYear : parseInt(targetYear),
+          block: newPayableForm.block || 'all'
         });
         if (result.success) {
           setSuccess('Payable updated successfully!');
@@ -465,12 +518,31 @@ useEffect(() => {
         }
       } else {
         let targetStudents;
+        const targetBlock = newPayableForm.block;
+        
         if (targetYear === 'irregular') {
           targetStudents = students.filter(s => s.isIrregular);
         } else if (targetYear === 'all') {
-          targetStudents = students;
+          if (targetBlock === 'all') {
+            targetStudents = students;
+          } else {
+            // All year levels but specific block
+            targetStudents = students.filter(s => {
+              const studentBlock = (s.block || '').toUpperCase() || 'A';
+              return studentBlock === targetBlock.toUpperCase() && !s.isIrregular;
+            });
+          }
         } else {
-          targetStudents = students.filter(s => s.yearLevel === parseInt(targetYear) && !s.isIrregular);
+          // Specific year level
+          if (targetBlock === 'all') {
+            targetStudents = students.filter(s => s.yearLevel === parseInt(targetYear) && !s.isIrregular);
+          } else {
+            // Specific year level and specific block
+            targetStudents = students.filter(s => {
+              const studentBlock = (s.block || '').toUpperCase() || 'A';
+              return s.yearLevel === parseInt(targetYear) && !s.isIrregular && studentBlock === targetBlock.toUpperCase();
+            });
+          }
         }
         const studentPayments = {};
         targetStudents.forEach(student => {
@@ -492,6 +564,7 @@ useEffect(() => {
               type: module.courseCode,
               amount,
               yearLevel: targetYear === 'irregular' || targetYear === 'all' ? targetYear : parseInt(targetYear),
+              block: targetBlock || 'all',
               studentPayments,
               category: 'module',
               moduleId: module.id,
@@ -514,6 +587,7 @@ useEffect(() => {
             type: newPayableForm.type,
             amount,
             yearLevel: targetYear === 'irregular' || targetYear === 'all' ? targetYear : parseInt(targetYear),
+            block: targetBlock || 'all',
             studentPayments: studentPayments,
             category: 'general'
           };
@@ -700,6 +774,7 @@ useEffect(() => {
         status: 'unpaid',
         paidAmount: '0',
         yearLevel: payable.yearLevel.toString() === 'irregular' ? 'irregular' : payable.yearLevel.toString(),
+        block: payable.block || 'all',
         category: payable.category || 'general',
         moduleId: payable.moduleId || '',
         moduleCode: payable.moduleCode || '',
@@ -826,8 +901,9 @@ useEffect(() => {
           [`studentPayments.${studentId}.status`]: newStatus,
           [`studentPayments.${studentId}.lastPaymentMode`]: normalizeModeForStore(mode) || 'cash',
           [`studentPayments.${studentId}.lastPaymentReference`]: reference || '',
+          [`studentPayments.${studentId}.lastPaymentDate`]: paymentDate.toISOString(),
           [`studentPayments.${studentId}.voucherAmount`]: Math.max(0, Number(voucherAmount || 0)),
-          [`studentPayments.${studentId}.voucherDescription`]: (voucherDescription || '').trim()
+          [`studentPayments.${studentId}.voucherDescription`]: (voucherDescription || '').trim()  
         };
         const result = await updatePayable(payableId, updateObj);
         if (!result.success) {
@@ -1013,6 +1089,7 @@ useEffect(() => {
 
   const getStudentPayables = useCallback((student) => {
     if (!student || !payables) return [];
+    const studentBlock = (student.block || 'A').toString().trim().toUpperCase() || 'A';
     let basePayables = [];
     if (student.isIrregular) {
       basePayables = (payables[student.yearLevel] || []).concat(payables['irregular'] || []).concat(payables['all'] || []);
@@ -1024,13 +1101,23 @@ useEffect(() => {
       .filter(p => p.isIndividual && p.studentId === student.id);
     const merged = {};
     basePayables.forEach(p => {
+      const payableBlock = (p.block || 'all').toString().trim().toUpperCase() || 'ALL';
+      if (payableBlock !== 'ALL' && payableBlock !== studentBlock) {
+        return;
+      }
       if (!p.isIndividual) {
         merged[p.id] = p;
       } else if (p.studentId === student.id) {
         merged[p.id] = p;
       }
     });
-    individualAcrossYears.forEach(p => { merged[p.id] = p; });
+    individualAcrossYears.forEach(p => {
+      const payableBlock = (p.block || 'all').toString().trim().toUpperCase() || 'ALL';
+      if (payableBlock !== 'ALL' && payableBlock !== studentBlock) {
+        return;
+      }
+      merged[p.id] = p;
+    });
     return Object.values(merged);
   }, [payables]);
 
@@ -1291,7 +1378,7 @@ useEffect(() => {
         </div>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
           <button
-            className="px-3 py-1.5 border border-gray-300 cursor-pointer text-sm text-gray-700 rounded-lg hover:bg-gray-50"
+            className="px-3 py-1.5 bg-blue-500 cursor-pointer text-sm text-white rounded-lg hover:bg-blue-600"
             onClick={() => setModuleManagementOpen(true)}
             title="Manage subjects offered as modules"
           >
@@ -1337,7 +1424,7 @@ useEffect(() => {
                 year,
                 block,
                 isIrregular,
-                label: isIrregular ? `Irregular Block ${block}` : `${getYearLabel(year)} Year Block ${block}`,
+                label: isIrregular ? `Irregular Students` : `${getYearLabel(year)} Year Block ${block}`,
                 students: []
               });
             }
@@ -1363,7 +1450,7 @@ useEffect(() => {
             }
 
             return (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
                 {folders.map((folder) => (
                   <button
                     key={folder.key}
@@ -1373,12 +1460,12 @@ useEffect(() => {
                       setTabValue(folder.isIrregular ? 4 : Math.max(0, folder.year - 1));
                       window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'ccs', selectedFolder: folder } }));
                     }}
-                    className="rounded-xl border border-gray-200 bg-white p-4 text-left transition hover:border-yellow-300 hover:shadow-lg"
+                    className="rounded-lg cursor-pointer border border-slate-200 bg-white p-4 text-left transition hover:border-nlue-300 hover:shadow-lg"
                   >
                     <div className="flex items-start gap-4">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-500">
-                        <Folder className="h-5 w-5" />
-                      </div>
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+<Folder className="h-5 w-5" />
+</div>
                       <div>
                         <div className="text-sm font-medium text-gray-800">{folder.label}</div>
                         <div className="text-xs text-gray-500">
@@ -1596,6 +1683,9 @@ useEffect(() => {
 
   return (
     <div className="">
+
+     
+
       {!currentUser && (
         <div className="mx-3 mb-2 p-4 bg-blue-50 border border-blue-200 rounded text-blue-800">
           Please sign in to access the Payables System
@@ -1633,6 +1723,7 @@ useEffect(() => {
               status: 'unpaid',
               paidAmount: '0',
               yearLevel: 'all',
+              block: 'all',
               category: 'general',
               moduleId: '',
               moduleCode: '',
@@ -1651,7 +1742,12 @@ useEffect(() => {
                 <select
                   className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
                   value={newPayableForm.yearLevel}
-                  onChange={(e) => handleNewPayableInputChange('yearLevel', e.target.value)}
+                  onChange={(e) => {
+                    handleNewPayableInputChange('yearLevel', e.target.value);
+                    if (e.target.value === 'irregular') {
+                      handleNewPayableInputChange('block', 'all');
+                    }
+                  }}
                   disabled={editingMode}
                 >
                   <option value="all">All Students</option>
@@ -1662,6 +1758,40 @@ useEffect(() => {
                   <option value="irregular">Irregular Students</option>
                 </select>
               </div>
+
+              {/* Block selector - only show for non-irregular year levels */}
+              {newPayableForm.yearLevel !== 'irregular' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Target Block</label>
+                  <select
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                    value={newPayableForm.block}
+                    onChange={(e) => handleNewPayableInputChange('block', e.target.value)}
+                    disabled={editingMode}
+                  >
+                    <option value="all">All Blocks</option>
+                    {(() => {
+                      // Determine block options from current students
+                      const isIrregular = newPayableForm.yearLevel === 'irregular';
+                      let blocks = [];
+                      if (!isIrregular) {
+                        if (newPayableForm.yearLevel === 'all') {
+                          blocks = getAvailableBlocks();
+                        } else {
+                          const y = Number(newPayableForm.yearLevel);
+                          blocks = getBlocksForYear(y);
+                        }
+                      }
+                      return blocks.map((b) => (
+                        <option key={b} value={b}>{`Block ${b}`}</option>
+                      ));
+                    })()}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {newPayableForm.block === 'all' ? 'Will apply to all blocks in the selected year level' : `Will apply only to Block ${newPayableForm.block}`}
+                  </p>
+                </div>
+              )}
 
               <div className='flex items-center gap-4'>
                 <label className="block text-sm font-medium">Category:</label>
@@ -1790,7 +1920,7 @@ useEffect(() => {
                 </div>
               )}
             </div>
-            <div className="flex justify-end gap-2 mt-6">
+            <div className="flex justify-end gap-2 mt-8">
               <button
                 onClick={() => {
                   setAddPayableDialogOpen(false);
@@ -1801,6 +1931,7 @@ useEffect(() => {
                     status: 'unpaid',
                     paidAmount: '0',
                     yearLevel: 'all',
+                    block: 'all',
                     category: 'general',
                     moduleId: '',
                     moduleCode: '',
@@ -1810,13 +1941,13 @@ useEffect(() => {
                   });
                   setModuleSelectorOpen(false);
                 }}
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveNewPayable}
-                className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-1.5 w-28 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 disabled={
                   !newPayableForm.amount ||
                   loading ||
@@ -1825,7 +1956,7 @@ useEffect(() => {
                     : !newPayableForm.type)
                 }
               >
-                {loading ? (editingMode ? 'Updating...' : 'Adding...') : (editingMode ? 'Update Payable' : 'Add Payable')}
+                {loading ? (editingMode ? 'Updating...' : 'Adding...') : (editingMode ? 'Update' : 'Add')}
               </button>
             </div>
           </div>
@@ -1834,7 +1965,7 @@ useEffect(() => {
 
       {/* Module Selector Modal */}
      {moduleSelectorOpen && (
-  <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/30 px-4 py-6">
+  <div className="fixed inset-0 z-10000 flex items-center justify-center bg-black/30 px-4 py-6">
     <div
       className="absolute inset-0"
       onClick={() => setModuleSelectorOpen(false)}
@@ -2200,11 +2331,11 @@ useEffect(() => {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  className="px-2 py-1.5 text-sm bg-blue-600 cursor-pointer text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  className="px-2 py-1.5 text-sm bg-green-500 cursor-pointer text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
                   onClick={handleAddIndividualPayable}
                 >
                   <BadgePlus className='w-4 h-4 inline-flex mr-1.5 mb-0.5' />
-                  Add Prev. Balance
+                  Add Individual Charge
                 </button>
               </div>
             </div>
@@ -2906,40 +3037,25 @@ useEffect(() => {
           <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full relative z-10">
             <div className="flex items-start gap-3">
               <div className="flex-1">
-                <h2 className="text-xl font-bold mb-1">Delete Payable</h2>
-                <p className="text-sm text-gray-700 mb-2">
+                <h2 className="text-xl font-bold mb-2">Delete Payable</h2>
+                <p className=" text-gray-700 ">
                   Are you sure you want to delete
                   {` "${deleteTarget?.type || ''}"`} payable? This cannot be undone.
                 </p>
-                {typeof deleteTarget?.amount !== 'undefined' && (
-                  <p className="text-sm text-gray-600 mb-2">
-                    Amount: ₱{Number(deleteTarget.amount || 0).toLocaleString()}
-                  </p>
-                )}
-                <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800">
-                  {deleteTarget?.isIndividual ? (
-                    <span>
-                      This will permanently remove this charge for {selectedStudentModal?.name}.
-                    </span>
-                  ) : (
-                    <span>
-                      This will remove this payable for all {deleteTarget?.yearLevel === 'irregular' ? 'irregular students' : deleteTarget?.yearLevel === 'all' ? 'students' : `students in Year ${deleteTarget?.yearLevel}`}.
-                      This action cannot be undone.
-                    </span>
-                  )}
-                </div>
+              
+                
               </div>
             </div>
-            <div className="flex justify-end gap-2 mt-4">
+            <div className="flex justify-end gap-2 mt-8">
               <button
-                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
                 onClick={() => { setDeleteDialogOpen(false); setDeleteTarget(null); }}
                 disabled={loading}
               >
                 Cancel
               </button>
               <button
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                className="px-4 py-1.5 w-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 onClick={() => deleteTarget && handleDeletePayable(deleteTarget.id)}
                 disabled={loading}
               >

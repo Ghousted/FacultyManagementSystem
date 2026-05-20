@@ -18,6 +18,7 @@ import {
   Wallet
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { goToRoleDashboard } from '../common/Breadcrumbs';
 
 const navItemsByRole = {
   admin: [
@@ -30,7 +31,7 @@ const navItemsByRole = {
 
     { label: 'Payables System', hash: '#/payables', icon: PhilippinePeso },
     { label: 'Module Payments', hash: '#/module-payments', icon: Wallet },
-    { label: 'Professor Cutbacks', hash: '#/professor-cutbacks', icon: HandCoins },
+    { label: 'Cutback Reports', hash: '#/professor-cutbacks', icon: HandCoins },
 
     { label: 'Archived Classes', hash: '#/archived-classes', icon: Archive },
 
@@ -40,10 +41,10 @@ const navItemsByRole = {
 
   curriculum: [
     { label: 'Dashboard', hash: '#/dashboard', icon: LayoutDashboard },
+    { label: 'Student Management', hash: '#/student-management', icon: Users },
 
     { label: 'Curriculum Maker', hash: '#/curriculum-maker', icon: NotebookPen },
 
-    { label: 'Student Management', hash: '#/student-management', icon: Users },
 
     { label: 'Reports', hash: '#/deans-list-report', icon: Medal },
     { label: 'Archive Classes', hash: '#/archived-classes', icon: Archive }
@@ -53,7 +54,7 @@ const navItemsByRole = {
     { label: 'Dashboard', hash: '#/dashboard', icon: LayoutDashboard },
 
     { label: 'Modules Payment', hash: '#/module-payments', icon: Wallet },
-    { label: 'Professor Cutbacks', hash: '#/professor-cutbacks', icon: HandCoins },
+    { label: 'Cutback Reports', hash: '#/professor-cutbacks', icon: HandCoins },
 
   ]
 };
@@ -86,10 +87,11 @@ const Sidebar = ({ onExpandedChange }) => {
   }, [onExpandedChange]);
 
   const handleNavigate = (hash) => {
-    window.location.hash = hash;
     if (hash === '#/dashboard') {
-      window.dispatchEvent(new CustomEvent('go-dashboard'));
+      goToRoleDashboard(role);
+      return;
     }
+    window.location.hash = hash;
   };
 
   const handleSignOut = async () => {
@@ -113,7 +115,7 @@ const Sidebar = ({ onExpandedChange }) => {
         className={`flex h-11 w-auto shrink-0 items-center gap-3 rounded-lg px-3 text-left text-sm font-medium transition md:w-full ${
           isActive
             ? 'bg-blue-50 text-blue-700'
-            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 cursor-pointer'
         }`}
       >
         <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
@@ -149,7 +151,7 @@ const Sidebar = ({ onExpandedChange }) => {
           <button
             type="button"
             onClick={handleSignOut}
-            className="flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
+            className="flex cursor-pointer h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
             title="Log out"
           >
             <LogOut className="h-5 w-5 shrink-0" aria-hidden="true" />

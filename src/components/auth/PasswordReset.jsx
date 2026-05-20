@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { toast } from 'react-hot-toast';
 
 const PasswordReset = ({ onSwitchToSignIn }) => {
   const [email, setEmail] = useState('');
@@ -15,17 +16,17 @@ const PasswordReset = ({ onSwitchToSignIn }) => {
     setLoading(true);
 
     if (!email) {
-      setError('Please enter your email address');
+      toast.error('Please enter your email address');
       setLoading(false);
       return;
     }
 
     const result = await resetPassword(email);
     if (result.success) {
-      setMessage('Password reset email sent! Check your inbox.');
+      toast.success('Password reset email sent! Check your inbox.');
       setEmail('');
     } else {
-      setError(result.error);
+      toast.error(result.error || 'Failed to send reset email');
     }
     setLoading(false);
   };
@@ -41,8 +42,7 @@ const PasswordReset = ({ onSwitchToSignIn }) => {
         </p>
         <form onSubmit={handleSubmit}>
           <div className="space-y-4">
-            {error && <div className="p-4 bg-red-50 border border-red-200 rounded text-red-800">{error}</div>}
-            {message && <div className="p-4 bg-green-50 border border-green-200 rounded text-green-800">{message}</div>}
+            {/* messages shown via toast notifications */}
             <input
               type="email"
               className="w-full p-2 border border-gray-300 rounded"

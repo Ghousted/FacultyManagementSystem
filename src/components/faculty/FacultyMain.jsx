@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import ProfessorList from './ProfessorList';
 import ProfessorDetail from './ProfessorDetail';
 import { getActiveTerm } from '../../models/facultyModels';
+import Breadcrumbs from '../common/Breadcrumbs';
 
 const FacultyMain = ({ onBackToDashboard }) => {
   const [activeTerm, setActiveTerm] = useState({ semester: 1, schoolYear: '' });
@@ -20,47 +21,13 @@ const FacultyMain = ({ onBackToDashboard }) => {
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-gray-500">
-        <button
-          type="button"
-          onClick={onBackToDashboard}
-          className="text-left text-gray-600 hover:text-blue-600"
-        >
-          Dashboard
-        </button>
-        <span className="text-gray-300">&gt;</span>
-        <button
-          type="button"
-          onClick={() => setSelectedProfessor(null)}
-          className={`text-left ${
-            selectedProfessor ? 'text-gray-600 hover:text-blue-600' : 'font-medium text-blue-600'
-          }`}
-        >
-          Faculty Management
-        </button>
-        {selectedProfessor && (
-          <>
-            <span className="text-gray-300">&gt;</span>
-            <button
-              type="button"
-              onClick={() => setDetailViewMode('detail')}
-              className={`text-left ${
-                detailViewMode === 'assign'
-                  ? 'text-gray-600 hover:text-blue-600'
-                  : 'font-medium text-blue-600'
-              }`}
-            >
-              {selectedProfessor.name}
-            </button>
-          </>
-        )}
-        {selectedProfessor && detailViewMode === 'assign' && (
-          <>
-            <span className="text-gray-300">&gt;</span>
-            <span className="font-medium text-blue-600">Assign Class</span>
-          </>
-        )}
-      </div>
+      <Breadcrumbs
+        items={[
+          { label: 'Faculty Management', onClick: selectedProfessor ? () => setSelectedProfessor(null) : null },
+          ...(selectedProfessor ? [{ label: selectedProfessor.name, onClick: detailViewMode === 'assign' ? () => setDetailViewMode('detail') : null }] : []),
+          ...(selectedProfessor && detailViewMode === 'assign' ? [{ label: 'Assign Class' }] : [])
+        ]}
+      />
 
       <div className='mb-4'>
         <h2 className="text-2xl font-semibold text-gray-900">

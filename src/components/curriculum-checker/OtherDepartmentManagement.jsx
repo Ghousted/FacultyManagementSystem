@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'react-hot-toast';
 import { addDoc, collection, deleteDoc, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
-import { BadgePlus, Pencil, MoreVertical, Trash, Search, ChevronLeft, RefreshCcw, Folder, Archive, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { BadgePlus, Pencil, MoreVertical, Trash, Search, ChevronLeft, RefreshCcw, Folder, ChevronUp, ChevronDown, ChevronsUpDown, Square } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getActiveTerm, getOtherDepartments } from '../../models/facultyModels';
 import { db } from '../../firebase';
@@ -17,19 +18,6 @@ const formatSchoolYear = (schoolYear) => {
   return normalized.replace(/-/g, '–');
 };
 
-const getArchiveGroupLabel = (department) => {
-  const semester = Number(department?.archivedSemester || department?.semester || 0) || 0;
-  const schoolYear = formatSchoolYear(department?.archivedSchoolYear || department?.schoolYear || department?.academicYear || '');
-  const semesterLabel = SEMESTER_LABELS[semester] || (semester ? `${semester}th Semester` : 'Archived');
-  return `${semesterLabel} • S.Y. ${schoolYear || 'Unknown'}`;
-};
-
-const getArchiveSortKey = (department) => {
-  const semester = Number(department?.archivedSemester || department?.semester || 0) || 0;
-  const schoolYear = (department?.archivedSchoolYear || department?.schoolYear || department?.academicYear || '').toString();
-  return `${schoolYear}::${semester}`;
-};
-
 const getYearLevelLabel = (year) => {
   const normalizedYear = Number(year);
   if (normalizedYear === 1) return '1st Year';
@@ -39,13 +27,43 @@ const getYearLevelLabel = (year) => {
   return year ? `${year} Year` : '';
 };
 
+const DepartmentCardSkeleton = () => (
+  <div className="rounded-2xl border border-slate-200 bg-white p-4 animate-pulse">
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start gap-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100" />
+        <div className="space-y-2">
+          <div className="h-4 w-36 rounded bg-slate-200" />
+          <div className="h-3 w-24 rounded bg-slate-100" />
+        </div>
+      </div>
+      <div className="h-8 w-8 rounded-lg bg-slate-100" />
+    </div>
+  </div>
+);
+
+const OtherStudentRowSkeleton = () => (
+  <tr className="border-t border-gray-200 animate-pulse">
+    <td className="w-10 px-4 py-3"><div className="h-4 w-4 rounded bg-gray-200" /></td>
+    <td className="px-4 py-3 w-40%"><div className="h-4 w-40 rounded bg-gray-200" /></td>
+    <td className="px-4 py-3 w-15%"><div className="h-4 w-28 rounded bg-gray-200" /></td>
+    <td className="px-4 py-3 w-15%"><div className="h-4 w-16 rounded bg-gray-200" /></td>
+    <td className="px-4 py-3 w-15%"><div className="h-4 w-16 rounded bg-gray-200" /></td>
+    <td className="px-4 py-3 w-15%">
+      <div className="flex items-center gap-2">
+        <div className="h-8 w-8 rounded-full bg-gray-200" />
+        <div className="h-8 w-8 rounded-full bg-gray-200" />
+      </div>
+    </td>
+  </tr>
+);
+
 const OtherDepartmentManagement = () => {
   const { currentUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [otherDepartments, setOtherDepartments] = useState([]);
-  const [departmentTab, setDepartmentTab] = useState('current');
   const [selectedOtherDeptId, setSelectedOtherDeptId] = useState('');
   const [otherDeptStudents, setOtherDeptStudents] = useState([]);
   const [otherDeptSearch, setOtherDeptSearch] = useState('');
@@ -62,6 +80,8 @@ const OtherDepartmentManagement = () => {
   const [otherStudentModalOpen, setOtherStudentModalOpen] = useState(false);
   const [editingOtherStudentId, setEditingOtherStudentId] = useState('');
   const [activeTerm, setActiveTerm] = useState({ semester: null, schoolYear: '' });
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
     title: '',
@@ -73,7 +93,7 @@ const OtherDepartmentManagement = () => {
 
   const loadOtherDepartments = useCallback(async () => {
     if (!currentUser) {
-      setError('Please sign in to access other department data');
+      toast.error('Please sign in to access other department data');
       return;
     }
 
@@ -81,9 +101,9 @@ const OtherDepartmentManagement = () => {
     setError('');
     const result = await getOtherDepartments();
     if (result.success) {
-      setOtherDepartments(result.data);
+      setOtherDepartments(result.data.filter(dept => !dept.isArchived));
     } else {
-      setError(result.error || 'Unable to load other departments');
+      toast.error(result.error || 'Unable to load other departments');
     }
     setLoading(false);
   }, [currentUser]);
@@ -99,7 +119,7 @@ const OtherDepartmentManagement = () => {
 
   const loadOtherDeptStudents = useCallback(async (departmentId) => {
     if (!currentUser) {
-      setError('Please sign in to access other department students');
+      toast.error('Please sign in to access other department students');
       return;
     }
     if (!departmentId) {
@@ -120,7 +140,7 @@ const OtherDepartmentManagement = () => {
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
       setOtherDeptStudents(records);
     } catch (err) {
-      setError('Failed to load other department students: ' + err.message);
+      toast.error('Failed to load other department students: ' + err.message);
     }
     setLoading(false);
   }, [currentUser]);
@@ -138,12 +158,12 @@ const OtherDepartmentManagement = () => {
     } else {
       setOtherDeptStudents([]);
     }
+    setSelectMode(false);
+    setSelectedIds([]);
   }, [selectedOtherDeptId, loadOtherDeptStudents]);
 
   const selectedOtherDepartment = otherDepartments.find((dept) => dept.id === selectedOtherDeptId) || null;
-  const currentDepartments = otherDepartments.filter((dept) => !dept.isArchived);
-  const archivedDepartments = otherDepartments.filter((dept) => dept.isArchived);
-  const filteredOtherDepartments = currentDepartments.filter((dept) => {
+  const filteredOtherDepartments = otherDepartments.filter((dept) => {
     const term = otherDeptSearch.trim().toLowerCase();
     return !term || (dept.name || '').toLowerCase().includes(term) || (dept.code || '').toLowerCase().includes(term);
   });
@@ -168,6 +188,8 @@ const OtherDepartmentManagement = () => {
     setOtherStudentCourseFilter('all');
     setOtherStudentBlockFilter('all');
     setOtherStudentSearch('');
+    setSelectMode(false);
+    setSelectedIds([]);
   }, [selectedOtherDeptId]);
 
   const openCreateDepartmentModal = () => {
@@ -179,6 +201,14 @@ const OtherDepartmentManagement = () => {
   useEffect(() => {
     window.addEventListener('open-add-department', openCreateDepartmentModal);
     return () => window.removeEventListener('open-add-department', openCreateDepartmentModal);
+  }, []);
+
+  useEffect(() => {
+    const handleResetOtherDepartment = () => {
+      setSelectedOtherDeptId('');
+    };
+    window.addEventListener('reset-other-department', handleResetOtherDepartment);
+    return () => window.removeEventListener('reset-other-department', handleResetOtherDepartment);
   }, []);
 
   const handleEditDepartment = (department) => {
@@ -193,11 +223,11 @@ const OtherDepartmentManagement = () => {
   const handleSaveDepartment = async (event) => {
     event.preventDefault();
     if (!currentUser) {
-      setError('Please sign in to manage other departments');
+      toast.error('Please sign in to manage other departments');
       return;
     }
     if (!departmentForm.name.trim()) {
-      setError('Department name is required.');
+      toast.error('Department name is required.');
       return;
     }
 
@@ -209,22 +239,18 @@ const OtherDepartmentManagement = () => {
         name: departmentForm.name.trim(),
         code: departmentForm.code.trim(),
         userId: currentUser.uid,
-        isArchived: false,
-        archivedAt: null,
-        archivedSemester: null,
-        archivedSchoolYear: '',
         updatedAt: new Date().toISOString()
       };
 
       if (editingDepartmentId) {
         await updateDoc(doc(db, 'otherDepartments', editingDepartmentId), payload);
-        setSuccess('Department updated.');
+        toast.success('Department updated.');
       } else {
         await addDoc(collection(db, 'otherDepartments'), {
           ...payload,
           createdAt: new Date().toISOString()
         });
-        setSuccess('Department added.');
+        toast.success('Department added.');
       }
 
       setDepartmentModalOpen(false);
@@ -232,55 +258,16 @@ const OtherDepartmentManagement = () => {
       setDepartmentForm({ name: '', code: '' });
       await loadOtherDepartments();
     } catch (err) {
-      setError('Failed to save department: ' + err.message);
+      toast.error('Failed to save department: ' + err.message);
     }
     setLoading(false);
-  };
-
-  const handleArchiveDepartment = async (department) => {
-    if (!activeTerm?.semester || !activeTerm?.schoolYear) {
-      setError('Please set the active term before archiving a department.');
-      return;
-    }
-
-    setConfirmDialog({
-      open: true,
-      title: 'Archive department?',
-      message: 'This will move the department to the Archived tab using the current semester and school year.',
-      confirmLabel: 'Archive',
-      confirmTone: 'primary',
-      onConfirm: async () => {
-        setLoading(true);
-        setError('');
-        setSuccess('');
-        try {
-          await updateDoc(doc(db, 'otherDepartments', department.id), {
-            isArchived: true,
-            archivedAt: new Date().toISOString(),
-            archivedSemester: Number(activeTerm.semester),
-            archivedSchoolYear: activeTerm.schoolYear,
-            archiveLabel: getArchiveGroupLabel({ archivedSemester: Number(activeTerm.semester), archivedSchoolYear: activeTerm.schoolYear }),
-            updatedAt: new Date().toISOString()
-          });
-          setSuccess('Department archived.');
-          await loadOtherDepartments();
-          if (selectedOtherDeptId === department.id) {
-            setSelectedOtherDeptId('');
-            setOtherDeptStudents([]);
-          }
-        } catch (err) {
-          setError('Failed to archive department: ' + err.message);
-        }
-        setLoading(false);
-      }
-    });
   };
 
   const handleDeleteDepartment = async (department) => {
     setConfirmDialog({
       open: true,
-      title: 'Delete archived department?',
-      message: 'This will permanently remove the archived department and all related students, payables, and payment records.',
+      title: 'Delete department?',
+      message: 'This will permanently remove the department and all related students, payables, and payment records.',
       confirmLabel: 'Delete',
       confirmTone: 'danger',
       onConfirm: async () => {
@@ -305,14 +292,14 @@ const OtherDepartmentManagement = () => {
           deletePromises.push(deleteDoc(doc(db, 'otherDepartments', department.id)));
 
           await Promise.all(deletePromises);
-          setSuccess('Archived department deleted permanently.');
+          toast.success('Department deleted permanently.');
           if (selectedOtherDeptId === department.id) {
             setSelectedOtherDeptId('');
           }
           await loadOtherDepartments();
           setOtherDeptStudents([]);
         } catch (err) {
-          setError('Failed to delete department: ' + err.message);
+          toast.error('Failed to delete department: ' + err.message);
         }
         setLoading(false);
       }
@@ -344,15 +331,15 @@ const OtherDepartmentManagement = () => {
   const handleSaveOtherStudent = async (event) => {
     event.preventDefault();
     if (!currentUser) {
-      setError('Please sign in to manage other department students');
+      toast.error('Please sign in to manage other department students');
       return;
     }
     if (!selectedOtherDeptId) {
-      setError('Select a department first.');
+      toast.error('Select a department first.');
       return;
     }
     if (!otherStudentForm.name.trim() || !otherStudentForm.course.trim()) {
-      setError('Student name and course are required.');
+      toast.error('Student name and course are required.');
       return;
     }
 
@@ -372,13 +359,13 @@ const OtherDepartmentManagement = () => {
 
       if (editingOtherStudentId) {
         await updateDoc(doc(db, 'otherDept-Students', editingOtherStudentId), payload);
-        setSuccess('Student updated.');
+        toast.success('Student updated.');
       } else {
         await addDoc(collection(db, 'otherDept-Students'), {
           ...payload,
           createdAt: new Date().toISOString()
         });
-        setSuccess('Student added.');
+        toast.success('Student added.');
       }
 
       setOtherStudentModalOpen(false);
@@ -386,7 +373,7 @@ const OtherDepartmentManagement = () => {
       setOtherStudentForm({ name: '', course: '', yearLevel: '1', block: '' });
       await loadOtherDeptStudents(selectedOtherDeptId);
     } catch (err) {
-      setError('Failed to save student: ' + err.message);
+      toast.error('Failed to save student: ' + err.message);
     }
     setLoading(false);
   };
@@ -408,10 +395,10 @@ const OtherDepartmentManagement = () => {
           const deletePromises = paymentSnapshot.docs.map((paymentDoc) => deleteDoc(doc(db, 'otherDept-payment', paymentDoc.id)));
           deletePromises.push(deleteDoc(doc(db, 'otherDept-Students', studentId)));
           await Promise.all(deletePromises);
-          setSuccess('Student deleted.');
+          toast.success('Student deleted.');
           await loadOtherDeptStudents(selectedOtherDeptId);
         } catch (err) {
-          setError('Failed to delete student: ' + err.message);
+          toast.error('Failed to delete student: ' + err.message);
         }
         setLoading(false);
       }
@@ -467,6 +454,57 @@ const OtherDepartmentManagement = () => {
       : <ChevronDown className="h-3.5 w-3.5" />;
   };
 
+  const toggleSelectMode = () => {
+    setSelectMode((prev) => !prev);
+    setSelectedIds([]);
+  };
+
+  const toggleSelectStudent = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((selectedId) => selectedId !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAllVisible = () => {
+    if (sortedOtherDeptStudents.every((student) => selectedIds.includes(student.id))) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(sortedOtherDeptStudents.map((student) => student.id));
+    }
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedIds.length === 0) return;
+    setConfirmDialog({
+      open: true,
+      title: 'Delete selected students?',
+      message: `This will permanently remove ${selectedIds.length} student${selectedIds.length > 1 ? 's' : ''} and their related payment records.`,
+      confirmLabel: 'Delete',
+      confirmTone: 'danger',
+      onConfirm: async () => {
+        setLoading(true);
+        setError('');
+        setSuccess('');
+        try {
+          const paymentsRef = collection(db, 'otherDept-payment');
+          const deletePromises = [];
+          for (const studentId of selectedIds) {
+            const paymentSnapshot = await getDocs(query(paymentsRef, where('studentId', '==', studentId)));
+            paymentSnapshot.docs.forEach((paymentDoc) => deletePromises.push(deleteDoc(doc(db, 'otherDept-payment', paymentDoc.id))));
+            deletePromises.push(deleteDoc(doc(db, 'otherDept-Students', studentId)));
+          }
+          await Promise.all(deletePromises);
+          toast.success(`${selectedIds.length} student${selectedIds.length > 1 ? 's' : ''} deleted.`);
+          setSelectedIds([]);
+          await loadOtherDeptStudents(selectedOtherDeptId);
+        } catch (err) {
+          toast.error('Failed to delete selected students: ' + err.message);
+        }
+        setLoading(false);
+      }
+    });
+  };
+
   const renderSortableHeader = (key, label) => (
     <button
       type="button"
@@ -478,267 +516,167 @@ const OtherDepartmentManagement = () => {
     </button>
   );
 
-  const archivedGroups = archivedDepartments
-    .filter((department) => {
-      const term = otherDeptSearch.trim().toLowerCase();
-      return !term || (department.name || '').toLowerCase().includes(term) || (department.code || '').toLowerCase().includes(term) || getArchiveGroupLabel(department).toLowerCase().includes(term);
-    })
-    .reduce((groups, department) => {
-      const key = getArchiveSortKey(department);
-      if (!groups[key]) {
-        groups[key] = {
-          label: getArchiveGroupLabel(department),
-          sortKey: key,
-          departments: []
-        };
-      }
-      groups[key].departments.push(department);
-      return groups;
-    }, {});
-
-  const archivedGroupList = Object.values(archivedGroups).sort((a, b) => b.sortKey.localeCompare(a.sortKey));
-
   return (
     <div>
-      {error && <div className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
-      {success && <div className="mb-4 rounded border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">{success}</div>}
-
-     
+      {/* messages shown via toast notifications */}
 
       {!selectedOtherDeptId ? (
         <>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-           <div className="flex items-center gap-6 border-b border-slate-200">
-            <button
-              type="button"
-              onClick={() => setDepartmentTab('current')}
-              className={`px-4 py-2 text-sm font-medium transition
-                ${departmentTab === 'current'
-                  ? 'border-b-2 border-blue-600 text-blue-600'
-                  : 'text-slate-600 cursor-pointer hover:border-b-2 hover:border-blue-600 hover:text-blue-600'
-                }`}
-            >
-              Current
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setDepartmentTab('archived')}
-              className={`px-4 py-2 text-sm font-medium transition
-                ${departmentTab === 'archived'
-                  ? 'border-b-2 border-blue-600 text-blue-600'
-                  : 'text-slate-600 cursor-pointer hover:border-b-2 hover:border-blue-600 hover:text-blue-600'
-                }`}
-            >
-              Archived
-            </button>
-          </div>
-
-         
-          </div>
-
-          {departmentTab === 'current' ? (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {filteredOtherDepartments.map((department) => (
-                <div
-                  key={department.id}
-                  className="group relative cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-blue-400 hover:shadow-sm"
-                  onClick={() => setSelectedOtherDeptId(department.id)}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    
-                    {/* LEFT SIDE (ICON + TEXT) */}
-                    <div className="flex items-start gap-2">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                        <Folder className="h-5 w-5" />
-                      </div>
-
-                      <div className="space-y-1">
-                        <p className="text-base font-semibold text-slate-900">
-                          {department.name || 'Unnamed department'}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          Other Departments
-                        </p>
-                      </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {loading
+              ? Array.from({ length: 8 }).map((_, index) => (
+                  <DepartmentCardSkeleton key={`other-dept-skeleton-${index}`} />
+                ))
+              : filteredOtherDepartments.map((department) => (
+              <div
+                key={department.id}
+                className="group relative cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-blue-400 hover:shadow-sm"
+                onClick={() => setSelectedOtherDeptId(department.id)}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-start gap-4">
+                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                      <Folder className="h-5 w-5" />
                     </div>
 
-                    {/* ACTION BUTTON */}
+                    <div className="h-10">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {department.name || 'Unnamed department'}
+                      </p>
+                     
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setOpenOtherDepartmentMenuId((prev) =>
+                        prev === department.id ? '' : department.id
+                      );
+                    }}
+                    className="rounded-lg cursor-pointer bg-slate-50 p-1 text-slate-500 shadow-sm transition hover:bg-slate-100"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {openOtherDepartmentMenuId === department.id && (
+                  <div className="absolute right-4 top-14 z-10 w-36 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
                     <button
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
-                        setOpenOtherDepartmentMenuId((prev) =>
-                          prev === department.id ? '' : department.id
-                        );
+                        handleEditDepartment(department);
                       }}
-                      className="rounded-lg bg-slate-50 p-1 text-slate-500 shadow-sm transition hover:bg-slate-100"
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
                     >
-                      <MoreVertical className="h-4 w-4" />
+                      <Pencil className="h-3.5 w-3.5" /> Edit
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleDeleteDepartment(department);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
+                    >
+                      <Trash className="h-3.5 w-3.5" /> Delete
                     </button>
                   </div>
-
-                  {/* DROPDOWN MENU */}
-                  {openOtherDepartmentMenuId === department.id && (
-                    <div className="absolute right-4 top-14 z-10 w-36 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleEditDepartment(department);
-                        }}
-                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                      >
-                        <Pencil className="h-3.5 w-3.5" /> Edit
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleArchiveDepartment(department);
-                        }}
-                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-blue-600 hover:bg-blue-50"
-                      >
-                        <Archive className="h-3.5 w-3.5" /> Archive
-                      </button>
-                    </div>
-                  )}
-                </div>
-))}
-              {filteredOtherDepartments.length === 0 && (
-                <div className="col-span-full rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
-                  No current departments found. Use the Add Department button to create one.
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {archivedGroupList.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
-                  No archived departments found.
-                </div>
-              ) : (
-                archivedGroupList.map((group) => (
-                  <div key={group.sortKey} className="">
-                   
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      {group.departments.map((department) => (
-                        <div
-                          key={department.id}
-                          className="group relative cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 hover:border-blue-400 hover:shadow-sm"
-                          onClick={() => setSelectedOtherDeptId(department.id)}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                           <div className='flex items-start gap-2'>
-                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                        <Folder className="h-5 w-5" />
-                      </div>
-                             <div className="space-y-1">
-                              <p className="text-xs text-slate-500">{group.label}</p>
-                              <p className="text-sm  text-slate-900">{department.name || 'Unnamed department'}</p>
-                              
-                            </div>
-                           </div>
-                            
-                          </div>
-
-                          <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setOpenOtherDepartmentMenuId((prev) => (prev === department.id ? '' : department.id));
-                              }}
-                              className="absolute bottom-2 right-2 rounded-lg bg-slate-50 cursor-pointer p-1 text-slate-500 shadow-sm hover:bg-slate-100"
-                              title="Open archived department actions"
-                            >
-                              <MoreVertical className="w-4 h-4" />
-                            </button>
-
-                          {openOtherDepartmentMenuId === department.id && (
-                            <div className="absolute right-4 top-14 z-10 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleDeleteDepartment(department);
-                                }}
-                                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-rose-600 hover:bg-rose-50"
-                              >
-                                <Trash className="w-3 h-3" /> Delete
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            ))}
+            {!loading && filteredOtherDepartments.length === 0 && (
+              <div className="col-span-full rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
+                No departments found. Use the Add Department button to create one.
+              </div>
+            )}
+          </div>
         </>
       ) : (
         <div>
-        
-
-    
-
-          <div className='flex items-center justify-between gap-2'>
+          <div className="flex items-center justify-between gap-2">
 
             <div className="mb-4 flex w-fit items-center gap-4 border-b border-slate-200">
-            {[1, 2, 3, 4].map((year) => (
-              <button
-                key={year}
-                type="button"
-                onClick={() => setOtherStudentYearTab(year)}
-                className={`px-2 relative py-2 text-sm font-medium transition-colors
-                  border-b-2
-                  ${
-                    otherStudentYearTab === year
-                      ? 'border-blue-600 text-blue-600'
-                      : 'border-transparent text-slate-600 hover:text-blue-600 hover:border-blue-600 cursor-pointer'
-                  }`}
-              >
-                {year === 1
-                  ? '1st Year'
-                  : year === 2
-                  ? '2nd Year'
-                  : year === 3
-                  ? '3rd Year'
-                  : '4th Year'}
-              </button>
-            ))}
-          </div>
+              {[1, 2, 3, 4].map((year) => (
+                <button
+                  key={year}
+                  type="button"
+                  onClick={() => setOtherStudentYearTab(year)}
+                  className={`px-2 relative py-2 text-sm font-medium transition-colors
+                    border-b-2
+                    ${
+                      otherStudentYearTab === year
+                        ? 'border-blue-600 text-blue-600'
+                        : 'border-transparent text-slate-600 hover:text-blue-600 hover:border-blue-600 cursor-pointer'
+                    }`}
+                >
+                  {year === 1
+                    ? '1st Year'
+                    : year === 2
+                      ? '2nd Year'
+                      : year === 3
+                        ? '3rd Year'
+                        : '4th Year'}
+                </button>
+              ))}
+            </div>
 
             <div className="mb-4 flex flex-wrap items-center  gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => loadOtherDeptStudents(selectedOtherDeptId)}
-                disabled={loading}
-                className="p-2.5 rounded-xl cursor-pointer bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
-                title="Refresh table data"
-              >
-                <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              </button>
-             
-            </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleSelectMode}
+                  title={selectMode ? 'Turn off selection' : 'Select students'}
+                  className={`inline-flex items-center gap-2 rounded-lg border border-gray-300 p-2 text-sm transition cursor-pointer
+                    ${
+                      selectMode
+                        ? 'bg-blue-50 text-blue-600 border-blue-300'
+                        : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                    }`}
+                >
+                  <Square className="h-4 w-4" />
+                  Select
+                </button>
 
-            <div className="relative  w-72">
-              <Search className="absolute w-4 h-4 left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                value={otherStudentSearch}
-                onChange={(event) => setOtherStudentSearch(event.target.value)}
-                placeholder="Search students..."
-                className="w-full rounded-xl border bg-white border-slate-200 py-2 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-              />
-            </div>
+                {selectMode && selectedIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleBulkDelete}
+className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gray-500"
+                  >
+                    <Trash className="h-4 w-4" />
+                  
+                  </button>
+                )}
 
-             <div className="w-fit">
+                <button
+                  type="button"
+                  onClick={() => loadOtherDeptStudents(selectedOtherDeptId)}
+                  disabled={loading}
+className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
+                  title="Refresh table data"
+                >
+                  <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+
+              <div className="relative  w-72">
+                <Search className="absolute w-4 h-4 left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={otherStudentSearch}
+                  onChange={(event) => setOtherStudentSearch(event.target.value)}
+                  placeholder="Search students..."
+className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                />
+              </div>
+
+              <div className="w-fit">
                 <select
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm  focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   value={otherStudentCourseFilter}
                   onChange={(event) => setOtherStudentCourseFilter(event.target.value)}
                 >
@@ -749,9 +687,9 @@ const OtherDepartmentManagement = () => {
                 </select>
               </div>
 
-             <div className="w-fit">
+              <div className="w-fit">
                 <select
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   value={otherStudentBlockFilter}
                   onChange={(event) => setOtherStudentBlockFilter(event.target.value)}
                 >
@@ -761,46 +699,59 @@ const OtherDepartmentManagement = () => {
                   ))}
                 </select>
               </div>
-          </div>
+            </div>
 
-          
           </div>
 
           <div className="overflow-hidden rounded-xl border border-gray-200 bg-white ">
             <table className="min-w-full text-sm">
               <thead className="bg-blue-500 text-left text-white">
                 <tr>
+                  <th className="px-4 py-3 w-[5%]">
+                    {selectMode ? (
+                      <input
+                        type="checkbox"
+                        className="h-3 w-3 rounded accent-gray-900"
+                        checked={sortedOtherDeptStudents.length > 0 && sortedOtherDeptStudents.every((student) => selectedIds.includes(student.id))}
+                        onChange={toggleSelectAllVisible}
+                      />
+                    ) : (
+                      <span className="font-medium">No.</span>
+                    )}
+                  </th>
                   <th className="px-4 py-3 w-40%">{renderSortableHeader('name', 'Name')}</th>
                   <th className="px-4 py-3 w-15%">{renderSortableHeader('course', 'Course')}</th>
                   <th className="px-4 py-3 w-15%">{renderSortableHeader('yearLevel', 'Year')}</th>
-                  <th className="px-4 py-3 w-15%">{renderSortableHeader('block', 'Block')}</th>
+                  <th className="px-4 py-3 w-10%">{renderSortableHeader('block', 'Block')}</th>
                   <th className="px-4 py-3 w-15%">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  Array.from({ length: 5 }).map((_, index) => (
-                    <tr key={`other-dept-student-skeleton-${index}`} className="animate-pulse border-t border-gray-200">
-                      <td className="px-4 py-3 w-40%"><div className="h-4 w-40 rounded bg-gray-200" /></td>
-                      <td className="px-4 py-3 w-15%"><div className="h-4 w-28 rounded bg-gray-200" /></td>
-                      <td className="px-4 py-3 w-15%"><div className="h-4 w-16 rounded bg-gray-200" /></td>
-                      <td className="px-4 py-3 w-15%"><div className="h-4 w-16 rounded bg-gray-200" /></td>
-                      <td className="px-4 py-3 w-15% flex gap-2">
-                        <div className="h-4 w-4 rounded bg-gray-200" />
-                        <div className="h-4 w-4 rounded bg-gray-200" />
-                        <div className="h-4 w-4 rounded bg-gray-200" />
-                      </td>
-                    </tr>
+                  Array.from({ length: 6 }).map((_, index) => (
+                    <OtherStudentRowSkeleton key={`other-dept-student-skeleton-${index}`} index={index} />
                   ))
                 ) : sortedOtherDeptStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-sm text-slate-500">
+                    <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
                       No students found for this year level.
                     </td>
                   </tr>
                 ) : (
-                  sortedOtherDeptStudents.map((student) => (
+                  sortedOtherDeptStudents.map((student, index) => (
                     <tr key={student.id} className="border-t border-gray-200 hover:bg-slate-50">
+                      <td className="w-10 px-4 py-3">
+                        {selectMode ? (
+                          <input
+                            type="checkbox"
+                            className="h-3 w-3 rounded accent-gray-900"
+                            checked={selectedIds.includes(student.id)}
+                            onChange={() => toggleSelectStudent(student.id)}
+                          />
+                        ) : (
+                          <span className="text-sm text-gray-700">{index + 1}</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 w-40%">{student.name}</td>
                       <td className="px-4 py-3 w-15%">{student.course}</td>
                       <td className="px-4 py-3 w-15%">{getYearLevelLabel(student.yearLevel)}</td>
@@ -810,14 +761,14 @@ const OtherDepartmentManagement = () => {
                           <button
                             type="button"
                             onClick={() => handleEditOtherStudent(student)}
-                            className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gray-500"
+                                  className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
                           <button
                             type="button"
                             onClick={() => handleDeleteOtherStudent(student.id)}
-                            className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gray-500"
+                                  className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
                           >
                             <Trash className="w-4 h-4" />
                           </button>
@@ -835,21 +786,21 @@ const OtherDepartmentManagement = () => {
       {confirmDialog.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={closeConfirmDialog}></div>
-          <div className="relative z-10 w-full max-w-md rounded-2xl border border-gray-300 bg-white p-6 shadow-xl">
+          <div className="relative z-10 w-full max-w-md rounded-2xl border border-gray-300 bg-white p-8 shadow-xl">
             <div className="text-lg font-semibold text-slate-900">{confirmDialog.title}</div>
-            <p className="mt-2 text-sm text-slate-600">{confirmDialog.message}</p>
-            <div className="mt-6 flex justify-end gap-2">
+            <p className="mt-2  text-slate-700">{confirmDialog.message}</p>
+            <div className="mt-8 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={closeConfirmDialog}
-                className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={confirmCurrentDialog}
-                className={`rounded-full px-4 py-2 text-sm font-medium text-white ${confirmDialog.confirmTone === 'primary' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-rose-600 hover:bg-rose-700'}`}
+                className="px-4 py-1.5 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 {confirmDialog.confirmLabel}
               </button>
@@ -868,33 +819,35 @@ const OtherDepartmentManagement = () => {
                 <label className="block text-sm text-gray-600 mb-1">Department Name</label>
                 <input
                   type="text"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   value={departmentForm.name}
                   onChange={(event) => setDepartmentForm((prev) => ({ ...prev, name: event.target.value }))}
                   required
+                  placeholder='(e.g. College of Hospotality Management)'
                 />
               </div>
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Department Code</label>
                 <input
                   type="text"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   value={departmentForm.code}
                   onChange={(event) => setDepartmentForm((prev) => ({ ...prev, code: event.target.value }))}
+                    placeholder='(e.g. CHARM)'
                 />
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 mt-8">
                 <button
                   type="button"
                   onClick={() => setDepartmentModalOpen(false)}
-                  className="px-4 py-2 rounded-full border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-4 py-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-1.5 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   {editingDepartmentId ? 'Update' : 'Save'}
                 </button>
@@ -910,7 +863,7 @@ const OtherDepartmentManagement = () => {
           <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className=" mb-4">
               <h1 className='text-xl font-semibold mb-1'>
-                {editingOtherStudentId ? 'Edit Student' : 'Add Student'}
+                {editingOtherStudentId ? 'Update Student' : 'Add Student'}
               </h1>
               <p className="text-sm text-slate-500">
                 {selectedOtherDepartment?.name || 'Department'}
@@ -921,7 +874,7 @@ const OtherDepartmentManagement = () => {
                 <label className="block text-sm text-gray-600 mb-1">Student Name</label>
                 <input
                   type="text"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   value={otherStudentForm.name}
                   onChange={(event) => setOtherStudentForm((prev) => ({ ...prev, name: event.target.value }))}
                   required
@@ -932,7 +885,7 @@ const OtherDepartmentManagement = () => {
                 <label className="block text-sm text-gray-600 mb-1">Course</label>
                 <input
                   type="text"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   value={otherStudentForm.course}
                   onChange={(event) => setOtherStudentForm((prev) => ({ ...prev, course: event.target.value }))}
                   required
@@ -943,7 +896,7 @@ const OtherDepartmentManagement = () => {
                 <div>
                   <label className="block text-sm text-gray-600 mb-1">Year Level</label>
                   <select
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     value={otherStudentForm.yearLevel}
                     onChange={(event) => setOtherStudentForm((prev) => ({ ...prev, yearLevel: event.target.value }))}
                   >
@@ -958,25 +911,27 @@ const OtherDepartmentManagement = () => {
                   <label className="block text-sm text-gray-600 mb-1">Block</label>
                   <input
                     type="text"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    maxLength={1}
+                    pattern="[A-Za-z]"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     value={otherStudentForm.block}
-                    onChange={(event) => setOtherStudentForm((prev) => ({ ...prev, block: event.target.value }))}
+                    onChange={(event) => setOtherStudentForm((prev) => ({ ...prev, block: (event.target.value || '').replace(/[^A-Za-z]/g, '').slice(0,1).toUpperCase() }))}
                     placeholder="A"
                   />
                 </div>
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 mt-8">
                 <button
                   type="button"
                   onClick={() => setOtherStudentModalOpen(false)}
-                  className="px-4 py-2 rounded-full border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer "
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-4 py-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-1.5 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   {editingOtherStudentId ? 'Update' : 'Add'}
                 </button>

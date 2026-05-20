@@ -456,84 +456,155 @@ export function exportAllModulePaymentsToExcel(modules, filename = 'all_module_p
 
 // ─── Professor cutback exports (unchanged) ────────────────────────────────────
 
-const buildProfessorSheet = (prof, ratePerStudent) => {
+const buildProfessorSheet = (prof, ratePerStudent, options = {}) => {
+  const { deadline = '' } = options;
   const rows = [];
   rows.push([`Professor: ${prof.name || ''}`]);
   if (prof.employeeId) rows.push([`Employee ID: ${prof.employeeId}`]);
-  rows.push([`Cutback Rate: ${Number(ratePerStudent).toFixed(2)} PHP per student`]);
+  rows.push([`Cutback Rate: ${Number(ratePerStudent).toFixed(2)} PHP per paid student`]);
+  rows.push([`Payment Deadline: ${deadline || 'None (no cutoff)'}`]);
   rows.push([]);
-  rows.push(['Course Code', 'Course Title', 'Year', 'Block(s)', 'Students', 'Cutback (PHP)']);
+  const header = ['Course Code', 'Course Title', 'Year', 'Block(s)', 'Students', 'Paid (counted)'];
+  if (deadline) header.push('Late (excluded)');
+  header.push('Cutback (PHP)');
+  rows.push(header);
 
   const classes = prof.classes || [];
   let total = 0;
   if (classes.length === 0) {
-    rows.push(['—', 'No assigned classes', '', '', 0, '0.00']);
+    const emptyRow = ['—', 'No assigned classes', '', '', 0, 0];
+    if (deadline) emptyRow.push(0);
+    emptyRow.push('0.00');
+    rows.push(emptyRow);
   } else {
     classes.forEach(c => {
-      const cutback = (c.studentCount || 0) * ratePerStudent;
+      const paid = c.paidCount || 0;
+      const cutback = paid * ratePerStudent;
       total += cutback;
-      rows.push([
+      const row = [
         c.courseCode  || '',
         c.courseTitle || '',
         c.yearLevel   || '',
         (c.blocks || []).join(', '),
         c.studentCount || 0,
-        cutback.toFixed(2)
-      ]);
+        paid
+      ];
+      if (deadline) row.push(c.lateCount || 0);
+      row.push(cutback.toFixed(2));
+      rows.push(row);
     });
   }
   rows.push([]);
-  rows.push(['', '', '', '', 'TOTAL', total.toFixed(2)]);
+  const totalRow = ['', '', '', '', '', 'TOTAL'];
+  if (deadline) totalRow.push('');
+  totalRow.push(total.toFixed(2));
+  rows.push(totalRow);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 6 }, { wch: 12 }, { wch: 10 }, { wch: 14 }];
+  const cols = [{ wch: 14 }, { wch: 40 }, { wch: 6 }, { wch: 12 }, { wch: 10 }, { wch: 14 }];
+  if (deadline) cols.push({ wch: 14 });
+  cols.push({ wch: 14 });
+  ws['!cols'] = cols;
   return ws;
 };
 
-export function exportSingleProfessorCutbacksToExcel(prof, ratePerStudent, filename = 'professor_cutbacks.xlsx') {
+export function exportSingleProfessorCutbacksToExcel(prof, ratePerStudent, filename = 'professor_cutbacks.xlsx', options = {}) {
   const wb = XLSX.utils.book_new();
-  const ws = buildProfessorSheet(prof, ratePerStudent);
+  const ws = buildProfessorSheet(prof, ratePerStudent, options);
   const sheetName = dedupeSheetName(wb, prof.name || 'Professor');
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
   const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
 }
 
-export function exportAllProfessorCutbacksToExcel(professors, ratePerStudent, filename = 'all_professor_cutbacks.xlsx') {
+export function exportAllProfessorCutbacksToExcel(professors, ratePerStudent, filename = 'all_professor_cutbacks.xlsx', options = {}) {
+  const { deadline = '' } = options;
   const wb = XLSX.utils.book_new();
 
-  const summaryRows = [['Professor', 'Employee ID', 'Subjects Handled', 'Total Students', 'Total Cutback (PHP)']];
-  let grandTotalStudents = 0;
-  let grandTotalCutback  = 0;
+  const summaryHeader = ['Professor', 'Employee ID', 'Subjects Handled', 'Paid Students'];
+  if (deadline) summaryHeader.push('Late (excluded)');
+  summaryHeader.push('Total Cutback (PHP)');
+  const summaryRows = [summaryHeader];
+
+  let grandPaidStudents = 0;
+  let grandLateStudents = 0;
+  let grandTotalCutback = 0;
   professors.forEach(prof => {
-    const classes       = prof.classes || [];
-    const totalStudents = classes.reduce((sum, c) => sum + (c.studentCount || 0), 0);
-    const totalCutback  = totalStudents * ratePerStudent;
-    grandTotalStudents += totalStudents;
-    grandTotalCutback  += totalCutback;
-    summaryRows.push([
+    const classes = prof.classes || [];
+    const paidStudents = classes.reduce((sum, c) => sum + (c.paidCount || 0), 0);
+    const lateStudents = classes.reduce((sum, c) => sum + (c.lateCount || 0), 0);
+    const totalCutback = paidStudents * ratePerStudent;
+    grandPaidStudents += paidStudents;
+    grandLateStudents += lateStudents;
+    grandTotalCutback += totalCutback;
+    const row = [
       prof.name       || '',
       prof.employeeId || '',
       classes.length,
-      totalStudents,
-      totalCutback.toFixed(2)
-    ]);
+      paidStudents
+    ];
+    if (deadline) row.push(lateStudents);
+    row.push(totalCutback.toFixed(2));
+    summaryRows.push(row);
   });
   summaryRows.push([]);
-  summaryRows.push(['', '', 'GRAND TOTAL', grandTotalStudents, grandTotalCutback.toFixed(2)]);
+  const totalRow = ['', '', 'GRAND TOTAL', grandPaidStudents];
+  if (deadline) totalRow.push(grandLateStudents);
+  totalRow.push(grandTotalCutback.toFixed(2));
+  summaryRows.push(totalRow);
   summaryRows.push([]);
-  summaryRows.push([`Rate per student: ${Number(ratePerStudent).toFixed(2)} PHP`]);
+  summaryRows.push([`Rate per paid student: ${Number(ratePerStudent).toFixed(2)} PHP`]);
+  summaryRows.push([`Payment deadline: ${deadline || 'None (no cutoff)'}`]);
 
   const summary = XLSX.utils.aoa_to_sheet(summaryRows);
-  summary['!cols'] = [{ wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 20 }];
+  const summaryCols = [{ wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 16 }];
+  if (deadline) summaryCols.push({ wch: 16 });
+  summaryCols.push({ wch: 20 });
+  summary['!cols'] = summaryCols;
   XLSX.utils.book_append_sheet(wb, summary, 'Summary');
 
   professors.forEach(prof => {
-    const ws = buildProfessorSheet(prof, ratePerStudent);
+    const ws = buildProfessorSheet(prof, ratePerStudent, options);
     const sheetName = dedupeSheetName(wb, prof.name || 'Professor');
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
   });
 
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
+}
+
+// Department share export helpers
+export function buildDepartmentShareSheet(report) {
+  // report: { amountPerPaidStudent, totalPaidCount, totalShare, breakdown: [{courseCode, courseTitle, paidCount, shareAmount}] }
+  const rows = [];
+  rows.push(['CCS Module Payments - Department Share']);
+  rows.push([]);
+  rows.push(['Amount per paid student (PHP):', Number(report.amountPerPaidStudent || 0).toFixed(2)]);
+  rows.push([]);
+  rows.push(['Module Code', 'Module Title', 'Paid Students', 'Share Amount (PHP)']);
+
+  (report.breakdown || []).forEach(r => {
+    rows.push([
+      r.courseCode || '',
+      r.courseTitle || '',
+      r.paidCount || 0,
+      (Number(r.shareAmount) || 0).toFixed(2)
+    ]);
+  });
+
+  rows.push([]);
+  rows.push(['', '', 'Total Paid Students', report.totalPaidCount || 0]);
+  rows.push(['', '', 'Total Department Share (PHP)', (Number(report.totalShare) || 0).toFixed(2)]);
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 20 }];
+  return ws;
+}
+
+export function exportDepartmentShareToExcel(report, filename = 'department_share_ccs.xlsx') {
+  const wb = XLSX.utils.book_new();
+  const ws = buildDepartmentShareSheet(report);
+  XLSX.utils.book_append_sheet(wb, ws, 'Department Share');
   const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
 }

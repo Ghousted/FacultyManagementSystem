@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { exportDeanListToExcel } from '../../utils/excelExport';
 import { getStudents, getCoursesByCurriculum, getDeanListCriteria, saveDeanListCriteria } from '../../models/curriculumModels';
 import { Settings2, Download, CalendarCheck, X, ChevronDown, ChevronUp, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import Breadcrumbs from '../common/Breadcrumbs';
 
 const yearTabs = [
   { label: '1st Year', value: 1 },
@@ -96,50 +98,85 @@ const StudentDetailsModal = ({ isOpen, onClose, student }) => {
   if (!isOpen || !student) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-2xl shadow-lg w-full max-w-2xl">
-        <div className="flex items-center justify-between">
-        <h3 className="text-xl font-bold text-blue-700">{student.name}</h3>
-         
-          <button
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] px-4 py-6 animate-in fade-in duration-200">
+  <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-200">
+    
+    {/* Header */}
+    <div className="relative  px-6 pt-6 text-slate-900">
+      <div className="flex items-start justify-between">
+        <div>
+          <h3 className="text-xl font-bold tracking-tight">
+            {student.name}
+          </h3>
+
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-blue-100">
+            <span className="rounded-full bg-blue-100  text-blue-600 border border-blue-500 px-3 py-1 backdrop-blur">
+              Student No:{" "}
+              <span>
+                {student.studentNumber || "-"}
+              </span>
+            </span>
+
+            <span className="rounded-full bg-green-100  text-green-600 border border-green-500 px-3 py-1 backdrop-blur">
+              GWA:{" "}
+              <span>
+                {parseFloat(student.gwa).toFixed(2)}
+              </span>
+            </span>
+          </div>
+        </div>
+
+        <button
             onClick={onClose}
             className="text-gray-500 hover:text-red-700 cursor-pointer transition"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="mb-4">
-          <p className="text-sm text-gray-600">
-            Student ID: <span className="font-semibold text-gray-800">{student.id || '-'}</span>
-          </p>
-          <p className="text-sm text-gray-600">
-            Student No.: <span className="font-semibold text-gray-800">{student.studentNumber || '-'}</span>
-          </p>
-          <p className="text-sm font-semibold">
-              GWA: <span className="text-green-700">{parseFloat(student.gwa).toFixed(2)}</span>
-          </p>
-        </div>
-        <div className="overflow-x-auto border border-gray-200 rounded-lg shadow-sm">
-          <table className="min-w-full text-sm border rounded-lg overflow-hidden">
-            <thead>
-              <tr className="bg-blue-100">
-                <th className="px-2 py-1.5 border border-gray-300">Subject</th>
-                <th className="px-2 py-1.5 border border-gray-300">Grade</th>
+    </div>
+
+    {/* Body */}
+    <div className="p-6">
+      <div className="overflow-hidden rounded-lg border border-gray-200 shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-blue-500 text-white">
+              <tr>
+                <th className="px-5 py-3 text-left font-semibold ">
+                  Subject
+                </th>
+                <th className="px-5 py-3 text-center font-semibold ">
+                  Grade
+                </th>
               </tr>
             </thead>
-            <tbody>
+
+            <tbody className="divide-y divide-gray-100">
               {student.grades.map((grade, idx) => (
-                <tr key={idx} className="hover:bg-blue-50">
-                  <td className="px-2 py-1.5 border border-gray-300">{grade.subject}</td>
-                  <td className="px-2 py-1.5 border border-gray-300 font-semibold text-center text-gray-800">{parseFloat(grade.grade).toFixed(2)}</td>
+                <tr
+                  key={idx}
+                  className=""
+                >
+                  <td className="px-4 py-2 text-gray-700 font-medium">
+                    {grade.subject}
+                  </td>
+
+                  <td className="px-4 py-2 text-center">
+                    <span className="inline-flex items-center rounded-full bg-green-100 px-3 py-1 text-sm font-bold text-green-700">
+                      {parseFloat(grade.grade).toFixed(2)}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-       
       </div>
+
+    
     </div>
+  </div>
+</div>
   );
 };
 
@@ -195,6 +232,7 @@ const LoadingModal = ({ isOpen }) => {
 };
 
 const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
+  const { role } = useAuth();
   const [criteria, setCriteria] = useState({
     major: 1.7,
     minor: 2.0,
@@ -526,6 +564,13 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
 
   return (
     <div className="">
+      {!embedded && role === 'curriculum' && (
+        <Breadcrumbs
+          items={[
+            { label: 'Deans List Reports' }
+          ]}
+        />
+      )}
       {!embedded && (
         <div className=" mb-6">
           <div className="flex items-center gap-6">
@@ -613,7 +658,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
       <tr className="bg-blue-500 text-white">
        
         <th
-          className="px-2 py-1.5 border-b font-semibold cursor-pointer"
+          className="px-4 py-2 border-b font-semibold cursor-pointer"
           onClick={() => toggleSort('name')}
           role="button"
           title="Sort by name"
@@ -626,7 +671,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
           </div>
         </th>
         <th
-          className="px-2 py-1.5 border-b font-semibold text-center cursor-pointer"
+          className="px-4 py-2 border-b font-semibold text-center cursor-pointer"
           onClick={() => toggleSort('gwa')}
           role="button"
           title="Sort by GWA"
@@ -645,10 +690,10 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
         Array.from({ length: 5 }).map((_, idx) => (
           <tr key={idx} className="animate-pulse bg-white">
             
-            <td className="px-2 py-1.5 border-b border-gray-300">
+            <td className="px-4 py-2 border-b border-gray-300">
               <div className="bg-gray-200 rounded-md h-5 w-3/4"></div>
             </td>
-            <td className="px-2 py-1.5 border-b border-gray-200 text-center w-1/4">
+            <td className="px-4 py-2 border-b border-gray-200 text-center w-1/4">
               <div className="bg-gray-200 rounded-md h-5 w-1/4 mx-auto"></div>
             </td>
           </tr>
@@ -701,7 +746,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
       <button
         ref={loadMoreRef}
         onClick={handleLoadMore}
-        className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold shadow transition"
+        className="px-4 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold shadow transition"
       >
         Load more
       </button>

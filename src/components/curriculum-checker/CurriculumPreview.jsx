@@ -62,6 +62,16 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
     });
   };
 
+  const getRecommendationText = (studentObj, semester, year, scholarshipEligibility) => {
+    const deanEligible = calculateDeansListerEligibility(studentObj, semester, year);
+    const scholarEligible = scholarshipEligibility?.eligible;
+    if (!deanEligible && !scholarEligible) return '';
+    const items = [];
+    if (deanEligible) items.push("Dean's Lister");
+    if (scholarEligible) items.push(`${scholarshipEligibility.percentage}% Scholarship`);
+    return `Recommended for ${items.join(' and ')}.`;
+  };
+
   useEffect(() => {
     if (propCurriculumId) {
       setCurriculumId(propCurriculumId);
@@ -228,9 +238,9 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                 </div>
 
                 {/* Print-specific recommendation text for Curriculum Checker */}
-                {student && (calculateDeansListerEligibility(student, 1, yr) || scholarshipEligibility.eligible) && (
+                {student && getRecommendationText(student, 1, yr, scholarshipEligibility) && (
                   <div className="print-recommendation">
-                    Recommended for Dean's Lister{scholarshipEligibility.eligible && scholarshipEligibility.percentage > 0 ? ` & ${scholarshipEligibility.percentage}% Scholarship.` : '.'}
+                    {getRecommendationText(student, 1, yr, scholarshipEligibility)}
                   </div>
                 )}
               </div>
@@ -280,55 +290,6 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                       <div>
                         <p>GWA: {gwaSummer !== null ? gwaSummer.toFixed(2) : (student && student.gwa ? parseFloat(student.gwa).toFixed(2) : '')}</p>
                       </div>
-
-                      <div className="recommended-section">
-                        <span>Recommended for:</span>
-
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-0.5">
-                            <input
-                              type="checkbox"
-                              id={`deansList-${yr}-s`}
-                              checked={calculateDeansListerEligibility(student, 3, yr)}
-                              readOnly
-                              className="form-checkbox h-4 w-4 text-blue-600"
-                            />
-                            <label htmlFor={`deansList-${yr}-s`}>Dean's List</label>
-                          </div>
-
-                          <div className='flex'>
-                            <span className='mr-1'>Scholarship:</span>
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="checkbox"
-                                id={`scholar-50-${yr}-s`}
-                                checked={scholarshipEligibility.percentage === 50}
-                                readOnly
-                                className="form-checkbox h-4 w-4 text-blue-600"
-                              />
-                              <label htmlFor={`scholar-50-${yr}-s`}>50%</label>
-                            </div>
-
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="checkbox"
-                                id={`scholar-100-${yr}-s`}
-                                checked={scholarshipEligibility.percentage === 100}
-                                readOnly
-                                className="form-checkbox h-4 w-4 text-blue-600"
-                              />
-                              <label htmlFor={`scholar-100-${yr}-s`}>100%</label>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Print-specific recommendation text for Curriculum Checker */}
-                      {student && (calculateDeansListerEligibility(student, 3, yr) || scholarshipEligibility.eligible) && (
-                        <div className="print-recommendation">
-                          Recommended for Dean's Lister{scholarshipEligibility.eligible && scholarshipEligibility.percentage > 0 ? ` & ${scholarshipEligibility.percentage}% Scholarship.` : '.'}
-                        </div>
-                      )}
                     </div>
                   </div>
                 );
@@ -415,9 +376,9 @@ const CurriculumPreview = ({ curriculumId: propCurriculumId = null, onClose = nu
                   </div>
 
                   {/* Print-specific recommendation text for Curriculum Checker */}
-                  {student && (calculateDeansListerEligibility(student, 2, yr) || scholarshipEligibility.eligible) && (
+                  {student && getRecommendationText(student, 2, yr, scholarshipEligibility) && (
                     <div className="print-recommendation">
-                      Recommended for Dean's Lister{scholarshipEligibility.eligible && scholarshipEligibility.percentage > 0 ? ` & ${scholarshipEligibility.percentage}% Scholarship.` : '.'}
+                      {getRecommendationText(student, 2, yr, scholarshipEligibility)}
                     </div>
                   )}
                 </div>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Download, BookOpen, Search, RefreshCw, ChevronUp, ChevronDown, ChevronsUpDown, X } from 'lucide-react';
 import { getOfferedModules, getAllModulePayables } from '../../models/payablesModels';
-import { getStudents } from '../../models/curriculumModels';
+import { getStudents, getCurriculums } from '../../models/curriculumModels';
+import Breadcrumbs from '../common/Breadcrumbs';
 import {
   exportSingleModulePaymentsToExcel,
   exportAllModulePaymentsToExcel
@@ -11,12 +12,10 @@ const SEMESTER_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
 
 const YEAR_LABELS = { 1: '1st Year', 2: '2nd Year', 3: '3rd Year', 4: '4th Year' };
 
-const YEAR_TABS = [
-  { key: 'all', label: 'All' },
-  { key: 1, label: '1st Year' },
-  { key: 2, label: '2nd Year' },
-  { key: 3, label: '3rd Year' },
-  { key: 4, label: '4th Year' },
+const DEPARTMENT_TABS = [
+  { key: 'all', label: 'All Departments' },
+  { key: 'ccs', label: 'CCS' },
+  { key: 'other', label: 'Other Departments' }
 ];
 
 // ─── Filename Modal ────────────────────────────────────────────────────────────
@@ -66,30 +65,35 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
   const [offeredModules, setOfferedModules] = useState([]);
   const [modulePayables, setModulePayables] = useState([]);
   const [students, setStudents] = useState([]);
+  const [curriculums, setCurriculums] = useState([]);
   const [search, setSearch] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'courseCode', direction: 'asc' });
   const [selectedModule, setSelectedModule] = useState(null);
   const [selectedBlock, setSelectedBlock] = useState('');
   const [error, setError] = useState('');
   const [filenameModal, setFilenameModal] = useState({ open: false, mode: 'all', target: null });
-  const [activeYearTab, setActiveYearTab] = useState('all');
+  const [activeDepartmentTab, setActiveDepartmentTab] = useState('all');
+  const [activeBlockTab, setActiveBlockTab] = useState('all');
 
   // ── Data loading ────────────────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [modulesRes, payablesRes, studentsRes] = await Promise.all([
+      const [modulesRes, payablesRes, studentsRes, curriculumsRes] = await Promise.all([
         getOfferedModules(),
         getAllModulePayables(),
-        getStudents()
+        getStudents(),
+        getCurriculums()
       ]);
       if (!modulesRes.success) throw new Error(modulesRes.error || 'Failed to load offered modules.');
       if (!payablesRes.success) throw new Error(payablesRes.error || 'Failed to load module payables.');
       if (!studentsRes.success) throw new Error(studentsRes.error || 'Failed to load students.');
+      if (!curriculumsRes.success) throw new Error(curriculumsRes.error || 'Failed to load curriculums.');
       setOfferedModules(modulesRes.data);
       setModulePayables(payablesRes.data);
       setStudents(studentsRes.data);
+      setCurriculums(curriculumsRes.data);
     } catch (e) {
       setError(e.message || 'Failed to load report data.');
     } finally {
@@ -106,14 +110,29 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
     return m;
   }, [students]);
 
+  const curriculumMap = useMemo(() => {
+    const m = new Map();
+    curriculums.forEach(c => m.set(c.id, c));
+    return m;
+  }, [curriculums]);
+
   // ── Report data ─────────────────────────────────────────────────────────────
   const reportData = useMemo(() => {
     return offeredModules.map(mod => {
-      const payable = modulePayables.find(p => p.moduleId === mod.id)
-        || modulePayables.find(p => (p.moduleCode || '').toLowerCase() === (mod.courseCode || '').toLowerCase());
+      const curriculum = curriculumMap.get(mod.curriculumId);
+      const department = curriculum ? curriculum.name : (mod.departmentName || 'Other Department');
+      const course = curriculum
+        ? 'BSCS'
+        : (mod.classCourse || mod.course || mod.departmentName || 'Other Department');
 
+      const matchingPayables = modulePayables.filter((payable) => {
+        const moduleIdMatches = payable.moduleId === mod.id;
+        const moduleCodeMatches = (payable.moduleCode || '').toLowerCase() === (mod.courseCode || '').toLowerCase();
+        return moduleIdMatches || moduleCodeMatches;
+      });
+
+      const payable = matchingPayables[0] || null;
       const amount = payable ? Number(payable.amount) || 0 : null;
-      const studentPayments = payable?.studentPayments || {};
 
       // professor: prefer payable field, fall back to module field
       const professor =
@@ -123,21 +142,42 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
         '';
 
       const blockMap = new Map();
-      Object.entries(studentPayments).forEach(([studentId, payment]) => {
-        const student = studentMap.get(studentId);
-        if (!student) return;
-        const block = (student.block || '').toString().trim().toUpperCase() || '-';
-        if (!blockMap.has(block)) blockMap.set(block, []);
-        const paidAmount = Number(payment?.paidAmount) || 0;
-        const status = amount !== null && paidAmount >= amount && amount > 0
+      const studentRows = new Map();
+
+      matchingPayables.forEach((matchedPayable) => {
+        Object.entries(matchedPayable.studentPayments || {}).forEach(([studentId, payment]) => {
+          const student = studentMap.get(studentId);
+          if (!student) return;
+
+          const rawBlock = (student.block || matchedPayable.block || '').toString().trim().toUpperCase();
+          const block = rawBlock || 'IRREGULAR';
+          const paidAmount = Number(payment?.paidAmount) || 0;
+          const currentRow = studentRows.get(studentId) || {
+            id: studentId,
+            name: student.name || '(unnamed)',
+            block,
+            paidAmount: 0,
+            isIrregular: !!student.isIrregular,
+          };
+
+          currentRow.paidAmount = Math.max(currentRow.paidAmount, paidAmount);
+          currentRow.block = currentRow.block || block;
+          studentRows.set(studentId, currentRow);
+        });
+      });
+
+      studentRows.forEach((row) => {
+        if (!blockMap.has(row.block)) blockMap.set(row.block, []);
+        const status = amount !== null && row.paidAmount >= amount && amount > 0
           ? 'PAID'
-          : (paidAmount > 0 ? 'PARTIAL' : 'UNPAID');
-        blockMap.get(block).push({
-          id: studentId,
-          name: student.name || '(unnamed)',
+          : (row.paidAmount > 0 ? 'PARTIAL' : 'UNPAID');
+
+        blockMap.get(row.block).push({
+          id: row.id,
+          name: row.name,
           status,
-          paidAmount,
-          isIrregular: !!student.isIrregular,
+          paidAmount: row.paidAmount,
+          isIrregular: row.isIrregular,
         });
       });
 
@@ -158,17 +198,20 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
         id: mod.id,
         courseCode: mod.courseCode,
         courseTitle: mod.courseTitle,
+        course,
+        department,
+        source: curriculum ? 'ccs' : 'other',
         yearLevel: mod.yearLevel,
         semester: mod.semester,
         professor,
         amount,
-        hasPayable: !!payable,
+        hasPayable: matchingPayables.length > 0,
         blocks,
         totalStudents,
         paidCount
       };
     });
-  }, [offeredModules, modulePayables, studentMap]);
+  }, [offeredModules, modulePayables, studentMap, curriculumMap]);
 
   // ── Filtering & sorting ─────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -176,15 +219,23 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
 
     let list = q
       ? reportData.filter(m =>
+          (m.course || '').toLowerCase().includes(q) ||
           (m.courseCode || '').toLowerCase().includes(q) ||
           (m.courseTitle || '').toLowerCase().includes(q) ||
-          (m.professor || '').toLowerCase().includes(q)
+          (m.professor || '').toLowerCase().includes(q) ||
+          (m.department || '').toLowerCase().includes(q)
         )
       : reportData;
 
-    // year tab filter (does NOT affect Export All)
-    if (activeYearTab !== 'all') {
-      list = list.filter(m => Number(m.yearLevel) === Number(activeYearTab));
+    // department filter (does NOT affect Export All)
+    if (activeDepartmentTab === 'ccs') {
+      list = list.filter(m => m.source === 'ccs');
+    } else if (activeDepartmentTab === 'other') {
+      list = list.filter(m => m.source === 'other');
+    }
+
+    if (activeBlockTab !== 'all') {
+      list = list.filter(m => m.blocks.some(b => b.block === activeBlockTab));
     }
 
     return [...list].sort((a, b) => {
@@ -194,13 +245,14 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
       }
       return (a[sortConfig.key] || '').toString().localeCompare((b[sortConfig.key] || '').toString()) * dir;
     });
-  }, [reportData, search, sortConfig, activeYearTab]);
+  }, [reportData, search, sortConfig, activeDepartmentTab, activeBlockTab]);
 
   // ── All records for export (ignores year tab) ───────────────────────────────
   const allForExport = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = q
       ? reportData.filter(m =>
+          (m.course || '').toLowerCase().includes(q) ||
           (m.courseCode || '').toLowerCase().includes(q) ||
           (m.courseTitle || '').toLowerCase().includes(q) ||
           (m.professor || '').toLowerCase().includes(q)
@@ -241,7 +293,7 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
   // ── Modal helpers ───────────────────────────────────────────────────────────
   const openModuleModal = (mod) => {
     setSelectedModule(mod);
-    setSelectedBlock(mod.blocks?.[0]?.block || '');
+    setSelectedBlock(mod.blocks?.[0]?.block || 'IRREGULAR');
   };
 
   const openExportAll = () => {
@@ -263,23 +315,45 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
   };
 
   // ── Tab counts ──────────────────────────────────────────────────────────────
-  const tabCounts = useMemo(() => {
-    const counts = { all: reportData.length };
-    [1, 2, 3, 4].forEach(y => {
-      counts[y] = reportData.filter(m => Number(m.yearLevel) === y).length;
+  const departmentCounts = useMemo(() => {
+    const counts = { all: reportData.length, ccs: 0, other: 0 };
+    reportData.forEach(m => {
+      if (m.source === 'other') counts.other += 1;
+      else counts.ccs += 1;
     });
     return counts;
+  }, [reportData]);
+
+  const blockTabs = useMemo(() => {
+    const counts = { all: reportData.length };
+    reportData.forEach(m => {
+      m.blocks.forEach(b => {
+        counts[b.block] = (counts[b.block] || 0) + 1;
+      });
+    });
+
+    const blocks = Object.keys(counts)
+      .filter(key => key !== 'all')
+      .sort((a, b) => {
+        if (a === 'IRREGULAR') return 1;
+        if (b === 'IRREGULAR') return -1;
+        return a.localeCompare(b, undefined, { numeric: true });
+      });
+
+    return [
+      { key: 'all', label: 'All Blocks', count: counts.all },
+      ...blocks.map(block => ({
+        key: block,
+        label: block === 'IRREGULAR' ? 'Irregular' : `Block ${block}`,
+        count: counts[block]
+      }))
+    ];
   }, [reportData]);
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div>
-      {/* Breadcrumb */}
-      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <span>Dashboard</span>
-        <span className="text-gray-300">&gt;</span>
-        <span className="font-medium text-blue-600">Module Payments</span>
-      </div>
+      <Breadcrumbs items={[{ label: 'Module Payments' }]} />
 
       {/* Header */}
       <div className="mb-4">
@@ -289,9 +363,62 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
         </p>
       </div>
 
+      
+
+      {/* Error */}
+      {error && (
+        <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg">
+          {error}
+        </div>
+      )}
+
+      <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-4'>
+        {!loading && (
+          <div className="flex flex-wrap gap-2 items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+            {DEPARTMENT_TABS.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveDepartmentTab(tab.key)}
+                className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                  activeDepartmentTab === tab.key
+                    ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                }`}
+              >
+                {tab.label}
+                <span className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${activeDepartmentTab === tab.key ? 'bg-blue-100 text-blue-500' : 'bg-gray-200 text-gray-600'}`}>
+                  {departmentCounts[tab.key] ?? 0}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!loading && (
+          <div className="flex flex-wrap gap-2 items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+            {blockTabs.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveBlockTab(tab.key)}
+                className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                  activeBlockTab === tab.key
+                    ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                }`}
+              >
+                {tab.label}
+                <span className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${activeBlockTab === tab.key ? 'bg-blue-100 text-blue-500' : 'bg-gray-200 text-gray-600'}`}>
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-4 items-stretch sm:items-center justify-between">
-        <div className="flex gap-2 flex-1">
+      <div className="flex items-center gap-2">
+        <div className="flex gap-2 ">
           <button
             onClick={loadAll}
             disabled={loading}
@@ -314,53 +441,21 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
         <button
           onClick={openExportAll}
           disabled={loading || allForExport.length === 0}
-          className="rounded-full text-sm px-4 py-2 cursor-pointer bg-green-600 hover:bg-green-700 text-white font-semibold shadow flex items-center gap-2 disabled:opacity-50"
+          className="rounded-lg text-sm px-4 py-2 cursor-pointer bg-green-600 hover:bg-green-700 text-white font-semibold shadow flex items-center gap-2 disabled:opacity-50"
         >
           <Download className="h-4 w-4" /> Export All
         </button>
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg">
-          {error}
-        </div>
-      )}
-
-      {/* Year-level tabs */}
-      {!loading && (
-        <div className="flex gap-1 mb-0 flex-wrap border-b border-gray-200">
-          {YEAR_TABS.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveYearTab(tab.key)}
-              className={`px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors focus:outline-none
-                ${activeYearTab === tab.key
-                  ? 'bg-blue-500 text-white border border-b-0 '
-                  : 'text-gray-600 bg-gray-100 hover:bg-blue-100 cursor-pointer'
-                }`}
-            >
-              {tab.label}
-              {tabCounts[tab.key] !== undefined && (
-                <span className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${activeYearTab === tab.key ? 'bg-blue-700 text-white' : 'bg-gray-200 text-gray-600'}`}>
-                  {tabCounts[tab.key]}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Table */}
       {loading ? (
-        <div className="space-y-3 mt-3">
+        <div className="space-y-3 ">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-20 rounded-xl bg-gray-100 animate-pulse" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="py-16 text-center bg-white border border-gray-200 rounded-b-xl">
-          <BookOpen className="w-10 h-10 mx-auto text-gray-300 mb-2" />
+        <div className="py-16 text-center ">
           <p className="text-sm text-gray-500">
             {offeredModules.length === 0
               ? 'No offered modules. Mark subjects as "offered" in the Payables module manager first.'
@@ -368,7 +463,7 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-b-xl border border-t-0 border-gray-200 bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-xl border border-t-0 border-gray-200 bg-white shadow-sm">
           <table className="min-w-full text-sm">
             <thead className="bg-blue-500 text-white">
               <tr>
@@ -379,8 +474,26 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
                     <SortIcon column="courseCode" />
                   </button>
                 </th>
+                <th className="px-4 py-2 text-left font-semibold">
+                  <button type="button" onClick={() => handleSort('course')} className="inline-flex items-center gap-1">
+                    Course
+                    <SortIcon column="course" />
+                  </button>
+                </th>
+                {/* Department */}
+                <th className="px-4 py-2 text-left font-semibold">
+                  <button type="button" onClick={() => handleSort('department')} className="inline-flex items-center gap-1">
+                    Department
+                    <SortIcon column="department" />
+                  </button>
+                </th>
                 {/* Professor */}
-                
+                <th className="px-4 py-2 text-left font-semibold">
+                  <button type="button" onClick={() => handleSort('professor')} className="inline-flex items-center gap-1">
+                    Professor
+                    <SortIcon column="professor" />
+                  </button>
+                </th>
                 {/* Block */}
                 <th className="px-4 py-2 text-left font-semibold">
                   <button type="button" onClick={() => handleSort('blocks')} className="inline-flex items-center gap-1">
@@ -436,8 +549,18 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
                       <span className="block font-semibold text-gray-800">{mod.courseCode}</span>
                       <span className="block text-xs text-gray-500 mt-0.5">{mod.courseTitle}</span>
                     </td>
+                    {/* Course */}
+                    <td className="px-4 py-3 text-gray-700">
+                      {mod.course || (mod.source === 'ccs' ? 'BSCS' : mod.department) || <span className="italic text-gray-500">-</span>}
+                    </td>
+                    {/* Department */}
+                    <td className="px-4 py-3 text-gray-700">
+                      {mod.department || <span className="italic text-gray-500">-</span>}
+                    </td>
                     {/* Professor */}
-                 
+                    <td className="px-4 py-3 text-gray-700">
+                      {mod.professor || <span className="italic text-gray-500">-</span>}
+                    </td>
                     {/* Block */}
                     <td className="px-4 py-3 text-gray-700">
                       {blockDisplay || <span className="italic text-gray-500">-</span>}
@@ -461,7 +584,7 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); openExportSingle(mod); }}
-                        className="inline-flex items-center gap-1.5 rounded-full bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700"
                       >
                         <Download className="h-3.5 w-3.5" /> Export
                       </button>
@@ -522,7 +645,7 @@ const ModulePaymentsReport = ({ onBackToReportsMain }) => {
                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
                   >
-                    Block {group.block}
+                    {group.block === 'IRREGULAR' ? 'Irregular' : `Block ${group.block}`}
                   </button>
                 ))}
               </div>

@@ -7,12 +7,59 @@ import {
     doc,
     updateDoc,
     deleteDoc,
+  writeBatch,
     query,
     where,
     orderBy
   } from 'firebase/firestore';
   import { db } from '../firebase';
   import { logSystemAction } from '../utils/auditLogger';
+
+const normalizeModuleCode = (code) => {
+  if (!code) return '';
+  return code.toString().trim().toUpperCase().replace(/\s+/g, '');
+};
+
+const addPayableToMapList = (map, key, payable) => {
+  if (!map || !key) return;
+  const normalizedKey = normalizeModuleCode(key);
+  if (!normalizedKey) return;
+  const existing = map.get(normalizedKey) || [];
+  existing.push(payable);
+  map.set(normalizedKey, existing);
+};
+
+const mergeModuleStudentPayments = (payable, collectionPayments = {}) => {
+  const payablePayments = payable && typeof payable.studentPayments === 'object' && payable.studentPayments !== null
+    ? { ...payable.studentPayments }
+    : {};
+
+  const merged = { ...payablePayments };
+  Object.entries(collectionPayments || {}).forEach(([studentId, entry]) => {
+    const existing = merged[studentId] || {};
+    const collectionPaid = Number(entry?.totalPaidAfter ?? entry?.paidAmount ?? entry?.amount ?? 0);
+    const existingPaid = Number(existing?.paidAmount || 0);
+    merged[studentId] = {
+      ...existing,
+      ...entry,
+      paidAmount: Math.max(existingPaid, collectionPaid),
+      voucherAmount: Math.max(Number(existing?.voucherAmount || 0), Number(entry?.voucherAmount || 0)),
+      lastPaymentDate: entry?.lastPaymentDate || existing?.lastPaymentDate || null,
+      status: entry?.status || existing?.status || 'unpaid'
+    };
+  });
+
+  return merged;
+};
+
+const isModuleStudentFullyPaid = (payable, studentPaymentEntry) => {
+  if (!studentPaymentEntry) return false;
+  const amount = Number(payable?.amount) || 0;
+  const paid = Number(studentPaymentEntry?.paidAmount) || 0;
+  const voucher = Number(studentPaymentEntry?.voucherAmount) || 0;
+  if (amount > 0) return (paid + voucher) >= amount;
+  return studentPaymentEntry.status === 'fully_paid';
+};
   
   // Payables Model Functions
   export const createPayable = async (payableData, userId) => {
@@ -25,16 +72,65 @@ import {
       });
       const payableName = payableData.title || payableData.name || payableData.type || payableData.moduleCode || 'Payable';
       await logSystemAction({
-        action: 'Created payable',
+        action: 'Created Payable Record',
         module: 'Payables System',
         entityType: 'payable',
         entityId: docRef.id,
-        description: `created payable ${payableName}`,
+        description: `Created new payable record: ${payableName}`,
         details: payableData
       });
       return { success: true, id: docRef.id };
     } catch (error) {
       console.error('Error creating payable:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Fetch studentPayments for a specific payable and return a map keyed by studentId
+  // Normalizes older records that used `amount` into `paidAmount` to keep callers stable.
+  export const getPaymentsByPayableId = async (payableId) => {
+    try {
+      if (!payableId) return { success: true, data: {} };
+      const studentPaymentsRef = collection(db, 'studentPayments');
+      // Avoid server-side ordering to prevent composite index requirement; we'll sort locally
+      const q = query(studentPaymentsRef, where('payableId', '==', payableId));
+      const snap = await getDocs(q);
+      // Sort docs by createdAt/updatedAt descending so latest payments win
+      const docs = snap.docs.slice().sort((a, b) => {
+        const da = (a.data()?.createdAt || a.data()?.updatedAt || '').toString();
+        const dbt = (b.data()?.createdAt || b.data()?.updatedAt || '').toString();
+        return new Date(dbt).getTime() - new Date(da).getTime();
+      });
+      const map = {};
+      docs.forEach(d => {
+        const p = d.data() || {};
+        const sid = p.studentId || p.studentID || p.student || '';
+        if (!sid) return;
+        const paidAmount = Number(p.totalPaidAfter ?? p.paidAmount ?? p.amount ?? 0);
+        const voucherAmount = Number(p.voucherAmount ?? 0);
+        const lastPaymentDate = p.lastPaymentDate || p.paymentDate || p.date || p.createdAt || p.updatedAt || null;
+        const totalPrice = Number(p.totalPrice ?? p.payableAmount ?? 0);
+        const status = p.status || (
+          totalPrice > 0
+            ? (paidAmount + voucherAmount >= totalPrice ? 'fully_paid' : (paidAmount > 0 ? 'partially_paid' : 'unpaid'))
+            : (Number(p.balanceAfter) === 0 ? 'fully_paid' : (paidAmount > 0 ? 'partially_paid' : 'unpaid'))
+        );
+        if (!map[sid]) {
+          map[sid] = {
+            ...p,
+            id: d.id,
+            studentId: sid,
+            studentNumber: p.studentNumber || p.studentNo || p.studentId || '',
+            paidAmount,
+            voucherAmount,
+            status,
+            lastPaymentDate
+          };
+        }
+      });
+      return { success: true, data: map };
+    } catch (error) {
+      console.error('Error getting payments by payableId:', error);
       return { success: false, error: error.message };
     }
   };
@@ -70,11 +166,11 @@ import {
 
       if (!isPaymentUpdate) {
         await logSystemAction({
-          action: 'Updated payable',
+          action: 'Updated Payable Record',
           module: 'Payables System',
           entityType: 'payable',
           entityId: payableId,
-          description: `Updated payable ${payableId}`,
+          description: `Updated payable record ${payableId}`,
           details: { ...updates, status }
         });
       }
@@ -92,11 +188,11 @@ import {
       const payableName = payable.title || payable.name || payable.type || payable.moduleCode || payableId;
       await deleteDoc(doc(db, 'payables', payableId));
       await logSystemAction({
-        action: 'Deleted payable',
+        action: 'Deleted Payable Record',
         module: 'Payables System',
         entityType: 'payable',
         entityId: payableId,
-        description: `deleted payable ${payableName} and related payment records`,
+        description: `Deleted payable record: ${payableName} and all related payment records`,
         details: { payableName }
       });
       return { success: true };
@@ -118,13 +214,13 @@ import {
       const studentName = studentPaymentData.studentName || studentPaymentData.name || studentPaymentData.studentId || 'student';
       const payableType = studentPaymentData.payableType || studentPaymentData.type || studentPaymentData.description || 'payable';
       await logSystemAction({
-        action: isFullPayment ? 'full payment recorded' : 'paid payable',
+        action: isFullPayment ? 'Recorded Full Payment' : 'Recorded Partial Payment',
         module: 'Payables System',
         entityType: 'studentPayment',
         entityId: docRef.id,
         description: isFullPayment
-          ? `full payment recorded for ${studentName}`
-          : `paid payable ${payableType} for ${studentName}`,
+          ? `Recorded full payment for student ${studentName} for ${payableType}`
+          : `Recorded partial payment for student ${studentName} for ${payableType}`,
         details: { ...studentPaymentData, studentName, payableType }
       });
       return { success: true, id: docRef.id };
@@ -161,11 +257,11 @@ import {
         updatedAt: new Date().toISOString()
       });
       await logSystemAction({
-        action: 'Updated student payment',
+        action: 'Updated Student Payment Record',
         module: 'Payables System',
         entityType: 'studentPayment',
         entityId: paymentId,
-        description: `Updated student payment ${paymentId}`,
+        description: `Updated student payment record ${paymentId}`,
         details: updates
       });
       return { success: true };
@@ -235,10 +331,11 @@ import {
       const snap = await getDocs(q);
       let data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       
-      // Additional filtering for schoolYear if provided
+      // Older course records do not store schoolYear; keep those eligible and
+      // rely on the offered flag plus semester as the authoritative module list.
       if (activeTerm && activeTerm.schoolYear) {
         data = data.filter(course => 
-          (course.schoolYear || '') === activeTerm.schoolYear
+          !course.schoolYear || (course.schoolYear || '') === activeTerm.schoolYear
         );
       }
       
@@ -289,11 +386,11 @@ import {
         updatedAt: new Date().toISOString()
       }, { merge: true });
       await logSystemAction({
-        action: 'Updated cutback rate',
+        action: 'Updated Professor Cutback Rate',
         module: 'Payables System',
         entityType: 'setting',
         entityId: 'professor_cutback',
-        description: `Set professor cutback rate to ${safe}`,
+        description: `Updated professor cutback rate to ${safe} per student`,
         details: { ratePerStudent: safe }
       });
       return { success: true, data: safe };
@@ -302,6 +399,209 @@ import {
       return { success: false, error: error.message };
     }
   };
+
+   // Configurable deadline for module payments to count toward the professor cutback.
+  // Stored as an ISO date string ('YYYY-MM-DD') in the same settings doc. Empty string
+  // means no deadline (every fully-paid student counts).
+  export const getCutbackDeadline = async () => {
+    try {
+      const snap = await getDoc(CUTBACK_SETTINGS_DOC);
+      if (!snap.exists()) return { success: true, data: '' };
+      const data = snap.data() || {};
+      const deadline = typeof data.deadline === 'string' ? data.deadline : '';
+      return { success: true, data: deadline };
+    } catch (error) {
+      console.error('Error getting cutback deadline:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  export const saveCutbackDeadline = async (deadline) => {
+    try {
+      const safe = typeof deadline === 'string' ? deadline.trim() : '';
+      await setDoc(CUTBACK_SETTINGS_DOC, {
+        deadline: safe,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      await logSystemAction({
+        action: 'Updated Professor Cutback Deadline',
+        module: 'Payables System',
+        entityType: 'setting',
+        entityId: 'professor_cutback',
+        description: safe ? `Updated professor cutback deadline to ${safe}` : 'Cleared professor cutback deadline (no deadline restriction)',
+        details: { deadline: safe }
+      });
+      return { success: true, data: safe };
+    } catch (error) {
+      console.error('Error saving cutback deadline:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Department share settings for CCS modules (adjustable amount per paid student/module as a simple default)
+  const DEPT_SHARE_SETTINGS_DOC = doc(db, 'settings', 'department_share_ccs');
+  const DEFAULT_DEPT_SHARE_AMOUNT = 0;
+
+  export const getDepartmentShareAmount = async () => {
+    try {
+      const snap = await getDoc(DEPT_SHARE_SETTINGS_DOC);
+      if (!snap.exists()) {
+        await setDoc(DEPT_SHARE_SETTINGS_DOC, {
+          amountPerPaidStudent: DEFAULT_DEPT_SHARE_AMOUNT,
+          updatedAt: new Date().toISOString()
+        });
+        return { success: true, data: DEFAULT_DEPT_SHARE_AMOUNT };
+      }
+      const data = snap.data() || {};
+      const parsed = parseFloat(data.amountPerPaidStudent);
+      return {
+        success: true,
+        data: Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_DEPT_SHARE_AMOUNT
+      };
+    } catch (error) {
+      console.error('Error getting department share amount:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  export const saveDepartmentShareAmount = async (amount) => {
+    try {
+      const parsed = parseFloat(amount);
+      const safe = Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_DEPT_SHARE_AMOUNT;
+      await setDoc(DEPT_SHARE_SETTINGS_DOC, {
+        amountPerPaidStudent: safe,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      await logSystemAction({
+        action: 'Updated Department Share Amount',
+        module: 'Payables System',
+        entityType: 'setting',
+        entityId: 'department_share_ccs',
+        description: `Updated CCS department share amount to ${safe} per paid student`,
+        details: { amountPerPaidStudent: safe }
+      });
+      return { success: true, data: safe };
+    } catch (error) {
+      console.error('Error saving department share amount:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+   // Compute department share totals for CCS-offered modules for a term.
+  // Uses offered modules as the authoritative list of CCS modules (modules with curriculumId are CCS).
+  // Count fully-paid students per module (paidAmount + voucherAmount >= payable.amount) and multiply by amountPerPaidStudent.
+  export const computeDepartmentShareReport = async (activeTerm = null) => {
+    try {
+      const [modulesRes, payablesRes, shareRes] = await Promise.all([
+        getOfferedModules(activeTerm),
+        getAllModulePayables(activeTerm),
+        getDepartmentShareAmount()
+      ]);
+      if (!modulesRes.success) throw new Error(modulesRes.error || 'Failed to load offered modules.');
+      if (!payablesRes.success) throw new Error(payablesRes.error || 'Failed to load module payables.');
+      if (!shareRes.success) throw new Error(shareRes.error || 'Failed to load department share settings.');
+
+      const offered = modulesRes.data || [];
+      const payables = payablesRes.data || [];
+      const amountPer = Number(shareRes.data) || 0;
+
+      // Build map of module id or code -> payables. A module can have multiple
+      // payable records over time or by section, so count across all matches.
+      const payableByModuleId = new Map();
+      const payableByCode = new Map();
+      payables.forEach(p => {
+        addPayableToMapList(payableByModuleId, p.moduleId, p);
+        addPayableToMapList(payableByCode, normalizeModuleCode(p.moduleCode), p);
+      });
+
+      const breakdown = [];
+      let totalPaidCount = 0;
+      let totalClaimableCount = 0;
+
+      for (const mod of offered) {
+        // Treat modules with a curriculumId as CCS modules
+        if (!mod.curriculumId) continue;
+
+        const matchingPayables = payableByModuleId.get(mod.id) || payableByCode.get(normalizeModuleCode(mod.courseCode)) || [];
+        const yearLevel = Number(mod.yearLevel) || null;
+        const blocks = Array.isArray(mod.blocks)
+          ? mod.blocks.map((b) => String(b).trim().toUpperCase()).filter(Boolean)
+          : [];
+
+        if (matchingPayables.length === 0) {
+          breakdown.push({
+            moduleId: mod.id,
+            courseCode: mod.courseCode,
+            courseTitle: mod.courseTitle,
+            yearLevel,
+            blocks,
+            claimableCount: 0,
+            paidCount: 0,
+            claimableShare: 0,
+            shareAmount: 0
+          });
+          continue;
+        }
+
+        const claimableStudentIds = new Set();
+        const paidStudentIds = new Set();
+
+        await Promise.all(matchingPayables.map(async (payable) => {
+          const paymentsRes = await getPaymentsByPayableId(payable.id);
+          const collectionPayments = paymentsRes && paymentsRes.success ? paymentsRes.data : {};
+          const payablePayments = payable.studentPayments || {};
+          const studentPayments = mergeModuleStudentPayments(payable, collectionPayments);
+          const assignedIds = Object.keys(payablePayments);
+          const claimableIds = assignedIds.length ? assignedIds : Object.keys(studentPayments);
+
+          claimableIds.forEach((studentId) => claimableStudentIds.add(studentId));
+          Object.entries(studentPayments).forEach(([studentId, entry]) => {
+            if (isModuleStudentFullyPaid(payable, entry)) paidStudentIds.add(studentId);
+          });
+        }));
+
+        const claimableCount = claimableStudentIds.size;
+        const paidCount = paidStudentIds.size;
+
+        totalPaidCount += paidCount;
+        totalClaimableCount += claimableCount;
+        breakdown.push({
+          moduleId: mod.id,
+          courseCode: mod.courseCode,
+          courseTitle: mod.courseTitle,
+          yearLevel,
+          blocks,
+          claimableCount,
+          paidCount,
+          claimableShare: claimableCount * amountPer,
+          shareAmount: paidCount * amountPer
+        });
+      }
+
+      breakdown.sort((a, b) => {
+        const yearA = Number(a.yearLevel) || 99;
+        const yearB = Number(b.yearLevel) || 99;
+        if (yearA !== yearB) return yearA - yearB;
+        return (a.courseCode || '').localeCompare(b.courseCode || '');
+      });
+
+      return {
+        success: true,
+        data: {
+          amountPerPaidStudent: amountPer,
+          totalPaidCount,
+          totalClaimableCount,
+          totalShare: totalPaidCount * amountPer,
+          totalClaimableShare: totalClaimableCount * amountPer,
+          breakdown
+        }
+      };
+    } catch (error) {
+      console.error('Error computing department share report:', error);
+      return { success: false, error: error.message };
+    }
+  };
+  
 
   // Returns every payable across all users where category === 'module'.
   // Used by reports that span the entire department, not just one user.
@@ -312,11 +612,13 @@ import {
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(p => p.category === 'module' && !p.deleted);
       
-      // Filter by term if provided
+      // Filter by term if provided. Older module payables were created without
+      // semester/schoolYear fields, so keep those and let callers match by the
+      // offered module id/code.
       if (activeTerm && activeTerm.semester) {
         data = data.filter(p => {
-          const matchesSemester = Number(p.semester) === Number(activeTerm.semester);
-          const matchesSchoolYear = !activeTerm.schoolYear || (p.schoolYear || '') === activeTerm.schoolYear;
+          const matchesSemester = !p.semester || Number(p.semester) === Number(activeTerm.semester);
+          const matchesSchoolYear = !activeTerm.schoolYear || !p.schoolYear || (p.schoolYear || '') === activeTerm.schoolYear;
           return matchesSemester && matchesSchoolYear;
         });
       }
@@ -335,11 +637,11 @@ import {
         updatedAt: new Date().toISOString()
       });
       await logSystemAction({
-        action: 'Updated offered course',
+        action: isOffered ? 'Marked Course As Offered' : 'Unmarked Course As Offered',
         module: 'Payables System',
         entityType: 'course',
         entityId: courseId,
-        description: `${isOffered ? 'Marked' : 'Unmarked'} course as offered`,
+        description: isOffered ? `Marked course ${courseId} as offered for payment collection` : `Unmarked course ${courseId} as offered for payment collection`,
         details: { isOffered: !!isOffered }
       });
       return { success: true };
@@ -371,11 +673,11 @@ import {
       await batch.commit();
       
       await logSystemAction({
-        action: 'Cleared all offered modules',
+        action: 'Cleared All Offered Modules',
         module: 'Payables System',
         entityType: 'course',
         entityId: 'bulk_clear',
-        description: `Cleared ${snap.size} offered modules due to term change`,
+        description: `Cleared offered status from ${snap.size} modules due to academic term change`,
         details: { clearedCount: snap.size }
       });
 
@@ -433,11 +735,11 @@ import {
 
       // Log the action
       await logSystemAction({
-        action: 'Archived student payables',
+        action: 'Archived Student Payables',
         module: 'Payables System',
         entityType: 'archivedPayables',
         entityId: studentId,
-        description: `Archived ${studentPayables.length} payables for student ${studentData.name}`,
+        description: `Archived ${studentPayables.length} payable records for student ${studentData.name} (Batch: ${batchName})`,
         details: { studentId, studentName: studentData.name, payableCount: studentPayables.length, batchName }
       });
 
@@ -516,13 +818,13 @@ import {
       const payableType = paymentData.payableType || paymentData.type || 'archived payable';
 
       await logSystemAction({
-        action: isFullPayment ? 'full payment recorded for archived payable' : 'paid archived payable',
+        action: isFullPayment ? 'Recorded Full Payment For Archived Payable' : 'Recorded Partial Payment For Archived Payable',
         module: 'Payables System',
         entityType: 'archivedStudentPayment',
         entityId: docRef.id,
         description: isFullPayment
-          ? `full payment recorded for archived payable - ${studentName}`
-          : `paid archived payable ${payableType} for ${studentName}`,
+          ? `Recorded full payment for archived payable for student ${studentName} (${payableType})`
+          : `Recorded partial payment for archived payable for student ${studentName} (${payableType})`,
         details: { ...paymentData, studentName, payableType }
       });
 

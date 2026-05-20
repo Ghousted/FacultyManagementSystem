@@ -120,12 +120,9 @@ const ModuleManagement = ({ open, onClose, onChanged }) => {
             <div>
               <h6 className="text-xl font-semibold text-gray-800">Offered Subjects</h6>
               <p className="text-sm text-gray-500 mt-0.5">
-                Mark current-semester subjects from your curriculums as <span className="font-medium">offered</span> so they appear when adding Module payables.
+                Manage which subjects are offered as modules for the <strong>{SEMESTER_LABELS[activeTerm.semester]} {activeTerm.schoolYear}</strong> term. Toggle the offered status of each subject, and use the filters to find specific subjects.
               </p>
-              <p className="text-xs text-gray-400 mt-1">
-                Showing {SEMESTER_LABELS[Number(activeTerm.semester)] || `Sem ${activeTerm.semester}`}
-                {activeTerm.schoolYear ? `, SY ${activeTerm.schoolYear}` : ''}.
-              </p>
+             
             </div>
           </div>
 
@@ -133,20 +130,16 @@ const ModuleManagement = ({ open, onClose, onChanged }) => {
           
           <div className="flex gap-2 justify-between mt-4">
            {/* Year Filter */}
-          <div className="flex w-fit rounded-xl border border-slate-300 overflow-hidden">
+          <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
             {[1, 2, 3, 4].map((y, index, arr) => (
               <button
                 key={y}
                 type="button"
                 onClick={() => setYearLevelFilter(String(y))}
-                className={`px-4 py-2 text-sm border-slate-300 ${
-                  index !== arr.length - 1 ? 'border-r border-slate-300' : ''
-                } ${
-                  index === 0 ? 'rounded-l-xl' : ''
-                } ${
-                  index === arr.length - 1 ? 'rounded-r-xl' : ''
-                } ${
-                  yearLevelFilter === String(y) ? 'bg-blue-100' : ''
+                className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-all ${
+                  yearLevelFilter === String(y)
+                    ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
                 }`}
               >
                 {YEAR_LABELS[y]}
@@ -160,13 +153,7 @@ const ModuleManagement = ({ open, onClose, onChanged }) => {
               <select
                 value={curriculumFilter}
                 onChange={(e) => setCurriculumFilter(e.target.value)}
-                className="
-                  rounded-xl border border-gray-200 bg-white
-                  px-4 py-2.5 text-sm text-gray-700
-                  shadow-sm transition-all
-                  focus:border-blue-400 focus:outline-none
-                  focus:ring-4 focus:ring-blue-100
-                "
+               className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
               >
                 {curriculums.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -198,7 +185,7 @@ const ModuleManagement = ({ open, onClose, onChanged }) => {
               <table className="min-w-full text-sm text-left bg-white">
                 <thead className="bg-blue-500 text-white">
                   <tr>
-                    <th className="px-3 py-2 cursor-pointer" onClick={() => handleSort('subject')}>
+                    <th className="px-3 py-2 cursor-pointer w-[80%]" onClick={() => handleSort('subject')}>
                       <div className="flex items-center gap-1">
                         Subject
                         {sortConfig.key === 'subject' ? (
@@ -212,8 +199,8 @@ const ModuleManagement = ({ open, onClose, onChanged }) => {
                         )}
                       </div>
                     </th>
-                    <th className="px-3 py-2">Units</th>
-                    <th className="px-3 py-2">Offered</th>
+                    <th className="px-3 py-2 w-[10%]">Units</th>
+                    <th className="px-3 py-2 w-[10%]">Offered</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -230,19 +217,25 @@ const ModuleManagement = ({ open, onClose, onChanged }) => {
                         <button
                           onClick={() => toggleOffered(c)}
                           disabled={busyIds.has(c.id)}
-                          className={`p-1 rounded-full transition ${
+                          className={`relative inline-flex h-6 w-10 items-center rounded-full transition-all duration-300 ${
                             c.isOffered
-                              ? 'bg-green-500 text-white hover:bg-green-600'
-                              : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                              ? 'bg-green-500 shadow-sm shadow-green-200'
+                              : 'bg-gray-300'
+                          } ${
+                            busyIds.has(c.id)
+                              ? 'cursor-not-allowed opacity-60'
+                              : 'cursor-pointer'
                           }`}
                         >
-                          {c.isOffered ? (
-                            <ToggleRight className="h-4 w-4" />
-                          ) : (
-                            <ToggleLeft className="h-4 w-4" />
-                          )}
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-300 ${
+                              c.isOffered ? 'translate-x-5' : 'translate-x-1'
+                            }`}
+                          >
+                          
+                          </span>
                         </button>
-                      </td>
+</td>
                     </tr>
                   ))}
                 </tbody>

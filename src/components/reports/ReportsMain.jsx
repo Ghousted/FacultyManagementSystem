@@ -1,10 +1,11 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { ArrowBigLeft, Medal, GraduationCap, Wallet, HandCoins } from 'lucide-react';
+import Breadcrumbs from '../common/Breadcrumbs';
 
 const ReportsModule = lazy(() => import('./ReportsModule'));
 const ArchivedClasses = lazy(() => import('./ArchivedClasses'));
 const ModulePaymentsReport = lazy(() => import('./ModulePaymentsReport'));
-const ProfessorCutbacksReport = lazy(() => import('./ProfessorCutbacksReport'));
+const CutBackReports = lazy(() => import('./CutBackReports'));
 
 const ReportsLoadingSkeleton = () => (
   <div>
@@ -65,7 +66,7 @@ const ReportsMain = ({ onBackToDashboard, initialReport = '' }) => {
     {
       key: 'cutbacks',
       title: 'Professor Cutbacks',
-      description: 'Compute professor cutbacks per handled class based on the per-student rate.',
+      description: 'Open tabbed cutback reports for professors and CCS modules.',
       icon: HandCoins
     }
   ];
@@ -97,24 +98,14 @@ const ReportsMain = ({ onBackToDashboard, initialReport = '' }) => {
   if (selectedReport === 'cutbacks') {
     return (
       <Suspense fallback={<ReportsLoadingSkeleton />}>
-        <ProfessorCutbacksReport onBackToReportsMain={() => setSelectedReport('')} />
+        <CutBackReports />
       </Suspense>
     );
   }
 
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <button
-          type="button"
-          onClick={onBackToDashboard}
-          className="text-gray-600 hover:text-blue-600"
-        >
-          Dashboard
-        </button>
-        <span className="text-gray-300">&gt;</span>
-        <span className="font-medium text-blue-600">Academic Reports</span>
-      </div>
+      <Breadcrumbs items={[{ label: 'Academic Reports' }]} />
       <div className="mb-6 rounded-2xl border border-blue-100 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <button

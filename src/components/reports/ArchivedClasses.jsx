@@ -24,6 +24,7 @@ import {
   RefreshCcw
 } from 'lucide-react';
 import { logSystemAction } from '../../utils/auditLogger';
+import Breadcrumbs from '../common/Breadcrumbs';
 
 const formatBatchLabel = (id) =>
   id.replace('batch_', '').replace('_', '-');
@@ -70,22 +71,14 @@ const ItemCard = ({
   return (
  <button
   onClick={onClick}
-  className={`group relative cursor-pointer rounded-xl border bg-white p-4 text-left shadow-sm transition ${
-    isSelected
-      ? 'border-blue-500 bg-blue-50 shadow-md ring-2 ring-blue-200'
-      : 'border-gray-300 hover:border-blue-400 hover:shadow-md'
-  }`}
+  className="group relative cursor-pointer rounded-lg border border-gray-300 bg-white p-4 text-left shadow-sm transition  hover:border-blue-400 hover:shadow-md"
+
 >
   <div className="flex items-center gap-3">
-    <div
-      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
-        isSelected
-          ? 'bg-blue-100 text-blue-700'
-          : 'bg-blue-50 text-blue-600'
-      }`}
-    >
-      <Folder className="h-5 w-5" />
-    </div>
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+<Folder className="h-5 w-5" />
+</div>
+
 
     <div className="min-w-0">
       <p
@@ -93,7 +86,7 @@ const ItemCard = ({
           isSelected ? 'text-blue-800' : 'text-gray-900'
         }`}
       >
-        Batch {isBatch ? formatBatchLabel(item.id) : item.name || item.id}
+         {isBatch ? formatBatchLabel(item.id) : item.name || item.id}
       </p>
 
      
@@ -184,7 +177,6 @@ const StudentList = ({
               ['studentNumber', 'Student No.'],
               ['name', 'Name'],
               ['curriculum', 'Curriculum'],
-              ['status', 'Status'],
             ].map(([key, label]) => (
               <th key={key} className="p-4">
                 <button
@@ -236,24 +228,9 @@ const StudentList = ({
                 <td className="px-4 py-2 text-gray-600">
                   {curriculums[student.curriculumId] || student.curriculumId || ''}
                 </td>
-                <td className="px-4 py-2 text-gray-700">
-                  {pending > 0 ? (
-                    <div>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                        Pending ({pending})
-                      </span>
-                      <div className="text-sm font-semibold text-red-600 mt-1">
-                        Balance: ₱{totalBalance.toFixed(2)}
-                      </div>
-                    </div>
-                  ) : (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                      Settled
-                    </span>
-                  )}
-                </td>
+               
 
-                <td className="px-4 py-2 w-12% text-right">
+                <td className="px-4 py-2 w-12% text-left">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -410,7 +387,7 @@ const GradesTable = ({ grades, curriculumCourses = {}, student = {}, yearFilter 
         return (
           <div key={year}>
             <div className="text-sm font-semibold text-gray-700 mb-3">{year}</div>
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+            <div className="grid gap-2 grid-cols-1 md:grid-cols-2">
               {semKeys.map((sem) => {
                 const subjects = semesters[sem] || {};
                 const entries = Object.entries(subjects || {});
@@ -1019,33 +996,12 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
 
   return (
     <div className="max-w-7xl mx-auto ">
-      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <button
-          type="button"
-          onClick={onBackToReportsMain}
-          className="hover:text-blue-600 hover:underline"
-        >
-          Dashboard
-        </button>
-        <span className="text-gray-300">&gt;</span>
-        {selectedItem ? (
-          <>
-            <button
-              type="button"
-              onClick={() => setSelectedItem(null)}
-              className="hover:text-blue-600 hover:underline"
-            >
-              Archived Classes
-            </button>
-            <span className="text-gray-300">&gt;</span>
-            <span className="font-medium text-blue-600">
-              {selectedItem.type === 'batch' ? `Batch ${selectedItem.name}` : selectedItem.name || selectedItem.id}
-            </span>
-          </>
-        ) : (
-          <span className="font-medium text-blue-600">Archived Classes</span>
-        )}
-      </div>
+      <Breadcrumbs
+        items={[
+          { label: 'Archived Classes', onClick: selectedItem ? () => setSelectedItem(null) : null },
+          ...(selectedItem ? [{ label: selectedItem.type === 'batch' ? `Batch ${selectedItem.name}` : selectedItem.name || selectedItem.id }] : [])
+        ]}
+      />
 
       <div className='flex items-center justify-between mb-6'>
            <div>
@@ -1085,11 +1041,11 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
                     if (!next) setSelectedIds([]);
                   }}
                   title={selectMode ? 'Turn off selection' : 'Select students'}
-                  className={`inline-flex items-center gap-2 p-2 border border-gray-300 cursor-pointer rounded-xl transition 
-                      ${selectMode 
-                        ? 'bg-gray-100 text-gray-400'
-                        : 'hover:bg-gray-100 text-gray-700 bg-gray-200'
-                      }`}
+                 className={`inline-flex items-center gap-2 text-sm p-2 border border-gray-300 cursor-pointer rounded-lg transition 
+${selectMode 
+? 'bg-gray-100 text-gray-400 '
+: 'hover:bg-gray-100 text-gray-700 bg-gray-50 '
+}`}
                 >
                   <Square className="w-4 h-4" />
                   <span className="text-xs">Select</span>
@@ -1111,7 +1067,7 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
                     <button
                   onClick={handleRefresh}
                   disabled={refreshing}
-                                     className="p-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
+className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
 
                   title="Refresh data"
                 >
@@ -1124,7 +1080,7 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
                     placeholder="Search students..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   />
                 </div>
                 
@@ -1144,7 +1100,7 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
         loading ? (
           <p className="text-gray-500">Loading...</p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
             {allItems.map((item) => (
               <ItemCard
                 key={item.id}

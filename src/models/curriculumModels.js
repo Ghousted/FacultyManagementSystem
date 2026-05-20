@@ -70,11 +70,11 @@ export const archiveAndPromoteStudents = async (batchStartYear, batchEndYear) =>
     }
     
     await logSystemAction({
-      action: 'Archived and promoted students',
+      action: 'Archived And Promoted Students To Next Year Level',
       module: 'Curriculum Checker',
       entityType: 'studentBatch',
       entityId: batchName,
-      description: `Archived ${toArchive.length} students and promoted eligible students`,
+      description: `Archived ${toArchive.length} 4th year students and promoted eligible students to next year level`,
       details: { batchStartYear, batchEndYear, archivedCount: toArchive.length }
     });
     return { success: true, message: `Archived ${toArchive.length} students and promoted others.` };
@@ -108,11 +108,11 @@ export const createCurriculum = async (curriculumData) => {
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Created curriculum',
+      action: 'Created Curriculum Record',
       module: 'Curriculum Checker',
       entityType: 'curriculum',
       entityId: docRef.id,
-      description: `Created curriculum: ${curriculumData.name || 'Untitled curriculum'}`,
+      description: `Created new curriculum: ${curriculumData.name || 'Untitled curriculum'}`,
       details: curriculumData
     });
     return { success: true, id: docRef.id };
@@ -154,11 +154,11 @@ export const addCourse = async (curriculumId, yearLevel, semester, courseData) =
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Created course',
+      action: 'Created Course Record',
       module: 'Curriculum Checker',
       entityType: 'course',
       entityId: docRef.id,
-      description: `created course ${courseData.courseCode || ''} ${courseData.courseTitle || ''}`.trim(),
+      description: `Created course ${courseData.courseCode || ''} - ${courseData.courseTitle || ''}`.trim(),
       details: { curriculumId, yearLevel, semester, ...courseData }
     });
     return { success: true, id: docRef.id };
@@ -202,25 +202,44 @@ export const getAllCourses = async () => {
 export const addStudent = async (studentData) => {
   try {
     const isIrregular = !!studentData.isIrregular;
+    const normalizedStudentNumber = (studentData.studentNumber || studentData.studentNo || '').toString().trim();
+    const normalizedEmail = (studentData.email || studentData.studentEmail || '').toString().trim();
+    const normalizedContactNumber = (studentData.contactNumber || studentData.contact || studentData.phoneNumber || '').toString().trim();
+    const isEnrolled = studentData.enrolled === true;
+    const enrolledTerm = isEnrolled && studentData.enrolledTerm
+      ? {
+          semester: Number(studentData.enrolledTerm.semester) || 1,
+          schoolYear: studentData.enrolledTerm.schoolYear || ''
+        }
+      : null;
     const docRef = await addDoc(collection(db, 'students'), {
       name: studentData.name,
+      studentNumber: normalizedStudentNumber,
+      email: normalizedEmail,
+      contactNumber: normalizedContactNumber,
       yearLevel: studentData.yearLevel,
       curriculumId: isIrregular ? null : studentData.curriculumId,
       completedCourses: [], // Array of course codes
       isIrregular,
-      enrolled: studentData.enrolled === true,
+      enrolled: isEnrolled,
+      enrolledTerm,
       semesterLoads: studentData.semesterLoads || { sem1: [], sem2: [] },
       irregularSubjects: studentData.irregularSubjects || { sem1: [], sem2: [] },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Created student',
-      module: 'Curriculum Checker',
+      action: 'Created Student Record',
+      module: 'Student Management',
       entityType: 'student',
       entityId: docRef.id,
-      description: `created student ${studentData.name || 'Unnamed student'}`,
-      details: studentData
+      description: `Created student record for ${studentData.name || 'Unnamed student'} ${studentData.enrolled ? '(enrolled)' : '(not enrolled)'}`,
+      details: {
+        studentName: studentData.name,
+        enrolled: isEnrolled,
+        enrolledTerm,
+        ...studentData
+      }
     });
     return { success: true, id: docRef.id };
   } catch (error) {
@@ -235,7 +254,11 @@ export const getStudents = async () => {
     const querySnapshot = await getDocs(q);
     const students = querySnapshot.docs.map(doc => ({
       id: doc.id,
-      ...doc.data()
+      ...doc.data(),
+      // Normalize legacy/alternate keys so UI always displays core fields.
+      studentNumber: doc.data()?.studentNumber || doc.data()?.studentNo || '',
+      email: doc.data()?.email || doc.data()?.studentEmail || '',
+      contactNumber: doc.data()?.contactNumber || doc.data()?.contact || doc.data()?.phoneNumber || ''
     }));
     return { success: true, data: students };
   } catch (error) {
@@ -254,7 +277,10 @@ export const getStudentsByYearLevel = async (yearLevel) => {
     const querySnapshot = await getDocs(q);
     const students = querySnapshot.docs.map(doc => ({
       id: doc.id,
-      ...doc.data()
+      ...doc.data(),
+      studentNumber: doc.data()?.studentNumber || doc.data()?.studentNo || '',
+      email: doc.data()?.email || doc.data()?.studentEmail || '',
+      contactNumber: doc.data()?.contactNumber || doc.data()?.contact || doc.data()?.phoneNumber || ''
     }));
     return { success: true, data: students };
   } catch (error) {
@@ -287,11 +313,11 @@ export const updateStudentCourse = async (studentId, courseCode, isCompleted) =>
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: isCompleted ? 'Marked course completed' : 'Unmarked course completed',
+      action: isCompleted ? 'Marked Course As Completed' : 'Unmarked Course As Completed',
       module: 'Curriculum Checker',
       entityType: 'student',
       entityId: studentId,
-      description: `${isCompleted ? 'Marked' : 'Unmarked'} ${courseCode} for student ${studentId}`,
+      description: `${isCompleted ? 'Marked' : 'Unmarked'} course ${courseCode} as completed for student ${studentId}`,
       details: { courseCode, isCompleted }
     });
     
@@ -339,7 +365,11 @@ export const getStudentCurriculumStatus = async (studentId) => {
     const getAllEquivalentPrerequisites = (course) => {
       if (!course.equivalentSubjectId) return course.prerequisites || [];
       // Find all courses with the same equivalentSubjectId
-      const equivalents = allCourses.filter(c => c.equivalentSubjectId === course.equivalentSubjectId);
+      const equivalents = allCourses.filter(c => 
+        c.equivalentSubjectId === course.equivalentSubjectId && 
+        c.id !== course.id
+      );
+      
       // Union of all prerequisites
       const allPrereqs = new Set();
       equivalents.forEach(eq => {
@@ -513,11 +543,11 @@ export const saveDeanListCriteria = async (criteria = {}) => {
     // Keep legacy document updated for compatibility with existing dashboards/manual checks.
     await setDoc(LEGACY_DEAN_LIST_CRITERIA_DOC, payload, { merge: true });
     await logSystemAction({
-      action: 'Updated dean list criteria',
+      action: 'Updated Dean List Criteria',
       module: 'Reports',
       entityType: 'setting',
       entityId: 'dean_list_criteria',
-      description: 'Updated Dean\'s List criteria',
+      description: 'Updated Dean\'s List eligibility criteria',
       details: payload
     });
     return { success: true, data: payload };

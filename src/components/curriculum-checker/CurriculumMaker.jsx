@@ -4,9 +4,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import { doc, deleteDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { FileText } from 'lucide-react';
-import CurriculumPreview from './CurriculumPReview';
+import { toast } from 'react-hot-toast';
+import CurriculumPreview from './CurriculumPreview';
 import { X, ChevronUp, ChevronDown, MoreVertical, ChevronsUpDown, Pencil, Trash, Printer, BadgePlus, Check , Search, Folder, RefreshCw } from 'lucide-react';
 import { logSystemAction } from '../../utils/auditLogger';
+import Breadcrumbs from '../common/Breadcrumbs';
 
 const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const { currentUser, isOnline } = useAuth();
@@ -330,11 +332,11 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
         updatedAt: new Date()
       });
       await logSystemAction({
-        action: 'Updated curriculum',
+        action: 'Updated Curriculum Record',
         module: 'Curriculum Checker',
         entityType: 'curriculum',
         entityId: selectedCurriculumForMenu.id,
-        description: `Updated curriculum: ${editingCurriculumData.name || selectedCurriculumForMenu.id}`,
+        description: `Updated curriculum record: ${editingCurriculumData.name || selectedCurriculumForMenu.id}`,
         details: editingCurriculumData
       });
       
@@ -376,11 +378,11 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       
       await batch.commit();
       await logSystemAction({
-        action: 'Deleted curriculum',
+        action: 'Deleted Curriculum Record',
         module: 'Curriculum Checker',
         entityType: 'curriculum',
         entityId: selectedCurriculumForMenu.id,
-        description: `Deleted curriculum and associated courses: ${selectedCurriculumForMenu.name || selectedCurriculumForMenu.id}`,
+        description: `Deleted curriculum record and all associated courses: ${selectedCurriculumForMenu.name || selectedCurriculumForMenu.id}`,
         details: { curriculumId: selectedCurriculumForMenu.id }
       });
       showMessage('Curriculum and all associated courses deleted successfully!');
@@ -596,11 +598,11 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       
       await batch.commit();
       await logSystemAction({
-        action: 'Updated course',
+        action: 'Updated Course Record',
         module: 'Curriculum Checker',
         entityType: 'course',
-        entityId: editingCourse.id,
-        description: `Updated course: ${courseForm.courseCode || editingCourse.id}`,
+        entityId: editingCourse,
+        description: `Updated course record: ${courseForm.courseCode || editingCourse}`,
         details: courseForm
       });
       showMessage('Course updated successfully!');
@@ -628,11 +630,11 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     try {
       await deleteDoc(doc(db, 'courses', courseId));
       await logSystemAction({
-        action: 'Deleted course',
+        action: 'Deleted Course Record',
         module: 'Curriculum Checker',
         entityType: 'course',
         entityId: courseId,
-        description: `Deleted course ${courseId}`
+        description: `Deleted course record ${courseId}`
       });
       showMessage('Course deleted successfully!');
       await loadCourses(selectedCurriculum.id);
@@ -767,12 +769,12 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       });
       await batch.commit();
       await logSystemAction({
-        action: checked ? 'Marked semester courses available' : 'Marked semester courses unavailable',
+        action: checked ? 'Marked Courses As Available' : 'Marked Courses As Unavailable',
         module: 'Curriculum Checker',
         entityType: 'courseBatch',
         entityId: selectedCurriculum.id,
-        description: `${checked ? 'Marked available' : 'Marked unavailable'} courses for year ${yearLevel}, semester ${semester}`,
-        details: { curriculumId: selectedCurriculum.id, yearLevel, semester, isAvailable: checked }
+        description: `${checked ? 'Marked available' : 'Marked unavailable'} all courses for year ${year}, semester ${semester}`,
+        details: { curriculumId: selectedCurriculum.id, year, semester, isAvailable: checked }
       });
       showMessage(`Courses ${checked ? 'marked available' : 'marked unavailable'} for this semester.`);
       await loadCourses(selectedCurriculum.id);
@@ -813,6 +815,14 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
 
     return (
       <div className="space-y-4">
+
+        <div>
+            <h1 className="text-xl font-bold mb-1 text-gray-800">Curriculums</h1>
+        <p className="text-gray-500 text-sm max-w-3xl">
+          Manage your curriculums here. Click on a curriculum to view and edit its courses. Use the buttons on the right of each curriculum to edit or delete it.
+        </p>
+        </div>
+
        <div className="flex items-center justify-between">
         {/* Left Side */}
         <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
@@ -821,7 +831,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
             onClick={loadCurriculums}
             disabled={loading}
             title="Refresh curriculums"
-            className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-gray-300 text-blue-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -833,7 +843,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
               value={curriculumSearch}
               onChange={(event) => setCurriculumSearch(event.target.value)}
               placeholder="Search curriculum"
-              className="h-10 w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
             />
           </div>
 
@@ -843,7 +853,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
         <div className="flex items-center gap-2">
           <button
                   onClick={() => setCurriculumDialogOpen(true)}
-                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm text-white hover:bg-blue-700"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm cursor-pointer bg-green-500 hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-300 transition"
                 >
                   <BadgePlus className="h-4 w-4" />
                   <span>Add Curriculum</span>
@@ -853,23 +863,24 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       </div>
 
         {loading ? renderCurriculumSkeleton() : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {visibleCurriculums.map((curriculum) => (
               <div
                 key={curriculum.id}
                 onClick={() => setSelectedCurriculum(curriculum)}
-                className="group relative min-h-36 cursor-pointer rounded-xl border border-gray-300 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md"
+                className="group relative  cursor-pointer rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md"
               >
 
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4">
+                    <div className=" flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
                       <Folder className="h-5 w-5" />
                     </div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                   <div>
+                     <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
                       Curriculum
                     </p>
-                    <h3 className="mt-1 truncate text-base font-semibold text-blue-800">
+                    <h3 className="truncate text-base font-semibold text-blue-800">
                       {curriculum.name}
                     </h3>
                     {curriculum.description && (
@@ -877,6 +888,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
                         {curriculum.description}
                       </p>
                     )}
+                   </div>
                   </div>
 
                   <div className="relative shrink-0" data-curriculum-menu>
@@ -957,6 +969,13 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
 
     return (
       <div>
+
+        <div className='mb-4'>
+          <h1 className="text-xl font-bold mb-1 text-gray-800">Curriculum Maker</h1>
+          <p className="text-gray-500 text-sm max-w-3xl">
+            Manage and overview the courses in the curriculum. Click on a course to edit its details, or use the buttons on the right to add new courses, print the curriculum, or switch between year levels.
+          </p>
+        </div>
     
 
       <div className='flex items-center justify-between gap-4'>
@@ -1337,41 +1356,19 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
 
   return (
     <div className=" max-w-7xl mx-auto flex flex-col">
-      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-gray-600 hover:text-blue-600"
-        >
-          Dashboard
-        </button>
-        <span className="text-gray-300">&gt;</span>
-        <button
-          type="button"
-          onClick={() => selectedCurriculum ? setSelectedCurriculum(null) : onBack?.()}
-          className={`text-left ${selectedCurriculum ? 'text-gray-600 hover:text-blue-600' : 'font-medium text-blue-600'}`}
-        >
-          Curriculum Maker
-        </button>
-        {selectedCurriculum && (
-          <>
-            <span className="text-gray-300">&gt;</span>
-            <span className="font-medium text-blue-600">{selectedCurriculum.name}</span>
-          </>
-        )}
-      </div>
+      <Breadcrumbs
+        items={[
+          { label: 'Curriculum Maker', onClick: selectedCurriculum ? () => setSelectedCurriculum(null) : null },
+          ...(selectedCurriculum ? [{ label: selectedCurriculum.name }] : [])
+        ]}
+      />
       {!currentUser && (
         <div className="mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-4 py-2">
           Please sign in to access the Curriculum Maker
         </div>
       )}
 
-      {error && (
-        <div className="mb-2 rounded border border-red-200 bg-red-50 text-red-800 px-4 py-2">{error}</div>
-      )}
-      {success && (
-        <div className="mb-2 rounded border border-green-200 bg-green-50 text-green-800 px-4 py-2">{success}</div>
-      )}
+      {/* status messages shown via toast notifications */}
 
       {currentUser ? (
         <div className=" w-full">
@@ -1549,7 +1546,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
               </button>
             </div>
             <div className="h-[80vh] overflow-auto">
-              <CurriculumPDF curriculum={selectedCurriculum} />
+              <CurriculumPreview curriculum={selectedCurriculum} />
             </div>
           </div>
         </div>

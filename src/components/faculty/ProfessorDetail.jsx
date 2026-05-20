@@ -18,6 +18,7 @@ import {
   ChevronDown,
   ChevronsUpDown
 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { getCurriculums, getCoursesByCurriculum, getStudents } from '../../models/curriculumModels';
@@ -26,6 +27,9 @@ import {
   unassignCourseFromProfessor,
   updateAssignedCourseBlocks,
   getStudentsForCourse,
+  getIrregularStudentsForProfessor,
+  setStudentEnrollment,
+  setStudentNotEnrolled,
   getOtherDepartments,
   getOtherDeptClasses
 } from '../../models/facultyModels';
@@ -37,14 +41,23 @@ const YEAR_TABS = [
   { value: 1, label: '1st Year' },
   { value: 2, label: '2nd Year' },
   { value: 3, label: '3rd Year' },
-  { value: 4, label: '4th Year' }
+  { value: 4, label: '4th Year' },
+  { value: 'irregular', label: 'Irregular' }
 ];
 
-const BlockToggle = ({ value, onChange, availableBlocks = [] }) => {
+const IRREGULAR_MODAL_TAB = '__irregular_students__';
+
+const BlockToggle = ({ value, onChange, availableBlocks = [], unavailableBlocks = [] }) => {
   const blocksToShow = availableBlocks.length > 0 ? availableBlocks : ['A'];
+  const unavailableSet = new Set(
+    (unavailableBlocks || [])
+      .map(b => (b || '').toString().trim().toUpperCase())
+      .filter(Boolean)
+  );
 
   const toggle = (b) => {
     const has = value.includes(b);
+    if (!has && unavailableSet.has(b)) return;
     onChange(has ? value.filter(x => x !== b) : [...value, b].sort());
   };
 
@@ -52,6 +65,7 @@ const BlockToggle = ({ value, onChange, availableBlocks = [] }) => {
     <div className="flex flex-wrap gap-1.5">
       {blocksToShow.map(b => {
         const active = value.includes(b);
+        const unavailable = unavailableSet.has(b) && !active;
         return (
           <button
             key={b}
@@ -60,8 +74,12 @@ const BlockToggle = ({ value, onChange, availableBlocks = [] }) => {
             className={`min-w-[34px] rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
               active
                 ? 'border-blue-600 bg-blue-600 text-white'
-                : 'border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700'
+                : unavailable
+                  ? 'border-gray-200 bg-white text-gray-500 opacity-40 cursor-not-allowed'
+                  : 'border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700'
             }`}
+            title={unavailable ? 'Assigned to another professor' : undefined}
+            disabled={unavailable}
           >
             {b}
           </button>
@@ -95,24 +113,32 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
   const [pickerSemesterFilter, setPickerSemesterFilter] = useState('all');
   // ── NEW: year tab inside picker for CCS subjects ──
   const [pickerYearTab, setPickerYearTab] = useState(1);
+  const [pickerCourseBlocks, setPickerCourseBlocks] = useState({});
   // ── NEW: sorting inside CCS picker table ──
   const [pickerSortBy, setPickerSortBy] = useState('courseCode');
   const [pickerSortOrder, setPickerSortOrder] = useState('asc');
   const [pickerError, setPickerError] = useState('');
   const [savingCourseIds, setSavingCourseIds] = useState(() => new Set());
-  // ── course IDs already assigned to ANY other professor (system-wide) ──
-  const [allAssignedCourseIds, setAllAssignedCourseIds] = useState(new Set());
+  // ── blocks already assigned to OTHER professors: { [courseId]: string[] } ──
+  const [assignedBlocksByOthers, setAssignedBlocksByOthers] = useState({});
 
   const [otherDepts, setOtherDepts] = useState([]);
   const [otherDeptId, setOtherDeptId] = useState('');
   const [otherClasses, setOtherClasses] = useState([]);
   const [otherClassesLoading, setOtherClassesLoading] = useState(false);
   const [otherSelectedClass, setOtherSelectedClass] = useState(null);
+  const [otherSelectedCourse, setOtherSelectedCourse] = useState('');
   const [otherCurriculumId, setOtherCurriculumId] = useState('');
   const [otherCurriculumCourses, setOtherCurriculumCourses] = useState([]);
   const [otherCurriculumLoading, setOtherCurriculumLoading] = useState(false);
   const [otherSubjectSearch, setOtherSubjectSearch] = useState('');
   const [otherBlocks, setOtherBlocks] = useState([]);
+  const [otherBlockModalOpen, setOtherBlockModalOpen] = useState(false);
+  const [otherModalCourse, setOtherModalCourse] = useState(null);
+  const [otherModalBlocks, setOtherModalBlocks] = useState([]);
+  const [ccsBlockModalOpen, setCcsBlockModalOpen] = useState(false);
+  const [ccsModalCourse, setCcsModalCourse] = useState(null);
+  const [ccsModalBlocks, setCcsModalBlocks] = useState([]);
   const [otherError, setOtherError] = useState('');
   const [otherSemesterFilter, setOtherSemesterFilter] = useState('all');
   // ── sort + year-tab state for Other Dept subject table ──
@@ -123,6 +149,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
   const [editingBlocksFor, setEditingBlocksFor] = useState(null);
   const [editingBlocksValue, setEditingBlocksValue] = useState([]);
   const [savingBlocks, setSavingBlocks] = useState(false);
+  const [blockModalOpen, setBlockModalOpen] = useState(false);
 
   const [selectedSubject, setSelectedSubject] = useState(null);
   const [students, setStudents] = useState([]);
@@ -130,8 +157,34 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
   const [studentSearch, setStudentSearch] = useState('');
   // Active block tab in the students modal
   const [activeBlockTab, setActiveBlockTab] = useState(null);
+  const [studentSort, setStudentSort] = useState({ key: 'name', direction: 'asc' });
+
+  const [irregularStudents, setIrregularStudents] = useState([]);
+  const [irregularLoading, setIrregularLoading] = useState(false);
+  const [irregularError, setIrregularError] = useState('');
+  const [enrollingStudentId, setEnrollingStudentId] = useState(null);
+
+  const [isAddingIrregularStudent, setIsAddingIrregularStudent] = useState(false);
+  const [manualIrregularName, setManualIrregularName] = useState('');
+  const [manualIrregularNumber, setManualIrregularNumber] = useState('');
+  const [manualIrregularBlock, setManualIrregularBlock] = useState('');
+  const [manualIrregularError, setManualIrregularError] = useState('');
 
   const [confirmUnassign, setConfirmUnassign] = useState(null);
+  const [confirmIrregularAction, setConfirmIrregularAction] = useState(null);
+
+  // Edit assignment modal state
+  const [editAssignmentOpen, setEditAssignmentOpen] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState(null);
+  const [editForm, setEditForm] = useState({
+    courseCode: '',
+    courseTitle: '',
+    units: '',
+    yearLevel: '',
+    semester: '',
+    blocks: []
+  });
+  const [savingAssignment, setSavingAssignment] = useState(false);
 
   // Ref to track previous term to detect changes
   const previousTermRef = useRef(null);
@@ -192,9 +245,14 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
         bValue = Number(b.units) || 0;
         return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
       }
-      if (sortBy === 'yearBlock') {
-        aValue = getYearBlockLabel(a).toUpperCase();
-        bValue = getYearBlockLabel(b).toUpperCase();
+      if (sortBy === 'yearLevel') {
+        aValue = Number(a.yearLevel) || 0;
+        bValue = Number(b.yearLevel) || 0;
+        return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
+      }
+      if (sortBy === 'blocks') {
+        aValue = (a.blocks || []).join(', ').toUpperCase();
+        bValue = (b.blocks || []).join(', ').toUpperCase();
       } else if (sortBy === 'curriculum') {
         aValue = (a.source === 'other-department' ? a.departmentName : a.curriculumName || '').toString().toUpperCase();
         bValue = (b.source === 'other-department' ? b.departmentName : b.curriculumName || '').toString().toUpperCase();
@@ -207,11 +265,13 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
   }, [assignedCourses, assignedYearTab, sortBy, sortOrder]);
 
   const assignedYearCounts = useMemo(() => {
-    return YEAR_TABS.reduce((acc, year) => {
+    const counts = YEAR_TABS.reduce((acc, year) => {
       acc[year.value] = assignedCourses.filter(c => Number(c.yearLevel) === year.value).length;
       return acc;
     }, {});
-  }, [assignedCourses]);
+    counts['irregular'] = irregularStudents.length;
+    return counts;
+  }, [assignedCourses, irregularStudents.length]);
 
   const totalBlocksHandled = useMemo(() => {
     const blocks = new Set();
@@ -234,11 +294,36 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     return blocks;
   };
 
+  const normalizeBlockList = (blocks = []) =>
+    Array.from(new Set(
+      (blocks || [])
+        .map(b => (b || '').toString().trim().toUpperCase())
+        .filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b));
+
+  const getTakenBlocksForCourse = (courseId) =>
+    assignedBlocksByOthers[courseId] || [];
+
+  const getFreeBlocksForCourse = (courseId, candidateBlocks = []) => {
+    const taken = new Set(getTakenBlocksForCourse(courseId));
+    return normalizeBlockList(candidateBlocks).filter(block => !taken.has(block));
+  };
+
   const getAvailableBlocksForAssignment = (assignment) => {
     if (assignment?.source === 'other-department') {
       return assignment.blocks?.length ? assignment.blocks : ['A'];
     }
     return getBlocksForYear(assignment?.yearLevel, false);
+  };
+
+  const getEditableBlocksForAssignment = (assignment) => {
+    if (!assignment?.courseId) return { allBlocks: [], blockedByOthers: [] };
+    const ownBlocks = normalizeBlockList(assignment.blocks || []);
+    const allBlocks = normalizeBlockList(getAvailableBlocksForAssignment(assignment));
+    const blockedByOthers = normalizeBlockList(
+      getTakenBlocksForCourse(assignment.courseId).filter(block => !ownBlocks.includes(block))
+    );
+    return { allBlocks, blockedByOthers };
   };
 
   const refreshProfessor = async ({ tableOnly = false } = {}) => {
@@ -253,11 +338,11 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
       if (professorSnap.exists()) {
         setProfessor({ id: professorSnap.id, ...professorSnap.data() });
       } else {
-        setError('Professor not found.');
+        toast.error('Professor not found.');
       }
       if (studentsRes.success) setStudentsSource(studentsRes.data);
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message || 'Failed to load professor.');
     }
     if (tableOnly) setTableLoading(false);
     else setLoading(false);
@@ -319,15 +404,22 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
         // Refresh professor data
         await refreshProfessor({ tableOnly: true });
         
-        // Refresh allAssignedCourseIds to allow reassignment
+        // Refresh block occupancy to allow reassignment of free blocks
         const allProfsSnap = await getDocs(collection(db, 'professors'));
-        const taken = new Set();
+        const taken = {};
         allProfsSnap.forEach(snap => {
           if (snap.id === professorId) return;
           const courses = snap.data()?.assignedCourses || [];
-          courses.forEach(c => taken.add(c.courseId));
+          courses.forEach(c => {
+            const key = c.courseId;
+            const blocks = normalizeBlockList(c.blocks);
+            const blockList = blocks.length > 0 ? blocks : ['A'];
+            taken[key] = taken[key] || [];
+            taken[key].push(...blockList);
+            taken[key] = normalizeBlockList(taken[key]);
+          });
         });
-        setAllAssignedCourseIds(taken);
+        setAssignedBlocksByOthers(taken);
       } catch (err) {
         console.error('Failed to reset assignments:', err);
       }
@@ -343,11 +435,83 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     setActiveBlockTab(null);
   };
 
+  const loadIrregularStudents = async () => {
+    if (!professorId || !activeTerm?.semester || !activeTerm?.schoolYear) {
+      setIrregularStudents([]);
+      return;
+    }
+    setIrregularError('');
+    setIrregularLoading(true);
+    try {
+      const res = await getIrregularStudentsForProfessor(professorId, activeTerm);
+      if (res.success) {
+        setIrregularStudents(res.data);
+      } else {
+        setIrregularStudents([]);
+        toast.error(res.error || 'Failed to load irregular students.');
+      }
+    } catch (err) {
+      setIrregularStudents([]);
+      toast.error(err.message || 'Failed to load irregular students.');
+    } finally {
+      setIrregularLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (assignedYearTab === 'irregular') {
+      loadIrregularStudents();
+    }
+  }, [assignedYearTab, professorId, activeTerm]);
+
+  const scheduleIrregularStudentAction = (student, action) => {
+    setConfirmIrregularAction({ student, action });
+  };
+
+  const executeIrregularStudentAction = async () => {
+    if (!confirmIrregularAction?.student || !confirmIrregularAction?.action) return;
+    const { student, action } = confirmIrregularAction;
+
+    if (!activeTerm?.semester || !activeTerm?.schoolYear) {
+      toast.error('Please select an active term to update the student enrollment.');
+      setConfirmIrregularAction(null);
+      return;
+    }
+
+    setError('');
+    setEnrollingStudentId(student.id);
+    setConfirmIrregularAction(null);
+
+    try {
+      const res = action === 'unenroll'
+        ? await setStudentNotEnrolled(student.id)
+        : await setStudentEnrollment(student.id, activeTerm);
+
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to update the student enrollment.');
+      }
+
+      setIrregularStudents(prev => prev.map(s => (
+        s.id === student.id
+          ? {
+            ...s,
+            enrolledTerm: action === 'unenroll' ? {} : { semester: Number(activeTerm.semester), schoolYear: activeTerm.schoolYear }
+          }
+          : s
+      )));
+    } catch (err) {
+      toast.error(err.message || 'Failed to update the student enrollment.');
+    } finally {
+      setEnrollingStudentId(null);
+    }
+  };
+
   // Tabs are driven by assignment.blocks (what blocks the professor was assigned),
   // NOT by what blocks happen to appear in the fetched student list.
   // This ensures Block A and Block B tabs always appear when both were assigned,
   // even if the returned students all share the same block value in the DB.
   const availableBlocks = useMemo(() => {
+    const regularStudents = students.filter(s => !s.isIrregular);
     const assigned = selectedSubject?.blocks;
     if (assigned && assigned.length > 0) {
       return [...assigned]
@@ -356,7 +520,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     }
     // Fallback: derive from actual student block fields
     const set = new Set();
-    students.forEach(s => {
+    regularStudents.forEach(s => {
       const b = s.block && String(s.block).trim() !== ''
         ? String(s.block).trim().toUpperCase()
         : 'A';
@@ -366,25 +530,68 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     return sorted.length > 0 ? sorted : ['A'];
   }, [selectedSubject, students]);
 
-  // Auto-select first block when tabs change; preserve current tab if it still exists
-  useEffect(() => {
-    if (availableBlocks.length > 0) {
-      setActiveBlockTab(prev => {
-        if (prev && availableBlocks.includes(prev)) return prev;
-        return availableBlocks[0];
+  const irregularStudentsForSubject = useMemo(
+    () => students.filter(s => s.isIrregular),
+    [students]
+  );
+
+  const modalTabs = useMemo(() => {
+    const blockTabs = availableBlocks.map(block => {
+      const count = students.filter(s => {
+        if (s.isIrregular) return false;
+        const b = s.block && String(s.block).trim() !== ''
+          ? String(s.block).trim().toUpperCase()
+          : 'A';
+        return b === block;
+      }).length;
+      return { value: block, label: `Block ${block}`, count };
+    });
+
+    if (irregularStudentsForSubject.length > 0) {
+      blockTabs.push({
+        value: IRREGULAR_MODAL_TAB,
+        label: 'Irregular',
+        count: irregularStudentsForSubject.length
       });
     }
-  }, [availableBlocks]);
+
+    return blockTabs;
+  }, [availableBlocks, students, irregularStudentsForSubject.length]);
+
+  // Auto-select first student tab when tabs change; preserve current tab if it still exists
+  useEffect(() => {
+    if (modalTabs.length > 0) {
+      setActiveBlockTab(prev => {
+        if (prev && modalTabs.some(tab => tab.value === prev)) return prev;
+        return modalTabs[0].value;
+      });
+    }
+  }, [modalTabs]);
 
   // Students shown in the table = those whose block field matches the active tab,
   // further narrowed by search. Blank block field defaults to 'A' (same as StudentManagement).
   const filteredStudents = useMemo(() => {
     const q = studentSearch.trim().toLowerCase();
+    const onIrregularTab = activeBlockTab === IRREGULAR_MODAL_TAB;
+
     return students.filter(s => {
+      if (onIrregularTab) {
+        if (!s.isIrregular) return false;
+        if (!q) return true;
+        return (
+          (s.name || '').toLowerCase().includes(q) ||
+          (s.studentNumber || '').toLowerCase().includes(q)
+        );
+      }
+
+      if (s.isIrregular) return false;
+
+      // For regular tabs, filter by block
       const block = s.block && String(s.block).trim() !== ''
         ? String(s.block).trim().toUpperCase()
         : 'A';
-      if (block !== activeBlockTab) return false;
+      // If activeBlockTab is not set yet, show all students
+      if (activeBlockTab && block !== activeBlockTab) return false;
       if (!q) return true;
       return (
         (s.name || '').toLowerCase().includes(q) ||
@@ -393,10 +600,57 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     });
   }, [students, studentSearch, activeBlockTab]);
 
+  // Sort filtered students by name (default) or school ID
+  const sortedStudents = useMemo(() => {
+    if (!filteredStudents) return [];
+    return [...filteredStudents].sort((a, b) => {
+      const direction = studentSort.direction === 'asc' ? 1 : -1;
+      if (studentSort.key === 'name') {
+        return direction * (a.name || '').localeCompare(b.name || '');
+      }
+      if (studentSort.key === 'studentNumber') {
+        return direction * ((a.studentNumber || '').localeCompare(b.studentNumber || ''));
+      }
+      return 0;
+    });
+  }, [filteredStudents, studentSort]);
+
+  const addManualIrregularStudent = () => {
+    const name = (manualIrregularName || '').trim();
+    const studentNumber = (manualIrregularNumber || '').trim();
+    const blockValue = (manualIrregularBlock || '').trim().toUpperCase() || 'A';
+
+    if (!name) {
+      toast.error('Enter the student name.');
+      return;
+    }
+    if (!studentNumber) {
+      toast.error('Enter the student number.');
+      return;
+    }
+
+    const newStudent = {
+      id: `manual-irregular-${Date.now()}`,
+      name,
+      studentNumber,
+      block: blockValue,
+      isIrregular: true,
+      manualEntry: true
+    };
+
+    setStudents(prev => [...prev, newStudent]);
+    setManualIrregularName('');
+    setManualIrregularNumber('');
+    setManualIrregularBlock('');
+    setManualIrregularError('');
+    setIsAddingIrregularStudent(false);
+  };
+
   const resetOtherForm = () => {
     setOtherDeptId('');
     setOtherClasses([]);
     setOtherSelectedClass(null);
+    setOtherSelectedCourse('');
     setOtherCurriculumId('');
     setOtherCurriculumCourses([]);
     setOtherSubjectSearch('');
@@ -415,6 +669,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     setPickerCurriculumId('');
     setPickerCourses([]);
     setPickerYearTab(1); // ── NEW: reset to 1st Year on open
+    setPickerCourseBlocks({});
     setPickerError('');
     resetOtherForm();
     const [curRes, deptRes, studentsRes, allProfsSnap] = await Promise.all([
@@ -426,14 +681,21 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     if (curRes.success) setCurriculums(curRes.data);
     if (deptRes.success) setOtherDepts(deptRes.data);
     if (studentsRes.success) setStudentsSource(studentsRes.data);
-    // Build set of course IDs assigned to OTHER professors
-    const taken = new Set();
+    // Build map of blocks assigned to OTHER professors per course
+    const taken = {};
     allProfsSnap.forEach(snap => {
       if (snap.id === professorId) return; // skip current professor
       const courses = snap.data()?.assignedCourses || [];
-      courses.forEach(c => taken.add(c.courseId));
+      courses.forEach(c => {
+        const key = c.courseId;
+        const blocks = normalizeBlockList(c.blocks);
+        const blockList = blocks.length > 0 ? blocks : ['A'];
+        taken[key] = taken[key] || [];
+        taken[key].push(...blockList);
+        taken[key] = normalizeBlockList(taken[key]);
+      });
     });
-    setAllAssignedCourseIds(taken);
+    setAssignedBlocksByOthers(taken);
   };
 
   useEffect(() => {
@@ -449,12 +711,18 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
 
   useEffect(() => {
     const loadOtherClasses = async () => {
-      if (!otherDeptId) { setOtherClasses([]); setOtherSelectedClass(null); return; }
+      if (!otherDeptId) {
+        setOtherClasses([]);
+        setOtherSelectedClass(null);
+        setOtherSelectedCourse('');
+        return;
+      }
       setOtherClassesLoading(true);
       const res = await getOtherDeptClasses(otherDeptId);
       if (res.success) setOtherClasses(res.data);
       setOtherClassesLoading(false);
       setOtherSelectedClass(null);
+      setOtherSelectedCourse('');
       setOtherBlocks([]);
     };
     loadOtherClasses();
@@ -592,11 +860,47 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     }, {});
   }, [filteredOtherCourses]);
 
+  const otherCourseOptions = useMemo(() => {
+    return Array.from(new Set(
+      otherClasses
+        .map(c => (c.course || '').toString().trim())
+        .filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [otherClasses]);
+
+  const otherYearOptions = useMemo(() => {
+    if (!otherSelectedCourse) return [];
+    return otherClasses
+      .filter(c => (c.course || '').toString().trim().toLowerCase() === otherSelectedCourse.toLowerCase())
+      .sort((a, b) => Number(a.yearLevel) - Number(b.yearLevel));
+  }, [otherClasses, otherSelectedCourse]);
+
+  const otherSelectionComplete = Boolean(
+    otherDeptId &&
+    otherCurriculumId &&
+    otherSelectedCourse &&
+    otherSelectedClass
+  );
+
   const OtherSortIcon = ({ col }) => {
     if (otherSortBy !== col) return <ChevronsUpDown className="ml-1 inline-flex h-3 w-3 opacity-60" />;
     return otherSortOrder === 'asc'
       ? <ChevronUp className="ml-1 inline-flex h-3 w-3" />
       : <ChevronDown className="ml-1 inline-flex h-3 w-3" />;
+  };
+
+  const StudentSortIcon = ({ column }) => {
+    if (studentSort.key !== column) return <ChevronsUpDown className="ml-1 inline-flex h-3 w-3 opacity-60" />;
+    return studentSort.direction === 'asc'
+      ? <ChevronUp className="ml-1 inline-flex h-3 w-3" />
+      : <ChevronDown className="ml-1 inline-flex h-3 w-3" />;
+  };
+
+  const handleStudentSort = (key) => {
+    setStudentSort(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
   };
 
   const setCourseSaving = (courseId, isSaving) => {
@@ -608,14 +912,25 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     });
   };
 
+  const getPickerBlocksForCourse = (course) => {
+    if (!course?.id) return [];
+    return pickerCourseBlocks[course.id] || [];
+  };
+
+  const setPickerBlocksForCourse = (courseId, blocks) => {
+    setPickerCourseBlocks(prev => ({
+      ...prev,
+      [courseId]: blocks
+    }));
+  };
+
   const toggleCcsAssignment = async (course, nextChecked) => {
     if (!pickerCurriculumId) {
-      setPickerError('Select a curriculum first.');
+      toast.error('Select a curriculum first.');
       return;
     }
     if (!course?.id) return;
     const courseId = course.id;
-    if (allAssignedCourseIds.has(courseId)) return;
 
     setPickerError('');
     setError('');
@@ -623,7 +938,18 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     try {
       if (nextChecked) {
         const curriculum = curriculums.find(c => c.id === pickerCurriculumId);
-        const blocks = getBlocksForYear(course.yearLevel, false);
+        const blocks = pickerCourseBlocks[course.id] || [];
+        if (blocks.length === 0) {
+          toast.error('Select blocks before assigning this subject.');
+          return;
+        }
+
+        const freeBlocks = getFreeBlocksForCourse(courseId, blocks);
+        if (freeBlocks.length === 0) {
+          toast.error('Selected blocks are already assigned to other professors.');
+          return;
+        }
+
         const res = await assignCourseToProfessor(professorId, {
           courseId,
           courseCode: course.courseCode,
@@ -633,12 +959,14 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
           yearLevel: course.yearLevel,
           semester: course.semester,
           units: course.units,
-          blocks
+          blocks: freeBlocks
         });
-        if (!res.success) setPickerError(res.error || 'Failed to assign subject.');
+        if (!res.success) toast.error(res.error || 'Failed to assign subject.');
+        else toast.success('Subject assigned.');
       } else {
         const res = await unassignCourseFromProfessor(professorId, courseId);
-        if (!res.success) setPickerError(res.error || 'Failed to unassign subject.');
+        if (!res.success) toast.error(res.error || 'Failed to unassign subject.');
+        else toast.success('Subject unassigned.');
       }
       await refreshProfessor({ tableOnly: true });
     } finally {
@@ -655,11 +983,16 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     if (!subject?.id) return;
 
     const courseId = `other::${otherDeptId}::${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}::${subject.id}`;
-    if (allAssignedCourseIds.has(courseId)) return;
 
     setCourseSaving(courseId, true);
     try {
       if (nextChecked) {
+        const freeBlocks = getFreeBlocksForCourse(courseId, otherBlocks);
+        if (freeBlocks.length === 0) {
+          toast.error('Selected blocks are already assigned to other professors.');
+          return;
+        }
+
         const dept = otherDepts.find(d => d.id === otherDeptId);
         const curriculum = curriculums.find(c => c.id === otherCurriculumId);
         const res = await assignCourseToProfessor(professorId, {
@@ -675,12 +1008,14 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
           classCourse: otherSelectedClass.course,
           yearLevel: otherSelectedClass.yearLevel,
           units: Number(subject.units) || 0,
-          blocks: otherBlocks
+          blocks: freeBlocks
         });
-        if (!res.success) setOtherError(res.error || 'Failed to assign class.');
+        if (!res.success) toast.error(res.error || 'Failed to assign class.');
+        else toast.success('Class assigned.');
       } else {
         const res = await unassignCourseFromProfessor(professorId, courseId);
-        if (!res.success) setOtherError(res.error || 'Failed to unassign class.');
+        if (!res.success) toast.error(res.error || 'Failed to unassign class.');
+        else toast.success('Class unassigned.');
       }
       await refreshProfessor({ tableOnly: true });
     } finally {
@@ -688,33 +1023,123 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     }
   };
 
+  const getExistingAssignmentBlocks = (courseId) => {
+    const assignment = assignedCourses.find(c => c.courseId === courseId);
+    return assignment ? normalizeBlockList(assignment.blocks || []) : [];
+  };
+
+  const openOtherBlockModal = (course) => {
+    const otherCourseId = getOtherCourseId(course);
+    const initialBlocks = otherBlocks.length > 0
+      ? normalizeBlockList(otherBlocks)
+      : otherCourseId
+        ? getExistingAssignmentBlocks(otherCourseId)
+        : [];
+
+    setOtherModalCourse(course);
+    setOtherModalBlocks(initialBlocks);
+    setOtherBlockModalOpen(true);
+    setOtherError('');
+  };
+
+  const closeOtherBlockModal = () => {
+    setOtherBlockModalOpen(false);
+    setOtherModalCourse(null);
+    setOtherModalBlocks([]);
+  };
+
+  const saveOtherBlockSelection = () => {
+    if (otherModalBlocks.length === 0) {
+      setOtherError('Select at least one block.');
+      return;
+    }
+    setOtherBlocks(normalizeBlockList(otherModalBlocks));
+    closeOtherBlockModal();
+  };
+
+  const openCcsBlockModal = (course) => {
+    const initialBlocks = pickerCourseBlocks[course.id] || getExistingAssignmentBlocks(course.id);
+    setCcsModalCourse(course);
+    setCcsModalBlocks(normalizeBlockList(initialBlocks));
+    setCcsBlockModalOpen(true);
+    setPickerError('');
+  };
+
+  const closeCcsBlockModal = () => {
+    setCcsBlockModalOpen(false);
+    setCcsModalCourse(null);
+    setCcsModalBlocks([]);
+  };
+
+  const saveCcsBlockSelection = () => {
+    if (ccsModalBlocks.length === 0) {
+      setPickerError('Select at least one block.');
+      return;
+    }
+    setPickerCourseBlocks(prev => ({
+      ...prev,
+      [ccsModalCourse.id]: normalizeBlockList(ccsModalBlocks)
+    }));
+    closeCcsBlockModal();
+  };
+
+  const getOtherCourseId = (course) => {
+    if (!otherSelectedClass || !otherDeptId || !course?.id) return null;
+    return `other::${otherDeptId}::${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}::${course.id}`;
+  };
+
+  const getOtherBlockAvailability = (course) => {
+    const classBlocks = normalizeBlockList(otherSelectedClass?.blocks || []);
+    const courseId = getOtherCourseId(course);
+    const unavailable = courseId ? getTakenBlocksForCourse(courseId) : [];
+    return {
+      availableBlocks: classBlocks,
+      unavailableBlocks: unavailable
+    };
+  };
+
   const startEditBlocks = (assignment) => {
     setEditingBlocksFor(assignment.courseId);
-    setEditingBlocksValue(assignment.blocks || []);
+    setEditingBlocksValue(normalizeBlockList(assignment.blocks || []));
+    setBlockModalOpen(true);
   };
 
   const cancelEditBlocks = () => {
+    setBlockModalOpen(false);
     setEditingBlocksFor(null);
     setEditingBlocksValue([]);
   };
 
   const saveEditBlocks = async () => {
     if (!editingBlocksFor) return;
-    if (editingBlocksValue.length === 0) { setError('Select at least one block.'); return; }
+
+    const assignment = assignedCourses.find(c => c.courseId === editingBlocksFor);
+    const editableConfig = assignment
+      ? getEditableBlocksForAssignment(assignment)
+      : { allBlocks: [], blockedByOthers: [] };
+    const normalizedSelection = normalizeBlockList(editingBlocksValue);
+
+    if (normalizedSelection.length === 0) { toast.error('Select at least one block.'); return; }
+    if (editableConfig.blockedByOthers.length > 0 && normalizedSelection.some(block => editableConfig.blockedByOthers.includes(block))) {
+      toast.error('One or more selected blocks are already assigned to other professors.');
+      return;
+    }
+
     setError('');
     setSavingBlocks(true);
-    const res = await updateAssignedCourseBlocks(professorId, editingBlocksFor, editingBlocksValue);
+    const res = await updateAssignedCourseBlocks(professorId, editingBlocksFor, normalizedSelection);
     setSavingBlocks(false);
     if (res.success) {
       if (selectedSubject?.courseId === editingBlocksFor) {
-        const updated = { ...selectedSubject, blocks: editingBlocksValue };
+        const updated = { ...selectedSubject, blocks: normalizedSelection };
         setSelectedSubject(updated);
         viewStudents(updated);
       }
       cancelEditBlocks();
       await refreshProfessor({ tableOnly: true });
+      toast.success('Blocks updated successfully.');
     } else {
-      setError(res.error || 'Failed to update blocks.');
+      toast.error(res.error || 'Failed to update blocks.');
     }
   };
 
@@ -728,8 +1153,82 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
       }
       setConfirmUnassign(null);
       await refreshProfessor({ tableOnly: true });
+      toast.success('Subject unassigned.');
     } else {
-      setError(res.error || 'Failed to unassign subject.');
+      toast.error(res.error || 'Failed to unassign subject.');
+    }
+  };
+
+  const openEditAssignment = (assignment) => {
+    setEditingAssignment(assignment);
+    setEditForm({
+      courseCode: assignment.courseCode || '',
+      courseTitle: assignment.courseTitle || '',
+      units: assignment.units || '',
+      yearLevel: assignment.yearLevel || '',
+      semester: assignment.semester || '',
+      blocks: assignment.blocks || []
+    });
+    setEditAssignmentOpen(true);
+  };
+
+  const closeEditAssignment = () => {
+    setEditAssignmentOpen(false);
+    setEditingAssignment(null);
+    setEditForm({
+      courseCode: '',
+      courseTitle: '',
+      units: '',
+      yearLevel: '',
+      semester: '',
+      blocks: []
+    });
+  };
+
+  const saveEditAssignment = async () => {
+    if (!editingAssignment) return;
+    
+    setError('');
+    setSavingAssignment(true);
+    
+    try {
+      // Update the assignment in the professor's assignedCourses array
+      const updatedCourses = professor.assignedCourses.map(c => {
+        if (c.courseId === editingAssignment.courseId) {
+          return {
+            ...c,
+            courseCode: editForm.courseCode,
+            courseTitle: editForm.courseTitle,
+            units: Number(editForm.units) || 0,
+            yearLevel: Number(editForm.yearLevel) || 1,
+            semester: Number(editForm.semester) || 1,
+            blocks: editForm.blocks
+          };
+        }
+        return c;
+      });
+
+      // Update the professor document
+      const { updateDoc, doc: docRef } = await import('firebase/firestore');
+      await updateDoc(docRef(db, 'professors', professorId), {
+        assignedCourses: updatedCourses
+      });
+
+      // Refresh professor data
+      await refreshProfessor({ tableOnly: true });
+      
+      // Update selected subject if it's the one being edited
+      if (selectedSubject?.courseId === editingAssignment.courseId) {
+        const updated = { ...selectedSubject, ...editForm };
+        setSelectedSubject(updated);
+      }
+
+      closeEditAssignment();
+      toast.success('Assignment updated.');
+    } catch (err) {
+      toast.error(err.message || 'Failed to update assignment.');
+    } finally {
+      setSavingAssignment(false);
     }
   };
 
@@ -743,7 +1242,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
       activeTerm || { semester: 1, schoolYear: '' }
     );
     if (res.success) setStudents(res.data);
-    else setError(res.error || 'Failed to load students.');
+    else toast.error(res.error || 'Failed to load students.');
     setStudentsLoading(false);
   };
 
@@ -860,11 +1359,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
 
       {/* ── Subjects table ── */}
         <div className="">
-          {error && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-              {error}
-            </div>
-          )}
+          {/* errors are shown via toast notifications */}
 
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2">
@@ -907,198 +1402,219 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
 
           </div>
 
-          <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
+          {assignedYearTab === 'irregular' && (
+            <div className="rounded-2xl border border-gray-200 bg-white">
+            
+              <div className="overflow-hidden rounded-2xl border border-gray-200">                <table className="w-full table-fixed text-sm">
+                  <thead className="bg-blue-600 text-left text-sm tracking-wide text-white">
+                    <tr>
+                      <th className="w-[25%] px-4 py-2">Student Name</th>
+                      <th className="w-[15%] px-4 py-2">Course</th>
+                      <th className="w-[15%] px-4 py-2">Year & Block</th>
+                      <th className="w-[30%] px-4 py-2">Irregular Subjects</th>
+                      <th className="w-[15%] px-4 py-2 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white">
+                    {irregularLoading ? (
+                      Array.from({ length: 5 }).map((_, index) => (
+                        <tr key={index} className="border-t border-gray-100">
+                          <td className="px-4 py-2"><div className="h-4 w-32 animate-pulse rounded bg-gray-100" /></td>
+                          <td className="px-4 py-2"><div className="h-4 w-20 animate-pulse rounded bg-gray-100" /></td>
+                          <td className="px-4 py-2"><div className="h-4 w-28 animate-pulse rounded bg-gray-100" /></td>
+                          <td className="px-4 py-2"><div className="h-4 w-full animate-pulse rounded bg-gray-100" /></td>
+                          <td className="px-4 py-2 text-right"><div className="ml-auto h-7 w-16 animate-pulse rounded bg-gray-100" /></td>
+                        </tr>
+                      ))
+                    ) : irregularError ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-sm text-red-600">
+                          {irregularError}
+                        </td>
+                      </tr>
+                    ) : irregularStudents.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-700">
+                          No irregular students available for the active term.
+                        </td>
+                      </tr>
+                    ) : (
+                      irregularStudents.map((student) => {
+                        const studentBlock = student.block && String(student.block).trim() !== ''
+                          ? String(student.block).trim().toUpperCase()
+                          : 'A';
+                        const enrolledInCurrentTerm = Number(student.enrolledTerm?.semester) === Number(activeTerm?.semester)
+                          && student.enrolledTerm?.schoolYear === activeTerm?.schoolYear;
+                        const irregularSubjectLabels = (student.irregularSubjects || [])
+                          .map(item => item.courseCode || item.subjectCode || 'Unknown')
+                          .join(', ');
 
-  <table className="w-full table-fixed text-sm">
-
-    {/* HEADER */}
-    <thead className="bg-blue-600 text-left text-sm tracking-wide text-white">
-      <tr>
-        <th
-          className="w-[15%] cursor-pointer select-none p-4  "
-          onClick={() => handleSort('courseCode')}
-        >
-          Subject Code <SortIcon column="courseCode" />
-        </th>
-
-        <th
-          className="w-[30%] cursor-pointer select-none px-4 py-2  "
-          onClick={() => handleSort('courseTitle')}
-        >
-          Subject Title <SortIcon column="courseTitle" />
-        </th>
-
-        <th
-          className="w-[10%] cursor-pointer select-none px-4 py-2  "
-          onClick={() => handleSort('units')}
-        >
-          Units <SortIcon column="units" />
-        </th>
-
-        <th
-          className="w-[20%] cursor-pointer select-none px-4 py-2  "
-          onClick={() => handleSort('yearBlock')}
-        >
-          Course & Yr. Lvl. & Blocks<SortIcon column="yearBlock" />
-        </th>
-
-       
-
-        
-
-        <th
-          className="w-[15%] cursor-pointer select-none px-4 py-2  "
-          onClick={() => handleSort('curriculum')}
-        >
-          Curriculum <SortIcon column="curriculum" />
-        </th>
-
-        <th className="w-[10%] px-4 py-2   text-right">
-          Actions
-        </th>
-      </tr>
-    </thead>
-
-    {/* BODY */}
-    <tbody className="bg-white">
-
-      {tableLoading ? (
-        Array.from({ length: 5 }).map((_, index) => (
-          <tr key={index} className="border-t border-gray-100">
-            <td className="px-4 py-2  "><div className="h-4 w-20 animate-pulse rounded bg-gray-100" /></td>
-            <td className="px-4 py-2  "><div className="h-4 w-56 animate-pulse rounded bg-gray-100" /></td>
-            <td className="px-4 py-2  "><div className="h-4 w-10 animate-pulse rounded bg-gray-100" /></td>
-            <td className="px-4 py-2  "><div className="h-5 w-44 animate-pulse rounded bg-gray-100" /></td>
-                        <td className="px-4 py-2  "><div className="h-4 w-10 animate-pulse rounded bg-gray-100" /></td>
-
-            <td className="px-4 py-2  "><div className="h-4 w-32 animate-pulse rounded bg-gray-100" /></td>
-            <td className="px-4 py-2  "><div className="ml-auto h-7 w-12 animate-pulse rounded bg-gray-100" /></td>
-          </tr>
-        ))
-      ) : assignedCourses.length === 0 ? (
-        <tr>
-          <td colSpan={6}>
-            <div className="py-6 text-center">
-              <p className="text-sm font-medium text-gray-700">
-                No subjects assigned yet
-              </p>
-              <p className="mt-1 text-sm text-gray-500">
-                Assign a subject to start managing blocks and students.
-              </p>
+                        return (
+                          <tr key={student.id} className="border-t border-gray-100 hover:bg-gray-50">
+                            <td className="px-4 py-3 text-gray-700">{student.name}</td>
+                            <td className="px-4 py-3 text-gray-700">{student.course || student.irregularSubjects?.[0]?.courseCode || '—'}</td>
+                            <td className="px-4 py-3 text-gray-700">{getYearLabel(student.yearLevel)} · Blk. {studentBlock}</td>
+                            <td className="px-4 py-3 text-gray-700">{irregularSubjectLabels}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => scheduleIrregularStudentAction(student, enrolledInCurrentTerm ? 'unenroll' : 'enroll')}
+                                disabled={enrollingStudentId === student.id}
+                                className={`rounded-lg px-4 py-2 w-24 text-xs transition ${
+                                  enrolledInCurrentTerm
+                                    ? 'border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-300'
+                                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                                } disabled:opacity-60 disabled:cursor-not-allowed`}
+                              >
+                                {enrollingStudentId === student.id ? (enrolledInCurrentTerm ? 'Unassigning...' : 'Assigning...') : (enrolledInCurrentTerm ? 'Unassign' : 'Assign')}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </td>
-        </tr>
-      ) : assignedSubjectsByYear.length === 0 ? (
+          )}
+
+      {assignedYearTab !== 'irregular' && (
+  <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+
+    <table className="w-full table-fixed text-sm border-separate border-spacing-0">
+
+      {/* HEADER */}
+      <thead className="bg-blue-600 text-left text-sm tracking-wide text-white">
         <tr>
-          <td colSpan={6}>
-            <div className="py-6 text-center">
-              <p className="text-sm font-medium text-gray-700">
-                No subjects for {YEAR_TABS.find(y => y.value === assignedYearTab)?.label}
-              </p>
-              <p className="mt-1 text-sm text-gray-500">
-                Try another year level or assign a new subject.
-              </p>
-            </div>
-          </td>
+          <th className="w-[15%] cursor-pointer select-none p-4"
+            onClick={() => handleSort('courseCode')}>
+            Subject Code <SortIcon column="courseCode" />
+          </th>
+
+          <th className="w-[30%] cursor-pointer select-none px-4 py-2"
+            onClick={() => handleSort('courseTitle')}>
+            Subject Title <SortIcon column="courseTitle" />
+          </th>
+
+          <th className="w-[15%] px-4 py-2">
+            Course
+          </th>
+
+          <th className="w-[15%] cursor-pointer select-none px-4 py-2"
+            onClick={() => handleSort('yearLevel')}>
+            Year Level & Block <SortIcon column="yearLevel" />
+          </th>
+
+          <th className="w-[15%] cursor-pointer select-none px-4 py-2"
+            onClick={() => handleSort('curriculum')}>
+            Curriculum <SortIcon column="curriculum" />
+          </th>
+
+          <th className="w-[10%] px-4 py-2 text-right">
+            Actions
+          </th>
         </tr>
-      ) : (
-        assignedSubjectsByYear.map(c => {
-          const isEditing = editingBlocksFor === c.courseId;
+      </thead>
 
-          return (
-            <tr
-              key={c.courseId}
-              onClick={() => { if (!isEditing) viewStudents(c); }}
-              className="cursor-pointer border-t border-gray-100 hover:bg-blue-50/30 transition"
-            >
-              <td className="px-4 py-2   font-semibold text-gray-900">{c.courseCode}</td>
+      {/* BODY */}
+      <tbody className="bg-white">
 
-              <td className="px-4 py-2   text-gray-700">
-                <div className="truncate" title={c.courseTitle}>
-                  {c.courseTitle}
-                </div>
-              </td>
-
-              <td className="px-4 py-2   text-gray-600">
-                {Number(c.units) > 0 ? c.units : '-'}
-              </td>
-
-              <td className="px-4 py-2  " onClick={(e) => e.stopPropagation()}>
-                <div className="flex flex-col gap-2">
-                  <span className="text-sm  text-gray-600">
-                    {getYearBlockLabel(c)}
-                  </span>
-
-                  {isEditing && (
-                    <BlockToggle
-                      value={editingBlocksValue}
-                      onChange={setEditingBlocksValue}
-                      availableBlocks={getAvailableBlocksForAssignment(c)}
-                    />
-                  )}
-                </div>
-              </td>
-
-          
-              <td className="px-4 py-2   text-gray-600">
-                <div className="truncate" title={c.source === 'other-department'
-                  ? c.departmentName
-                  : c.curriculumName}>
-                  {c.source === 'other-department'
-                    ? c.departmentName || 'Other Department'
-                    : c.curriculumName || '-'}
-                </div>
-              </td>
-
-              <td className="px-4 py-2   text-right">
-                <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-
-                  {isEditing ? (
-                    <>
-                      <button
-                        onClick={saveEditBlocks}
-                        disabled={savingBlocks}
-                        className="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50 disabled:opacity-50"
-                      >
-                        <Check className="h-4 w-4" />
-                      </button>
-
-                      <button
-                        onClick={cancelEditBlocks}
-                        disabled={savingBlocks}
-                        className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-50"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() => startEditBlocks(c)}
-                        className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-blue-600"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-
-                      <button
-                        onClick={() => setConfirmUnassign(c)}
-                        className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-red-600"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </>
-                  )}
-
-                </div>
-              </td>
+        {tableLoading ? (
+          Array.from({ length: 5 }).map((_, index) => (
+            <tr key={index} className="border-t border-gray-100">
+              <td className="px-4 py-2"><div className="h-4 w-20 animate-pulse rounded bg-gray-100" /></td>
+              <td className="px-4 py-2"><div className="h-4 w-56 animate-pulse rounded bg-gray-100" /></td>
+              <td className="px-4 py-2"><div className="h-4 w-32 animate-pulse rounded bg-gray-100" /></td>
+              <td className="px-4 py-2"><div className="h-5 w-44 animate-pulse rounded bg-gray-100" /></td>
+              <td className="px-4 py-2"><div className="h-4 w-32 animate-pulse rounded bg-gray-100" /></td>
+              <td className="px-4 py-2"><div className="ml-auto h-7 w-12 animate-pulse rounded bg-gray-100" /></td>
             </tr>
-          );
-        })
-      )}
+          ))
+        ) : assignedCourses.length === 0 ? (
+          <tr>
+            <td colSpan={6}>
+              <div className="py-6 text-center">
+                <p className="text-sm font-medium text-gray-700">
+                  No subjects assigned yet
+                </p>
+                <p className="mt-1 text-sm text-gray-500">
+                  Assign a subject to start managing blocks and students.
+                </p>
+              </div>
+            </td>
+          </tr>
+        ) : assignedSubjectsByYear.length === 0 ? (
+          <tr>
+            <td colSpan={6}>
+              <div className="py-6 text-center">
+                <p className="text-sm font-medium text-gray-700">
+                  No subjects for {YEAR_TABS.find(y => y.value === assignedYearTab)?.label}
+                </p>
+                <p className="mt-1 text-sm text-gray-500">
+                  Try another year level or assign a new subject.
+                </p>
+              </div>
+            </td>
+          </tr>
+        ) : (
+          assignedSubjectsByYear.map(c => {
+            const isEditing = editingBlocksFor === c.courseId;
 
-    </tbody>
-  </table>
-</div>
+            return (
+              <tr
+                key={c.courseId}
+                onClick={() => { if (!isEditing) viewStudents(c); }}
+                className="cursor-pointer border-t border-gray-100 hover:bg-blue-50/30 transition"
+              >
+                <td className="px-4 py-2 font-semibold text-gray-900">{c.courseCode}</td>
+
+                <td className="px-4 py-2 text-gray-700">
+                  <div className="truncate" title={c.courseTitle}>
+                    {c.courseTitle}
+                  </div>
+                </td>
+
+                <td className="px-4 py-2 text-gray-600">
+                  {getCourseLabel(c)}
+                </td>
+
+                <td className="px-4 py-2 text-gray-600">
+                  {getYearLabel(c.yearLevel)} Block{" "}
+                  {c.blocks?.length ? c.blocks.join(', ') : '-'}
+                </td>
+
+                <td className="px-4 py-2 text-gray-600">
+                  <div className="truncate">
+                    {c.source === 'other-department'
+                      ? c.departmentName || 'Other Department'
+                      : c.curriculumName || '-'}
+                  </div>
+                </td>
+
+                <td className="px-4 py-2 text-right">
+                  <div
+                    className="flex items-center justify-end gap-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => setConfirmUnassign(c)}
+                      className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })
+        )}
+
+      </tbody>
+    </table>
+  </div>
+                                                      
+          )}
         </div>
 
         </>
@@ -1138,34 +1654,27 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 
               </div>
 
-              {/* Block tabs — one per distinct block derived from student data, same as StudentManagement */}
-              {!studentsLoading && availableBlocks.length > 0 && (
+              {/* Student tabs — block tabs plus Irregular tab when available */}
+              {!studentsLoading && modalTabs.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1">
-                  {availableBlocks.map(block => {
-                    // Count students whose block field matches this tab
-                    const count = students.filter(s => {
-                      const b = s.block && String(s.block).trim() !== ''
-                        ? String(s.block).trim().toUpperCase()
-                        : 'A';
-                      return b === block;
-                    }).length;
-                    const isActive = activeBlockTab === block;
+                  {modalTabs.map((tab) => {
+                    const isActive = activeBlockTab === tab.value;
                     return (
                       <button
-                        key={block}
+                        key={tab.value}
                         type="button"
-                        onClick={() => { setActiveBlockTab(block); setStudentSearch(''); }}
-                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                        onClick={() => { setActiveBlockTab(tab.value); setStudentSearch(''); }}
+                        className={`inline-flex items-center gap-2 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
                           isActive
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'text-gray-600 hover:bg-white hover:text-blue-600'
+                            ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                            : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
                         }`}
                       >
-                        Block {block}
+                        {tab.label}
                         <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
                           isActive ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600'
                         }`}>
-                          {count}
+                          {tab.count}
                         </span>
                       </button>
                     );
@@ -1173,41 +1682,73 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 </div>
               )}
 
-              {/* Search — scoped to the active block */}
-              {!studentsLoading && students.length > 0 && (
-                <div className="mt-3 flex items-center gap-3">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Search by name or student number..."
-                      value={studentSearch}
-                      onChange={(e) => setStudentSearch(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-                    />
+              {!studentsLoading && activeBlockTab === IRREGULAR_MODAL_TAB && (
+                <div className="mt-4 rounded-2xl border border-dashed border-blue-200 bg-blue-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-blue-700">Manual irregular student entry</p>
+                      <p className="text-xs text-blue-600">Add a missing irregular student to this subject list for review.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingIrregularStudent(prev => !prev)}
+                      className="rounded-full border border-blue-300 bg-white px-4 py-1.5 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-50"
+                    >
+                      {isAddingIrregularStudent ? 'Cancel' : 'Add student'}
+                    </button>
                   </div>
-                  <span className="whitespace-nowrap text-sm text-gray-500">
-                    <span className="font-semibold text-gray-800">{filteredStudents.length}</span>
-                    {studentSearch ? (
-                      <>
-                        {' '}of{' '}
-                        {students.filter(s => {
-                          const b = s.block && String(s.block).trim() !== ''
-                            ? String(s.block).trim().toUpperCase() : 'A';
-                          return b === activeBlockTab;
-                        }).length}{' '}
-                        in Block {activeBlockTab}
-                      </>
-                    ) : (
-                      <>{' '}student{filteredStudents.length !== 1 ? 's' : ''} in Block {activeBlockTab}</>
-                    )}
-                  </span>
+
+                  {isAddingIrregularStudent && (
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <label className="space-y-2 text-sm">
+                        <span className="block text-gray-600">Student Name</span>
+                        <input
+                          type="text"
+                          value={manualIrregularName}
+                          onChange={(e) => setManualIrregularName(e.target.value)}
+                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                          placeholder="e.g. Juan Dela Cruz"
+                        />
+                      </label>
+                      <label className="space-y-2 text-sm">
+                        <span className="block text-gray-600">Student Number</span>
+                        <input
+                          type="text"
+                          value={manualIrregularNumber}
+                          onChange={(e) => setManualIrregularNumber(e.target.value)}
+                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                          placeholder="e.g. 202400123"
+                        />
+                      </label>
+                      <label className="space-y-2 text-sm">
+                        <span className="block text-gray-600">Block</span>
+                        <input
+                          type="text"
+                          value={manualIrregularBlock}
+                          onChange={(e) => setManualIrregularBlock(e.target.value)}
+                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                          placeholder="A"
+                        />
+                      </label>
+
+                      <div className="flex items-end justify-end sm:col-span-3">
+                        <button
+                          type="button"
+                          onClick={addManualIrregularStudent}
+                          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                        >
+                          Save irregular student
+                        </button>
+                      </div>
+                      {/* validation errors shown via toast notifications */}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             {/* Modal body — per-block student table */}
-            <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto px-2 rounded-2xl">
               {studentsLoading ? (
                 <div className="py-12 text-center text-sm text-gray-500">Loading students...</div>
               ) : students.length === 0 ? (
@@ -1218,20 +1759,25 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 </div>
               ) : filteredStudents.length === 0 ? (
                 <div className="py-10 text-center text-sm text-gray-500">
-                  {studentSearch ? 'No students match your search in this block.' : `No students in Block ${activeBlockTab}.`}
+                  {studentSearch ? 'No students match your search.' : activeBlockTab === IRREGULAR_MODAL_TAB ? 'No irregular students enrolled.' : `No students in Block ${activeBlockTab}.`}
                 </div>
               ) : (
-                <table className="min-w-full text-sm">
+                <table className="min-w-full text-sm rounded-2xl">
                   <thead className="sticky top-0 bg-blue-700 text-left text-sm tracking-wide text-white">
                     <tr>
-                      <th className="px-4 py-2  ">School ID</th>
-                      <th className="px-4 py-2  ">Name</th>
-                      <th className="px-4 py-2  ">Course</th>
-                      <th className="px-4 py-2  ">Year Level</th>
+                      <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleStudentSort('studentNumber')}>
+                        School ID <StudentSortIcon column="studentNumber" />
+                      </th>
+                      <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleStudentSort('name')}>
+                        Name <StudentSortIcon column="name" />
+                      </th>
+                      <th className="px-4 py-2">Course</th>
+                      <th className="px-4 py-2">Year Level</th>
+                      <th className="px-4 py-2">Block</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredStudents.map((s, i) => {
+                    {sortedStudents.map((s, i) => {
                       const block = s.block && String(s.block).trim() !== ''
                         ? String(s.block).trim().toUpperCase()
                         : 'A';
@@ -1241,10 +1787,10 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                           key={s.id}
                           className="border-t border-gray-200 hover:bg-gray-50"
                         >
-                          <td className="px-4 py-2   text-sm text-gray-700">
-                            {s.studentNumber || <span className=" text-gray-400">—</span>}
+                          <td className="px-4 py-2 text-sm text-gray-700">
+                            {s.studentNumber || <span className="text-gray-400">—</span>}
                           </td>
-                          <td className="px-4 py-2 ">
+                          <td className="px-4 py-2">
                             <p className="font-semibold text-gray-800">{s.name}</p>
                             {s.isIrregular && (
                               <span className="mt-0.5 inline-block rounded-full border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-700">
@@ -1252,9 +1798,9 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                               </span>
                             )}
                           </td>
-                          <td className="px-4 py-2  text-gray-700">{courseLabel}</td>
-                          <td className="px-4 py-2  text-gray-600">{getYearLabel(s.yearLevel)} Blk. {block}</td>
-                         
+                          <td className="px-4 py-2 text-gray-700">{courseLabel}</td>
+                          <td className="px-4 py-2 text-gray-600">{getYearLabel(s.yearLevel)}</td>
+                          <td className="px-4 py-2 text-gray-600">{block}</td>
                         </tr>
                       );
                     })}
@@ -1276,6 +1822,200 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
         </div>
       )}
 
+      {blockModalOpen && editingBlocksFor && (() => {
+        const editingAssignment = assignedCourses.find(c => c.courseId === editingBlocksFor);
+        const editableConfig = getEditableBlocksForAssignment(editingAssignment);
+        const selectedText = editingBlocksValue.length > 0 ? editingBlocksValue.join(', ') : 'None selected';
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+              <div className="border-b border-gray-200 px-6 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Choose blocks</h3>
+                    <p className="mt-1 text-sm text-gray-600">
+                      Select available blocks for <span className="font-semibold text-gray-800">{editingAssignment?.courseCode || 'this subject'}</span>.
+                    </p>
+                  </div>
+                  <button
+                    onClick={cancelEditBlocks}
+                    className="text-gray-500 hover:text-gray-700"
+                    aria-label="Close block chooser"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-6 py-5">
+                <div className="mb-4 text-sm text-gray-700">
+                  Available blocks are shown below. Tap a block to add or remove it.
+                </div>
+
+                <BlockToggle
+                  value={editingBlocksValue}
+                  onChange={setEditingBlocksValue}
+                  availableBlocks={editableConfig.allBlocks}
+                  unavailableBlocks={editableConfig.blockedByOthers}
+                />
+
+                <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                  <div className="font-semibold text-gray-800">Selected blocks</div>
+                  <div className="mt-1">{selectedText}</div>
+                </div>
+
+                {/* blocked-by-others details shown via toast when needed */}
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
+                <button
+                  onClick={cancelEditBlocks}
+                  disabled={savingBlocks}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveEditBlocks}
+                  disabled={savingBlocks}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  {savingBlocks ? 'Saving…' : 'Save blocks'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {otherBlockModalOpen && otherModalCourse && (() => {
+        const { availableBlocks, unavailableBlocks } = getOtherBlockAvailability(otherModalCourse);
+        const selectedText = otherModalBlocks.length > 0 ? otherModalBlocks.join(', ') : 'None selected';
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+              <div className="border-b border-gray-200 px-6 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Choose blocks</h3>
+                    <p className="mt-1 text-sm text-gray-600">
+                      Select blocks for <span className="font-semibold text-gray-800">{otherModalCourse.courseCode}</span> ({getYearLabel(otherSelectedClass?.yearLevel)})
+                    </p>
+                  </div>
+                  <button
+                    onClick={closeOtherBlockModal}
+                    className="text-gray-500 hover:text-gray-700"
+                    aria-label="Close block chooser"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-6 py-5">
+                <div className="mb-4 text-sm text-gray-700">
+                  Available blocks are shown below. Tap a block to add or remove it.
+                </div>
+
+                <BlockToggle
+                  value={otherModalBlocks}
+                  onChange={setOtherModalBlocks}
+                  availableBlocks={availableBlocks}
+                  unavailableBlocks={unavailableBlocks}
+                />
+
+                <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                  <div className="font-semibold text-gray-800">Selected blocks</div>
+                  <div className="mt-1">{selectedText}</div>
+                </div>
+
+                {/* unavailable blocks info shown via toast notifications when needed */}
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
+                <button
+                  onClick={closeOtherBlockModal}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveOtherBlockSelection}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  Save blocks
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {ccsBlockModalOpen && ccsModalCourse && (() => {
+        const availableBlocks = getBlocksForYear(ccsModalCourse.yearLevel, false);
+        const unavailableBlocks = getTakenBlocksForCourse(ccsModalCourse.id);
+        const selectedText = ccsModalBlocks.length > 0 ? ccsModalBlocks.join(', ') : 'None selected';
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+              <div className="border-b border-gray-200 px-6 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Choose blocks</h3>
+                    <p className="mt-1 text-sm text-gray-600">
+                      Select blocks for <span className="font-semibold text-gray-800">{ccsModalCourse.courseCode}</span> ({getYearLabel(ccsModalCourse.yearLevel)})
+                    </p>
+                  </div>
+                  <button
+                    onClick={closeCcsBlockModal}
+                    className="text-gray-500 hover:text-gray-700"
+                    aria-label="Close block chooser"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-6 py-5">
+                <div className="mb-4 text-sm text-gray-700">
+                  Available blocks are shown below. Tap a block to add or remove it.
+                </div>
+
+                <BlockToggle
+                  value={ccsModalBlocks}
+                  onChange={setCcsModalBlocks}
+                  availableBlocks={availableBlocks}
+                  unavailableBlocks={unavailableBlocks}
+                />
+
+                <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                  <div className="font-semibold text-gray-800">Selected blocks</div>
+                  <div className="mt-1">{selectedText}</div>
+                </div>
+
+                {/* unavailable blocks info shown via toast notifications when needed */}
+              </div>
+
+              <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
+                <button
+                  onClick={closeCcsBlockModal}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveCcsBlockSelection}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  Save blocks
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Assign picker (page view) ── */}
       {pickerOpen && (
         <div className="">
@@ -1286,14 +2026,10 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
               <div className="">
                 
 
-                {(pickerError || otherError) && (
-                  <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {pickerTab === 'ccs' ? pickerError : otherError}
-                  </div>
-                )}
+                {/* picker/other errors are displayed via toast notifications */}
 
                 <div className="mb-4 ">
-                  <div className="w-full flex border-b border-gray-200">
+  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
   <button
     type="button"
     onClick={() => {
@@ -1301,10 +2037,10 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
       setPickerError('');
       setOtherError('');
     }}
-    className={`relative -mb-px flex-1 inline-flex items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
       pickerTab === 'ccs'
-        ? 'border-blue-600 text-blue-600'
-        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 cursor-pointer'
+       ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
     }`}
   >
     <Laptop className="h-4 w-4" />
@@ -1318,10 +2054,10 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
       setPickerError('');
       setOtherError('');
     }}
-    className={`relative -mb-px flex-1 inline-flex items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
       pickerTab === 'other'
-        ? 'border-blue-600 text-blue-600'
-        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 cursor-pointer'
+        ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
     }`}
   >
     <Building2 className="h-4 w-4" />
@@ -1337,7 +2073,6 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 <div className='flex items-center gap-4 justify-between'>
                 
                <div>
-                 {pickerCurriculumId && (
   <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
                     {YEAR_TABS.map(year => {
                       const isActive = pickerYearTab === year.value;
@@ -1360,7 +2095,6 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                       );
                     })}
                   </div>
-                )}
                </div>
 
                    <div className="flex items-center gap-2 mb-4">
@@ -1396,11 +2130,14 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                     </div>
                 </div>
 
-
+              
                 </div>
+                    
+                    
+
 
                 {/* ── Subject list as table ── */}
-                <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-gray-200">
+                <div className="min-h-0 flex-1 rounded-xl border border-gray-200">
                   {!pickerCurriculumId ? (
                     <p className="p-8 text-center text-sm text-gray-500">Select a curriculum to view its subjects.</p>
                   ) : pickerLoading ? (
@@ -1413,7 +2150,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                     </p>
                   ) : (
                     <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
+                      <thead className="rounded-t-xl bg-blue-500 text-white">
                         <tr>
                           <th className="w-[92px] px-4 py-2 font-semibold">Select</th>
                           <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handlePickerSort('courseCode')}>
@@ -1425,18 +2162,25 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                           <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handlePickerSort('units')}>
                             Units <PickerSortIcon col="units" />
                           </th>
-                          <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handlePickerSort('semester')}>
-                            Semester <PickerSortIcon col="semester" />
+                          <th className="px-4 py-2 font-semibold">
+                            Blocks
+                          </th>
+                          <th className="px-4 py-2 font-semibold text-right">
+                            Actions
                           </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 bg-white">
                         {sortedPickerCourses.map(course => {
                           const assignedToThis = currentProfessorAssignedCourseIds.has(course.id);
-                          const assignedElsewhere = allAssignedCourseIds.has(course.id);
+                          const availableBlocks = getBlocksForYear(course.yearLevel, false);
+                          const takenByOthers = getTakenBlocksForCourse(course.id);
+                          const freeBlocks = getFreeBlocksForCourse(course.id, availableBlocks);
+                          const noBlocksSelected = !assignedToThis && getPickerBlocksForCourse(course).length === 0;
+                          const assignedElsewhere = !assignedToThis && freeBlocks.length === 0;
                           const isSaving = savingCourseIds.has(course.id);
                           const tooltip = assignedElsewhere
-                            ? 'Already assigned to another professor'
+                            ? 'All blocks for this subject are already assigned to other professors'
                             : assignedToThis
                               ? 'Already assigned to this professor'
                               : 'Select this subject';
@@ -1479,7 +2223,18 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                 {Number(course.units) > 0 ? course.units : '—'}
                               </td>
                               <td className="px-4 py-2 text-gray-600 whitespace-nowrap">
-                                {SEMESTER_LABELS[course.semester] || `Sem ${course.semester}`}
+                                {getPickerBlocksForCourse(course).length > 0
+                                  ? getPickerBlocksForCourse(course).join(', ')
+                                  : 'None selected'}
+                              </td>
+                              <td className="px-4 py-2 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => openCcsBlockModal(course)}
+                                        className="px-4 py-2 w-20 text-xs cursor-pointer rounded-lg bg-green-500 text-white hover:bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+                                >
+                                  {assignedToThis ? 'Update' : 'Assign'}
+                                </button>
                               </td>
                             </tr>
                           );
@@ -1494,13 +2249,20 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
 
                 {/* ── Folders / Accordions: step-by-step flow ── */}
 
-               <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+               <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
                       {/* Department */}
                       <div>
                         <label className="mb-1 block text-xs font-medium text-gray-600">Department</label>
                         <select
                           value={otherDeptId}
-                          onChange={(e) => { setOtherDeptId(e.target.value); setOtherYearTab(1); }}
+                          onChange={(e) => {
+                            setOtherDeptId(e.target.value);
+                            setOtherYearTab(1);
+                            setOtherSelectedClass(null);
+                            setOtherSelectedCourse('');
+                            setOtherCurriculumId('');
+                            setOtherBlocks([]);
+                          }}
                           className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 ${
                             otherDeptId
                               ? 'border-blue-300 bg-white ring-1 ring-inset ring-blue-200'
@@ -1517,48 +2279,46 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                       </div>
 
                       {/* Class */}
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-gray-600">Class</label>
+                      <div className="order-3">
+                        <label className="mb-1 block text-xs font-medium text-gray-600">Course</label>
                         <select
-                          value={otherSelectedClass
-                            ? `${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}`
-                            : ''}
+                          value={otherSelectedCourse}
                           onChange={(e) => {
-                            const found = otherClasses.find(c =>
-                              `${c.course.toLowerCase()}::${c.yearLevel}` === e.target.value
-                            );
-                            setOtherSelectedClass(found || null);
+                            setOtherSelectedCourse(e.target.value);
+                            setOtherSelectedClass(null);
                             setOtherBlocks([]);
+                            setOtherSubjectSearch('');
                             setOtherError('');
                           }}
-                          disabled={!otherDeptId || otherClassesLoading}
+                          disabled={!otherCurriculumId || otherClassesLoading}
                           className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 disabled:bg-gray-50 ${
-                            otherSelectedClass
+                            otherSelectedCourse
                               ? 'border-blue-300 bg-white ring-1 ring-inset ring-blue-200'
                               : 'border-gray-300 bg-white'
                           }`}
                         >
                           <option value="">
-                            {otherClassesLoading ? 'Loading...' : 'Select class...'}
+                            {otherClassesLoading ? 'Loading...' : 'Select course...'}
                           </option>
-                          {otherClasses.map(c => {
-                            const key = `${c.course.toLowerCase()}::${c.yearLevel}`;
-                            return (
-                              <option key={key} value={key}>
-                                {c.course} · Year {c.yearLevel}
-                              </option>
-                            );
-                          })}
+                          {otherCourseOptions.map(course => (
+                            <option key={course} value={course}>{course}</option>
+                          ))}
                         </select>
                       </div>
 
                        {/* Curriculum */}
-                      <div>
+                      <div className="order-2">
                         <label className="mb-1 block text-xs font-medium text-gray-600">Curriculum</label>
                         <select
                           value={otherCurriculumId}
-                          onChange={(e) => { setOtherCurriculumId(e.target.value); setOtherYearTab(1); }}
-                          disabled={!otherSelectedClass}
+                          onChange={(e) => {
+                            setOtherCurriculumId(e.target.value);
+                            setOtherSelectedCourse('');
+                            setOtherSelectedClass(null);
+                            setOtherBlocks([]);
+                            setOtherSubjectSearch('');
+                          }}
+                          disabled={!otherDeptId}
                           className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 disabled:bg-gray-50 ${
                             otherCurriculumId
                               ? 'border-blue-300 bg-white ring-1 ring-inset ring-blue-200'
@@ -1572,16 +2332,51 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                         </select>
                       </div>
 
+                      <div className="order-4">
+                        <label className="mb-1 block text-xs font-medium text-gray-600">Year Level</label>
+                        <select
+                          value={otherSelectedClass
+                            ? `${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}`
+                            : ''}
+                          onChange={(e) => {
+                            const found = otherYearOptions.find(c =>
+                              `${c.course.toLowerCase()}::${c.yearLevel}` === e.target.value
+                            );
+                            setOtherSelectedClass(found || null);
+                            setOtherYearTab(Number(found?.yearLevel) || 1);
+                            setOtherBlocks([]);
+                            setOtherSubjectSearch('');
+                            setOtherError('');
+                          }}
+                          disabled={!otherSelectedCourse}
+                          className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1 disabled:bg-gray-50 ${
+                            otherSelectedClass
+                              ? 'border-blue-300 bg-white ring-1 ring-inset ring-blue-200'
+                              : 'border-gray-300 bg-white'
+                          }`}
+                        >
+                          <option value="">Select year level...</option>
+                          {otherYearOptions.map(c => {
+                            const key = `${c.course.toLowerCase()}::${c.yearLevel}`;
+                            return (
+                              <option key={key} value={key}>
+                                {getYearLabel(c.yearLevel)} - {c.studentCount} student{c.studentCount !== 1 ? 's' : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
 
                     </div>
 
                  
                   <div className="border-t border-gray-200 bg-gray-50/40 pt-2">
-  {otherCurriculumId && (
+  {otherSelectionComplete && (
     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       
       {/* Year Tabs */}
-      <div className="flex flex-wrap gap-2 rounded-xl bg-gray-200/60 p-1 w-fit">
+      <div className="hidden">
         {YEAR_TABS.map(year => {
           const isActive = otherYearTab === year.value;
           const count = otherYearCounts[year.value] || 0;
@@ -1608,32 +2403,13 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
       
 
       {/* Filters */}
-<div className="w-full lg:w-[520px]">
+<div className="">
   <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
     
-    {/* Block Filter */}
-    <div className="">
-      {!otherSelectedClass ? (
-        <p className="text-sm text-gray-500">
-          Select a class first.
-        </p>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Blocks
-          </span>
 
-          <BlockToggle
-            value={otherBlocks}
-            onChange={setOtherBlocks}
-            availableBlocks={otherSelectedClass?.blocks || []}
-          />
-        </div>
-      )}
-    </div>
 
     {/* Search */}
-    <div className="relative flex-1">
+    <div className="relative w-80">
       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
 
       <input
@@ -1641,7 +2417,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
         placeholder="Search course code or title..."
         value={otherSubjectSearch}
         onChange={(e) => setOtherSubjectSearch(e.target.value)}
-        disabled={!otherCurriculumId}
+        disabled={!otherSelectionComplete}
         className="w-full rounded-xl border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm transition focus:border-blue-400 focus:outline-none focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-50"
       />
     </div>
@@ -1650,14 +2426,17 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     </div>
   )}
 </div>
-             
 
                 <div className="border-t border-gray-200">
-                    <div className="min-h-0 max-h-[38vh] overflow-y-auto">
-                      {!otherSelectedClass ? (
-                        <p className="p-8 text-center text-sm text-gray-500">Select a department and class first.</p>
+                    <div className="min-h-0">
+                      {!otherDeptId ? (
+                        <p className="p-8 text-center text-sm text-gray-500">Select a department first.</p>
                       ) : !otherCurriculumId ? (
-                        <p className="p-8 text-center text-sm text-gray-500">Select a curriculum to see subjects.</p>
+                        <p className="p-8 text-center text-sm text-gray-500">Select a curriculum.</p>
+                      ) : !otherSelectedCourse ? (
+                        <p className="p-8 text-center text-sm text-gray-500">Select a course.</p>
+                      ) : !otherSelectedClass ? (
+                        <p className="p-8 text-center text-sm text-gray-500">Select a year level.</p>
                       ) : otherCurriculumLoading ? (
                         <p className="p-8 text-center text-sm text-gray-500">Loading subjects...</p>
                       ) : sortedOtherCourses.length === 0 ? (
@@ -1667,88 +2446,148 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                             : `No subjects found for ${YEAR_TABS.find(y => y.value === otherYearTab)?.label}.`}
                         </p>
                       ) : (
-                        <table className="w-full text-sm">
-                          <thead className="sticky top-0 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500 border-b border-gray-200">
-                            <tr>
-                              <th className="w-[92px] px-4 py-2 font-semibold">Select</th>
-                              <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handleOtherSort('courseCode')}>
-                                Code <OtherSortIcon col="courseCode" />
-                              </th>
-                              <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handleOtherSort('courseTitle')}>
-                                Title <OtherSortIcon col="courseTitle" />
-                              </th>
-                              <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handleOtherSort('units')}>
-                                Units <OtherSortIcon col="units" />
-                              </th>
-                              <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handleOtherSort('semester')}>
-                                Semester <OtherSortIcon col="semester" />
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-100 bg-white">
-                            {sortedOtherCourses.map(course => {
-                              const otherCourseId = otherSelectedClass
-                                ? `other::${otherDeptId}::${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}::${course.id}`
-                                : null;
-                              const assignedToThis = otherCourseId ? currentProfessorAssignedCourseIds.has(otherCourseId) : false;
-                              const assignedElsewhere = otherCourseId ? allAssignedCourseIds.has(otherCourseId) : false;
-                              const isSaving = otherCourseId ? savingCourseIds.has(otherCourseId) : false;
-                              const missingBlocksForAssign = !assignedToThis && otherBlocks.length === 0;
-                              const tooltip = assignedElsewhere
-                                ? 'Already assigned to another professor'
-                                : assignedToThis
-                                  ? 'Already assigned to this professor'
-                                  : 'Select this subject';
-                              return (
-                                <tr
-                                  key={course.id}
-                                  className={`transition ${
-                                    assignedElsewhere
-                                      ? 'cursor-not-allowed opacity-50'
-                                      : assignedToThis
-                                        ? 'bg-green-100'
-                                        : 'hover:bg-green-50/50'
-                                  }`}
+                        <div className="overflow-hidden rounded-2xl border bg-white border-slate-200">
+                          <table className="w-full text-sm">
+                            <thead className="sticky top-0 border-b border-slate-200 bg-blue-500 text-left text-xs uppercase tracking-wide text-white">
+                              <tr>
+                                <th className="w-[92px] px-4 py-2 font-semibold">Select</th>
+                                <th
+                                  className="cursor-pointer select-none px-4 py-2 font-semibold"
+                                  onClick={() => handleOtherSort('courseCode')}
                                 >
-                                  <td className="px-4 py-2">
-                                    <div className="inline-flex items-center gap-2" title={tooltip}>
-                                      <input
-                                        type="checkbox"
-                                        checked={assignedToThis}
-                                        disabled={!otherCourseId || assignedElsewhere || isSaving || missingBlocksForAssign}
-                                        onChange={(e) => {
-                                          const checked = e.target.checked;
-                                          toggleOtherAssignment(course, checked);
-                                        }}
-                                        aria-label={`Select ${course.courseCode}`}
-                                        className="h-4 w-4 cursor-pointer rounded border-gray-300 text-blue-600 accent-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed"
-                                      />
-                                      {(assignedElsewhere || assignedToThis) && (
-                                        <span className="hidden sm:inline rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
-                                          {isSaving ? 'Saving...' : 'Assigned'}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-2 font-semibold text-gray-900 whitespace-nowrap">
-                                    {course.courseCode}
-                                  </td>
-                                  <td className="px-4 py-2 text-gray-700">
-                                    <div className="truncate max-w-[320px]" title={course.courseTitle}>
-                                      {course.courseTitle}
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-2 text-gray-600 whitespace-nowrap">
-                                    {Number(course.units) > 0 ? course.units : '—'}
-                                  </td>
-                                  <td className="px-4 py-2 text-gray-600 whitespace-nowrap">
-                                    {SEMESTER_LABELS[course.semester] || `Sem ${course.semester}`}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                                  Code <OtherSortIcon col="courseCode" />
+                                </th>
+                                <th
+                                  className="cursor-pointer select-none px-4 py-2 font-semibold"
+                                  onClick={() => handleOtherSort('courseTitle')}
+                                >
+                                  Title <OtherSortIcon col="courseTitle" />
+                                </th>
+                                <th
+                                  className="cursor-pointer select-none px-4 py-2 font-semibold"
+                                  onClick={() => handleOtherSort('units')}
+                                >
+                                  Units <OtherSortIcon col="units" />
+                                </th>
+                                <th className="px-4 py-2 font-semibold">
+                                  Blocks
+                                </th>
+                                <th className="px-4 py-2 font-semibold text-right">
+                                  Actions
+                                </th>
+
+                              </tr>
+                            </thead>
+
+                            <tbody className="divide-y divide-gray-100 bg-white">
+                              {sortedOtherCourses.map(course => {
+                                const otherCourseId = otherSelectedClass
+                                  ? `other::${otherDeptId}::${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}::${course.id}`
+                                  : null;
+
+                                const assignedToThis = otherCourseId
+                                  ? currentProfessorAssignedCourseIds.has(otherCourseId)
+                                  : false;
+
+                                const classBlocks = normalizeBlockList(otherSelectedClass?.blocks || []);
+                                const freeClassBlocks = otherCourseId
+                                  ? getFreeBlocksForCourse(otherCourseId, classBlocks)
+                                  : [];
+
+                                const assignedElsewhere = otherCourseId
+                                  ? (!assignedToThis && freeClassBlocks.length === 0)
+                                  : false;
+
+                                const isSaving = otherCourseId
+                                  ? savingCourseIds.has(otherCourseId)
+                                  : false;
+
+                                const missingBlocksForAssign =
+                                  !assignedToThis && normalizeBlockList(otherBlocks).length === 0;
+
+                                const displayedBlocks = assignedToThis && otherCourseId
+                                  ? getExistingAssignmentBlocks(otherCourseId)
+                                  : normalizeBlockList(otherBlocks);
+
+                                const tooltip = assignedElsewhere
+                                  ? 'All class blocks for this subject are already assigned to other professors'
+                                  : assignedToThis
+                                    ? 'Already assigned to this professor'
+                                    : 'Select this subject';
+
+                                return (
+                                  <tr
+                                    key={course.id}
+                                    className={`transition ${
+                                      assignedElsewhere
+                                        ? 'cursor-not-allowed opacity-50'
+                                        : assignedToThis
+                                          ? 'bg-green-50'
+                                          : 'hover:bg-green-50/50'
+                                    }`}
+                                  >
+                                    <td className="px-4 py-2">
+                                      <div
+                                        className="inline-flex items-center gap-2"
+                                        title={tooltip}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={assignedToThis}
+                                          disabled={
+                                            !otherCourseId ||
+                                            assignedElsewhere ||
+                                            isSaving ||
+                                            missingBlocksForAssign
+                                          }
+                                          onChange={(e) => {
+                                            const checked = e.target.checked;
+                                            toggleOtherAssignment(course, checked);
+                                          }}
+                                          aria-label={`Select ${course.courseCode}`}
+                                          className="h-4 w-4 cursor-pointer rounded border-gray-300 text-blue-600 accent-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed"
+                                        />
+                                      </div>
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-4 py-2 font-semibold text-gray-900">
+                                      {course.courseCode}
+                                    </td>
+
+                                    <td className="px-4 py-2 text-gray-700">
+                                      <div
+                                        className="max-w-[320px] truncate"
+                                        title={course.courseTitle}
+                                      >
+                                        {course.courseTitle}
+                                      </div>
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-4 py-2 text-gray-600">
+                                      {Number(course.units) > 0 ? course.units : '—'}
+                                    </td>
+
+                                    <td className="whitespace-nowrap px-4 py-2 text-gray-600">
+                                      {displayedBlocks.length > 0 ? displayedBlocks.join(', ') : 'None selected'}
+                                    </td>
+
+                                    <td className="px-4 py-2 text-right">
+                                      <button
+                                        type="button"
+                                        onClick={() => openOtherBlockModal(course)}
+                                        disabled={!otherCourseId || assignedElsewhere || isSaving}
+                                        className="px-4 py-2 w-20 text-xs cursor-pointer rounded-lg bg-green-500 text-white hover:bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+                                      >
+                                        {assignedToThis ? 'Update' : 'Assign'}
+                                      </button>
+                                    </td>
+
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1764,12 +2603,40 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
       )}
 
       {/* ── Confirm unassign modal ── */}
+      {confirmIrregularAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setConfirmIrregularAction(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h6 className="mb-2 text-lg font-semibold text-gray-800">
+              {confirmIrregularAction.action === 'unenroll' ? 'Confirm Unenroll' : 'Confirm Enroll'}
+            </h6>
+            <p className="mb-5 text-sm text-gray-600">
+              Are you sure you want to {confirmIrregularAction.action === 'unenroll' ? 'unenroll' : 'enroll'} <span className="font-semibold text-gray-900">{confirmIrregularAction.student.name}</span> {confirmIrregularAction.action === 'unenroll' ? 'from their current term enrollment' : 'in the active term'}?
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmIrregularAction(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeIrregularStudentAction}
+                className={`rounded-lg px-4 py-2 text-sm text-white ${confirmIrregularAction.action === 'unenroll' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+              >
+                {confirmIrregularAction.action === 'unenroll' ? 'Unenroll' : 'Enroll'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {confirmUnassign && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
             <h6 className="mb-2 text-lg font-semibold text-gray-800">Unassign Subject</h6>
             <p className="mb-5 text-sm text-gray-600">
-              Remove <span className="font-medium text-gray-800">{confirmUnassign.courseCode}</span> from this professor's assignments?
+             Are you sure you want to unassign <span className="font-semibold text-gray-900">{confirmUnassign.courseCode}</span> from {confirmUnassign.professorName}?
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -1793,3 +2660,4 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
 };
 
 export default ProfessorDetail;
+

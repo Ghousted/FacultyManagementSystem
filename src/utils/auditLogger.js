@@ -76,6 +76,20 @@ const resolvePayableTitle = (details = {}, entityType = '') => {
   );
 };
 
+const sanitizeForFirestore = (value) => {
+  if (value === undefined) return null;
+  if (value === null) return null;
+  if (value instanceof Date) return value;
+  if (Array.isArray(value)) return value.map((item) => sanitizeForFirestore(item));
+  if (typeof value === 'object') {
+    return Object.entries(value).reduce((acc, [key, item]) => {
+      if (item !== undefined) acc[key] = sanitizeForFirestore(item);
+      return acc;
+    }, {});
+  }
+  return value;
+};
+
 // ─── Description builder ───────────────────────────────────────────────────────
 
 /**
@@ -116,6 +130,75 @@ const buildDescription = async ({
   return text.replace(/\s+/g, ' ').trim();
 };
 
+// ─── Action normalizer ─────────────────────────────────────────────────────────
+
+/**
+ * Normalize action text to be professional and consistent.
+ * Converts to title case and standardizes common action phrases.
+ */
+const normalizeAction = (action) => {
+  if (!action) return 'Unknown Action';
+  
+  // Convert to title case
+  let normalized = action
+    .toLowerCase()
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+  
+  // Standardize common action phrases
+  const actionMap = {
+    'Added': 'Created',
+    'Paid Full': 'Recorded Full Payment',
+    'Paid Partial': 'Recorded Partial Payment',
+    'Full Payment Recorded': 'Recorded Full Payment',
+    'Paid Payable': 'Recorded Payment',
+    'Updated Term': 'Updated Academic Term',
+    'Unassigned Course From': 'Unassigned Course From Professor',
+    'Unassigned All Professor Classes': 'Unassigned All Classes From Professor',
+    'Marked Semester Courses Available': 'Marked Courses As Available',
+    'Marked Semester Courses Unavailable': 'Marked Courses As Unavailable',
+    'Archived And Promoted Students': 'Archived And Promoted Students To Next Year Level',
+    'Updated Student Status': 'Updated Student Status',
+    'Created Irregular Subject': 'Added Irregular Subject',
+    'Removed Irregular Subject': 'Removed Irregular Subject',
+    'Updated Student Grade': 'Updated Student Grade',
+    'Deleted Student Grade': 'Deleted Student Grade',
+    'Archived Selected Students': 'Archived Students',
+    'Deleted Students': 'Deleted Students',
+    'Enrolled Student': 'Enrolled Student In Classes',
+    'Unenrolled Student': 'Unenrolled Student From Classes',
+    'Created Other Department': 'Created Other Department',
+    'Updated Other Department': 'Updated Other Department',
+    'Deleted Other Department': 'Deleted Other Department',
+    'Added Other Department Student': 'Created Other Department Student',
+    'Updated Other Department Student': 'Updated Other Department Student',
+    'Deleted Other Department Student': 'Deleted Other Department Student',
+    'Updated Other Department Payable': 'Updated Other Department Payable',
+    'Created Other Department Module Payables': 'Created Other Department Module Payables',
+    'Created Other Department Payable': 'Created Other Department Payable',
+    'Deleted Other Department Payable': 'Deleted Other Department Payable',
+    'Deleted Other Department Payment': 'Deleted Other Department Payment',
+    'Signed In': 'User Signed In',
+    'Signed Out': 'User Signed Out',
+    'Updated User Role': 'Updated User Role And Permissions',
+  };
+  
+  // Check for exact matches first
+  if (actionMap[normalized]) {
+    return actionMap[normalized];
+  }
+  
+  // Check for partial matches
+  for (const [key, value] of Object.entries(actionMap)) {
+    if (normalized.includes(key.toLowerCase())) {
+      return value;
+    }
+  }
+  
+  return normalized;
+};
+
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 export const logSystemAction = async ({
@@ -130,14 +213,15 @@ export const logSystemAction = async ({
   try {
     const now           = new Date();
     const resolvedActor = getActor(actor);
-    const normalizedAction = (action || '').replace(/^Added\b/i, 'Created');
+    const normalizedAction = normalizeAction(action);
+    const safeDetails = sanitizeForFirestore(details || {});
 
     // Resolve description (async: may hit Firestore for a name)
     const resolvedDescription = await buildDescription({
       description,
       entityType,
       entityId,
-      details,
+      details: safeDetails,
     });
 
     await addDoc(collection(db, 'systemLogs'), {
@@ -146,7 +230,7 @@ export const logSystemAction = async ({
       entityType,
       entityId,
       description: resolvedDescription,
-      details,
+      details: safeDetails,
       ...resolvedActor,
       date: now.toLocaleDateString('en-US', {
         year:  'numeric',

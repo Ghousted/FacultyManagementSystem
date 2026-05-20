@@ -34,22 +34,22 @@ const getStudentStatusLogLabel = async (studentIds = []) => {
 
 // Enrollment status reasons.
 //   'enrolled'       — included in rosters for the active term.
-//   'not-enrolled'   — admin explicitly marked as not enrolled.
-//   'needs-update'   — was enrolled for a different term; needs re-enrollment.
-//   'unset'          — no enrollment record yet (legacy data); treated as enrolled.
+//   'not-enrolled'   — not currently enrolled for the active term.
 export const getStudentEnrollmentStatus = (student, activeTerm) => {
   if (student?.enrolled === false) return 'not-enrolled';
   const term = student?.enrolledTerm;
-  if (!term || (!term.schoolYear && !term.semester)) return 'unset';
+  if (!term || (!term.schoolYear && !term.semester)) {
+    return student?.enrolled === true ? 'enrolled' : 'not-enrolled';
+  }
   const matches =
     Number(term.semester) === Number(activeTerm?.semester) &&
     (term.schoolYear || '') === (activeTerm?.schoolYear || '');
-  return matches ? 'enrolled' : 'needs-update';
+  return matches ? 'enrolled' : 'not-enrolled';
 };
 
 const isStudentVisibleForActiveTerm = (student, activeTerm) => {
   const status = getStudentEnrollmentStatus(student, activeTerm);
-  return status === 'enrolled' || status === 'unset';
+  return status === 'enrolled';
 };
 
 export const getActiveTerm = async () => {
@@ -85,11 +85,11 @@ export const saveActiveTerm = async ({ semester, schoolYear }) => {
     };
     await setDoc(ACTIVE_TERM_DOC, payload, { merge: true });
     await logSystemAction({
-      action: 'updated term',
+      action: 'Updated Academic Term',
       module: 'Faculty Management',
       entityType: 'setting',
       entityId: 'active_term',
-      description: `updated term to semester ${payload.semester}, ${payload.schoolYear}`,
+      description: `Updated active academic term to Semester ${payload.semester}, School Year ${payload.schoolYear}`,
       details: payload
     });
     return { success: true, data: payload };
@@ -122,11 +122,11 @@ export const addProfessor = async (professor) => {
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Created professor',
+      action: 'Created Professor Account',
       module: 'Faculty Management',
       entityType: 'professor',
       entityId: ref.id,
-      description: `Created professor: ${professor.name || 'Unnamed professor'}`,
+      description: `Created new professor account for ${professor.name || 'Unnamed professor'} (Employee ID: ${professor.employeeId || 'N/A'})`,
       details: professor
     });
     return { success: true, id: ref.id };
@@ -143,11 +143,11 @@ export const updateProfessor = async (id, updates) => {
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Updated professor',
+      action: 'Updated Professor Information',
       module: 'Faculty Management',
       entityType: 'professor',
       entityId: id,
-      description: `Updated professor ${id}`,
+      description: `Updated professor information for ID ${id}`,
       details: updates
     });
     return { success: true };
@@ -161,11 +161,11 @@ export const deleteProfessor = async (id) => {
   try {
     await deleteDoc(doc(db, 'professors', id));
     await logSystemAction({
-      action: 'Deleted professor',
+      action: 'Deleted Professor Account',
       module: 'Faculty Management',
       entityType: 'professor',
       entityId: id,
-      description: `Deleted professor ${id}`
+      description: `Deleted professor account with ID ${id}`
     });
     return { success: true };
   } catch (error) {
@@ -180,6 +180,25 @@ const normalizeBlocks = (blocks) =>
     .filter(Boolean)))
     .sort();
 
+const isCourseBlockTakenByOthers = async (professorId, courseId, blocks) => {
+  const desiredBlocks = normalizeBlocks(blocks);
+  if (!desiredBlocks.length || !courseId) return false;
+
+  const allProfsSnap = await getDocs(collection(db, 'professors'));
+  for (const snap of allProfsSnap.docs) {
+    if (snap.id === professorId) continue;
+    const courses = snap.data()?.assignedCourses || [];
+    for (const c of courses) {
+      if (c.courseId !== courseId) continue;
+      const takenBlocks = normalizeBlocks(c.blocks);
+      if (takenBlocks.some(block => desiredBlocks.includes(block))) {
+        return true;
+      }
+    }
+  }
+  return false;
+};
+
 export const assignCourseToProfessor = async (professorId, course) => {
   try {
     const ref = doc(db, 'professors', professorId);
@@ -189,6 +208,11 @@ export const assignCourseToProfessor = async (professorId, course) => {
     const blocks = normalizeBlocks(course.blocks);
     if (blocks.length === 0) {
       return { success: false, error: 'Select at least one block.' };
+    }
+
+    const conflict = await isCourseBlockTakenByOthers(professorId, course.courseId, blocks);
+    if (conflict) {
+      return { success: false, error: 'Selected blocks are already assigned to another professor.' };
     }
 
     const existing = snap.data().assignedCourses || [];
@@ -228,11 +252,11 @@ export const assignCourseToProfessor = async (professorId, course) => {
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Assigned course to professor',
+      action: 'Assigned Course To Professor',
       module: 'Faculty Management',
       entityType: 'professor',
       entityId: professorId,
-      description: `Assigned ${entry.courseCode || 'course'} to professor ${professorId}`,
+      description: `Assigned course ${entry.courseCode || entry.courseTitle || 'Unknown Course'} to professor ${professorId} for Year Level ${entry.yearLevel}, Blocks: ${entry.blocks.join(', ')}`,
       details: entry
     });
     return { success: true };
@@ -253,6 +277,11 @@ export const updateAssignedCourseBlocks = async (professorId, courseId, blocks) 
       return { success: false, error: 'Select at least one block.' };
     }
 
+    const conflict = await isCourseBlockTakenByOthers(professorId, courseId, normalized);
+    if (conflict) {
+      return { success: false, error: 'Selected blocks are already assigned to another professor.' };
+    }
+
     const next = (snap.data().assignedCourses || []).map(c =>
       c.courseId === courseId ? { ...c, blocks: normalized } : c
     );
@@ -262,11 +291,11 @@ export const updateAssignedCourseBlocks = async (professorId, courseId, blocks) 
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Updated assigned course blocks',
+      action: 'Updated Assigned Course Blocks',
       module: 'Faculty Management',
       entityType: 'professor',
       entityId: professorId,
-      description: `Updated blocks for assigned course ${courseId}`,
+      description: `Updated block assignment for course ${courseId} to Blocks: ${normalized.join(', ')}`,
       details: { courseId, blocks: normalized }
     });
     return { success: true };
@@ -291,11 +320,11 @@ export const unassignCourseFromProfessor = async (professorId, courseId, options
     });
     if (!options.suppressLog) {
       await logSystemAction({
-        action: `unassigned course from ${professorName}`,
+        action: 'Unassigned Course From Professor',
         module: 'Faculty Management',
         entityType: 'professor',
         entityId: professorId,
-        description: `unassigned course from ${professorName}`,
+        description: `Unassigned course ${courseId} from professor ${professorName}`,
         details: { courseId, professorName }
       });
     }
@@ -342,7 +371,9 @@ export const getStudentsForCourse = async (course, activeTerm) => {
           }
           return true;
         })
-        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        .sort((a, b) =>
+          (a.name || '').localeCompare(b.name || '')
+        );
       return { success: true, data: matched };
     }
 
@@ -350,31 +381,43 @@ export const getStudentsForCourse = async (course, activeTerm) => {
     const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
     const matched = all.filter(student => {
-      if (!isStudentVisibleForActiveTerm(student, term)) return false;
+      // For irregular students, visibility is determined by their irregularSubjects entries
+      // for the active term (enrolledSemester / enrolledSchoolYear). Skip the global
+      // enrolledTerm check so irregular students aren't incorrectly excluded.
+      if (!student.isIrregular) {
+        if (!isStudentVisibleForActiveTerm(student, term)) return false;
+      }
 
       const completed = (student.completedCourses || []).map(c => (c || '').toString().trim().toUpperCase());
       if (completed.includes(targetCode)) return false;
 
+      if (student.isIrregular) {
+        const items = ((student.irregularSubjects || {})[semKey]) || [];
+        return items.some(item => {
+          const matchesCourse = (item.courseCode || '').toString().trim().toUpperCase() === targetCode;
+          if (!matchesCourse) return false;
+          // Also verify the school year matches the active term for precise filtering
+          const itemSchoolYear = (item.enrolledSchoolYear || '').toString().trim();
+          const termSchoolYear = (term.schoolYear || '').toString().trim();
+          if (itemSchoolYear && termSchoolYear && itemSchoolYear !== termSchoolYear) return false;
+          return true;
+        });
+      }
+
+      // Regular student: their current semester load is dictated by the curriculum.
       if (allowedBlocks.length > 0) {
         const studentBlock = (student.block || '').toString().trim().toUpperCase() || 'A';
         if (!allowedBlocks.includes(studentBlock)) return false;
       }
-
-      if (student.isIrregular) {
-        const items = ((student.irregularSubjects || {})[semKey]) || [];
-        return items.some(item =>
-          (item.courseCode || '').toString().trim().toUpperCase() === targetCode
-        );
-      }
-
-      // Regular student: their current semester load is dictated by the curriculum.
       if (student.curriculumId !== course.curriculumId) return false;
       if (Number(student.yearLevel) !== Number(course.yearLevel)) return false;
       if (Number(course.semester) !== sem) return false;
       return true;
     });
 
-    matched.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    matched.sort((a, b) =>
+      (a.name || '').localeCompare(b.name || '')
+    );
     return { success: true, data: matched };
   } catch (error) {
     console.error('Error fetching students for course:', error);
@@ -393,18 +436,29 @@ export const setStudentEnrollment = async (studentId, activeTerm) => {
     if (!term.semester || !term.schoolYear) {
       return { success: false, error: 'Active term is incomplete.' };
     }
+    const stamp = new Date().toISOString();
     await updateDoc(doc(db, 'students', studentId), {
       enrolled: true,
       enrolledTerm: term,
-      updatedAt: new Date().toISOString()
+      enrolledAt: stamp,
+      updatedAt: stamp
     });
+
+    let studentName = 'Student';
+    try {
+      const snap = await getDoc(doc(db, 'students', studentId));
+      if (snap.exists()) studentName = snap.data()?.name || studentName;
+    } catch {
+      // ignore name resolution failures
+    }
+
     await logSystemAction({
-      action: 'Updated',
-      module: 'Faculty Management',
+      action: 'Enrolled Student In Classes',
+      module: 'Student Management',
       entityType: 'student',
       entityId: studentId,
-      description: `Updated student status: ${await getStudentStatusLogLabel([studentId])}`,
-      details: { activeTerm: term, status: 'active' }
+      description: `Enrolled student ${studentName} for Semester ${term.semester}, School Year ${term.schoolYear}`,
+      details: { studentName, studentCount: 1, activeTerm: term, status: 'active' }
     });
     return { success: true };
   } catch (error) {
@@ -420,11 +474,11 @@ export const setStudentNotEnrolled = async (studentId) => {
       updatedAt: new Date().toISOString()
     });
     await logSystemAction({
-      action: 'Updated',
+      action: 'Unenrolled Student From Classes',
       module: 'Faculty Management',
       entityType: 'student',
       entityId: studentId,
-      description: `Updated student status: ${await getStudentStatusLogLabel([studentId])}`,
+      description: `Unenrolled student ${await getStudentStatusLogLabel([studentId])} from active term enrollment`,
       details: { status: 'inactive' }
     });
     return { success: true };
@@ -454,6 +508,7 @@ export const bulkSetStudentEnrollment = async (studentIds, activeTerm) => {
         batch.update(doc(db, 'students', id), {
           enrolled: true,
           enrolledTerm: term,
+          enrolledAt: stamp,
           updatedAt: stamp
         });
       });
@@ -461,12 +516,12 @@ export const bulkSetStudentEnrollment = async (studentIds, activeTerm) => {
     }
 
     await logSystemAction({
-      action: 'Updated',
-      module: 'Faculty Management',
+      action: 'Bulk Enrolled Students In Classes',
+      module: 'Student Management',
       entityType: 'studentBatch',
       entityId: '',
-      description: `Updated ${studentIds.length} students`,
-      details: { studentIds, activeTerm: term, count: studentIds.length }
+      description: `Bulk enrolled ${studentIds.length} students for Semester ${term.semester}, School Year ${term.schoolYear}`,
+      details: { studentCount: studentIds.length, studentIds, activeTerm: term }
     });
     return { success: true, count: studentIds.length };
   } catch (error) {
@@ -499,11 +554,11 @@ export const bulkSetStudentNotEnrolled = async (studentIds, options = {}) => {
 
     if (!options.suppressLog) {
       await logSystemAction({
-        action: 'Updated',
+        action: 'Bulk Unenrolled Students From Classes',
         module: 'Faculty Management',
         entityType: 'studentBatch',
         entityId: '',
-        description: `Updated ${studentIds.length} students`,
+        description: `Bulk unenrolled ${studentIds.length} students from active term enrollment`,
         details: { studentIds, count: studentIds.length, status: 'inactive' }
       });
     }
@@ -619,17 +674,114 @@ export const unassignAllProfessorClasses = async () => {
     await batch.commit();
     
     await logSystemAction({
-      action: 'Unassigned all professor classes',
+      action: 'Unassigned All Classes From Professors',
       module: 'Faculty Management',
       entityType: 'professor',
       entityId: 'bulk_unassign',
-      description: `Unassigned all classes from ${snap.size} professors due to term change`,
+      description: `Unassigned all course assignments from ${snap.size} professors due to academic term change`,
       details: { unassignedCount: snap.size }
     });
 
     return { success: true, message: `Unassigned classes from ${snap.size} professors` };
   } catch (error) {
     console.error('Error unassigning professor classes:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Get all irregular students who have taken courses taught by the professor for the active term
+// Returns a list of unique irregular students with their assigned irregular subjects
+export const getIrregularStudentsForProfessor = async (professorId, activeTerm) => {
+  try {
+    // Get the professor and their assigned courses
+    const profSnap = await getDoc(doc(db, 'professors', professorId));
+    if (!profSnap.exists()) {
+      return { success: false, error: 'Professor not found' };
+    }
+
+    const professor = { id: profSnap.id, ...profSnap.data() };
+    const assignedCourses = professor.assignedCourses || [];
+
+    if (assignedCourses.length === 0) {
+      return { success: true, data: [] };
+    }
+
+    // Build maps of the courses the professor teaches for quick lookup by course code
+    const professorCourseIds = new Set(assignedCourses.map(c => c.courseId));
+    const professorCourseCodes = new Set(assignedCourses.map(c => (c.courseCode || '').toUpperCase()));
+    const professorCourseByCode = (assignedCourses || []).reduce((acc, c) => {
+      const key = (c.courseCode || '').toString().trim().toUpperCase();
+      if (key) acc[key] = c;
+      return acc;
+    }, {});
+
+    // Get all students
+    const studentsSnap = await getDocs(collection(db, 'students'));
+    const allStudents = studentsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // Filter for irregular students
+    const irregularStudents = allStudents.filter(s => s.isIrregular);
+
+    if (irregularStudents.length === 0) {
+      return { success: true, data: [] };
+    }
+
+    const sem = Number(activeTerm?.semester) || 1;
+    const semKey = `sem${sem}`;
+    const termSchoolYear = (activeTerm?.schoolYear || '').toString().trim();
+
+    // For each irregular student, find their irregular subjects that match the professor's courses
+    const enrolledIrregularStudents = [];
+
+    irregularStudents.forEach(student => {
+      const irregularSubjects = student.irregularSubjects || {};
+      const semesterSubjects = irregularSubjects[semKey] || [];
+
+      // Find subjects that match the professor's courses AND are from the active term
+      const matchingSubjects = semesterSubjects.filter(subject => {
+        const courseCode = (subject.courseCode || '').toUpperCase();
+        const enrolledSchoolYear = (subject.enrolledSchoolYear || '').toString().trim();
+
+        // Check if the course code is in the professor's list
+        const matchesProfCourse = professorCourseCodes.has(courseCode);
+
+        // Check if the school year matches (or is empty, treating it as matching current term)
+        const schoolYearMatches = !enrolledSchoolYear || enrolledSchoolYear === termSchoolYear;
+
+        return matchesProfCourse && schoolYearMatches;
+      });
+
+      if (matchingSubjects.length > 0) {
+        // Determine a sensible course label for display: if the matching professor course
+        // comes from CCS (the school's own dept), show "BSCS". Otherwise leave
+        // the student's own `course` or fallback to the subject code.
+        const firstMatchCode = (matchingSubjects[0].courseCode || '').toString().trim().toUpperCase();
+        const matchedAssignment = professorCourseByCode[firstMatchCode];
+        const displayCourse = matchedAssignment && matchedAssignment.source !== 'other-department'
+          ? 'BSCS'
+          : (student.course || matchingSubjects[0].courseCode || '—');
+
+        enrolledIrregularStudents.push({
+          id: student.id,
+          name: student.name,
+          studentNumber: student.studentNumber,
+          yearLevel: student.yearLevel,
+          block: student.block,
+          email: student.email || '',
+          contactNumber: student.contactNumber || '',
+          irregularSubjects: matchingSubjects,
+          enrolledTerm: student.enrolledTerm || {},
+          course: displayCourse
+        });
+      }
+    });
+
+    // Sort by name
+    enrolledIrregularStudents.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    return { success: true, data: enrolledIrregularStudents };
+  } catch (error) {
+    console.error('Error getting irregular students for professor:', error);
     return { success: false, error: error.message };
   }
 };

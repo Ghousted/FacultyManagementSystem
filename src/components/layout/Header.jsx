@@ -4,6 +4,7 @@ import Logo from '../../assets/logo.png';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { ChevronDown, ChevronUp, UserCircle, Cog, LogOut } from 'lucide-react';
+import { goToRoleDashboard } from '../common/Breadcrumbs';
 
 const Header = () => {
   const { currentUser, role, signout } = useAuth();
@@ -48,8 +49,7 @@ const Header = () => {
 
 
   const handleGoDashboard = () => {
-    window.location.hash = '';
-    window.dispatchEvent(new CustomEvent('go-dashboard'));
+    goToRoleDashboard(role);
   };
 
   // Close menu on outside click
@@ -70,8 +70,8 @@ const Header = () => {
   }, [currentUser]);
 
   return (
-    <header className="fixed top-0 left-0 right-0 bg-white shadow-md border-b border-gray-200 z-40">
-      <div className="max-w-7xl mx-auto flex items-center px-4 sm:px-6 lg:px-8 py-3">
+    <header className="fixed top-0 left-0 right-0 bg-white shadow border-b border-gray-200 z-40">
+      <div className="w-full mx-auto flex items-center px-8 py-3">
         <img
           src={Logo}
           alt="Logo"
@@ -98,7 +98,7 @@ const Header = () => {
               )}
             </button>
             {menuOpen && (
-              <div className="absolute -left-6 mt-2 w-56 bg-white border border-gray-300 rounded-lg shadow-lg z-50 overflow-hidden transition-all duration-200">
+              <div className="absolute -left-20 mt-2 w-56 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden transition-all duration-200">
                 <div className="text-center pt-2 text-sm uppercase text-slate-600">
                   {userName}
                 </div>

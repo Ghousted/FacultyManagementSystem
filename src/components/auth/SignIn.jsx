@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { toast } from 'react-hot-toast';
 
 const SignIn = ({ onSwitchToResetPassword }) => {
   const [email, setEmail] = useState('');
@@ -12,28 +13,27 @@ const SignIn = ({ onSwitchToResetPassword }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setSuccessMessage('');
     setLoading(true);
 
     if (!email || !password) {
-      setError('Please fill in all fields');
+      toast.error('Please fill in all fields');
       setLoading(false);
       return;
     }
 
     const result = await signin(email, password);
     if (!result.success) {
-      setError(result.error);
+      toast.error(result.error || 'Sign in failed');
     } else {
       if (result.offline && result.message) {
-        setSuccessMessage(result.message);
+        toast.success(result.message);
       }
     }
     setLoading(false);
   };
 
   const handleCloseSuccess = () => {
-    setSuccessMessage('');
+    /* kept for compatibility */
   };
 
   return (
@@ -63,7 +63,7 @@ const SignIn = ({ onSwitchToResetPassword }) => {
         
         <form onSubmit={handleSubmit}>
           <div className="space-y-4">
-            {error && <div className="p-4 bg-red-50 border border-red-200 rounded text-red-800">{error}</div>}
+            {/* error messages are shown via toast notifications */}
             <input
               type="email"
               className="w-full p-2 border border-gray-300 rounded"

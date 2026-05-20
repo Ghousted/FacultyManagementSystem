@@ -1,4 +1,5 @@
 import './App.css';
+import { Toaster } from 'react-hot-toast';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { BadgePlus, BookMarked, FileSliders, Building2 } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
@@ -9,6 +10,7 @@ import AdminPanel from './components/admin/AdminPanel';
 import CurriculumChecker from './components/curriculum-checker/CurriculumChecker';
 import CurriculumCheckerMain from './components/curriculum-checker/CurriculumCheckerMain';
 import LogsPlaceholder from './components/LogsPlaceholder';
+import Breadcrumbs, { goToRoleDashboard } from './components/common/Breadcrumbs';
 
 const FacultyMain = lazy(() => import('./components/faculty/FacultyMain'));
 const ReportsMain = lazy(() => import('./components/reports/ReportsMain'));
@@ -84,19 +86,18 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
     const { mode, selectedFolder, selectedStudent, selectedDepartment } = breadcrumbState || {};
     const activeMode = mode || (tab === 'enrollment' ? 'enrollment' : tab === 'other' ? 'other' : 'students');
 
-    const crumbs = [{ label: 'Dashboard', onClick: () => (window.location.hash = '#/dashboard') }];
     const mainLabel = activeMode === 'enrollment'
       ? 'Enrollment Management'
       : activeMode === 'other'
         ? 'Other Department'
         : 'Student Management';
-    crumbs.push({ label: mainLabel, onClick: null });
+    const crumbs = [{ label: mainLabel, onClick: null }];
 
     if (selectedFolder) {
       if (selectedFolder.isInactiveFolder) {
         crumbs.push({ label: 'Archived Students', onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder } })) });
       } else if (selectedFolder.isIrregular) {
-        crumbs.push({ label: 'Irregular', onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder } })) });
+        crumbs.push({ label: 'Irregular students', onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder } })) });
       } else {
         const y = selectedFolder.year;
         const block = selectedFolder.block;
@@ -117,10 +118,10 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
     }
 
     return (
-      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        {crumbs.map((c, i) => {
+      <Breadcrumbs
+        items={crumbs.map((c, i) => {
           // Make the second breadcrumb item a button to switch between Student/Enrollment
-          if (i === 1) {
+          if (i === 0) {
             const isEnrollment = activeMode === 'enrollment';
             const isOther = activeMode === 'other';
             const onClick = () => {
@@ -129,7 +130,7 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
                 window.dispatchEvent(new CustomEvent('reset-enrollment-manager'));
               } else if (isOther) {
                 setTab('other');
-                window.dispatchEvent(new CustomEvent('reset-student-management'));
+                window.dispatchEvent(new CustomEvent('reset-other-department'));
               } else {
                 setTab('students');
                 window.dispatchEvent(new CustomEvent('reset-student-management'));
@@ -143,26 +144,11 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
               setOpenedStudentName('');
             };
 
-            return (
-              <span key={i} className={i === crumbs.length - 1 ? 'font-medium text-blue-600' : ''}>
-                <button type="button" className="hover:underline" onClick={onClick}>{c.label}</button>
-                {i < crumbs.length - 1 && <span className="text-gray-300 mx-1">&gt;</span>}
-              </span>
-            );
+            return { ...c, onClick };
           }
-
-          return (
-            <span key={i} className={i === crumbs.length - 1 ? 'font-medium text-blue-600' : ''}>
-              {c.onClick ? (
-                <button type="button" className="hover:underline" onClick={c.onClick}>{c.label}</button>
-              ) : (
-                c.label
-              )}
-              {i < crumbs.length - 1 && <span className="text-gray-300 mx-1">&gt;</span>}
-            </span>
-          );
+          return c;
         })}
-      </div>
+      />
     );
   };
 
@@ -311,8 +297,7 @@ function App() {
   if (!currentUser || currentUser.role !== 'admin') return null;
 
   const d = payablesBreadcrumb || {};
-  const crumbs = [{ label: 'Dashboard', onClick: () => (window.location.hash = '#/dashboard') }];
-  crumbs.push({ label: 'Payables', onClick: null });
+  const crumbs = [{ label: 'Payables', onClick: null }];
 
   if (d.departmentType === 'ccs') {
     crumbs.push({
@@ -387,28 +372,12 @@ function App() {
     }
   }
 
-  return (
-    <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-      {crumbs.map((c, i) => (
-        <span key={i} className={i === crumbs.length - 1 ? 'font-medium text-blue-600' : ''}>
-          {c.onClick ? (
-            <button type="button" className="hover:underline" onClick={c.onClick}>
-              {c.label}
-            </button>
-          ) : (
-            c.label
-          )}
-          {i < crumbs.length - 1 && <span className="text-gray-300 mx-1">&gt;</span>}
-        </span>
-      ))}
-    </div>
-  );
+  return <Breadcrumbs items={crumbs} />;
 };
   const curriculumMakerMatch = route.match(/^#\/curriculum-maker\/?(.*)/);
   const curriculumMakerId = curriculumMakerMatch ? (curriculumMakerMatch[1] || '') : '';
   const goDashboard = () => {
-    window.location.hash = '#/dashboard';
-    window.dispatchEvent(new CustomEvent('go-dashboard'));
+    goToRoleDashboard(currentUser?.role);
   };
 
   const renderAuthenticatedRoute = () => {
@@ -543,6 +512,7 @@ function App() {
 
   return (
     <Layout>
+      <Toaster position="top-right" />
       {currentUser && renderAppBreadcrumbs && renderAppBreadcrumbs()}
       {currentUser ? renderAuthenticatedRoute() : <AuthContainer />}
     </Layout>

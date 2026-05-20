@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { ArrowBigLeft, Building2, Laptop } from 'lucide-react';
 import PayablesSystem from './PayablesSystem';
 import OtherDepartmentPayables from './OtherDepartmentPayables';
+import { useAuth } from '../../contexts/AuthContext';
 
 const PayablesMain = ({ onBackToDashboard, initialDepartment = 'ccs' }) => {
+  const { currentUser } = useAuth();
   const [selectedDepartmentType, setSelectedDepartmentType] = useState(initialDepartment || 'ccs');
 
   useEffect(() => {
@@ -26,10 +28,18 @@ const PayablesMain = ({ onBackToDashboard, initialDepartment = 'ccs' }) => {
 
   return (
     <div>
+      {currentUser?.role === 'admin' && (
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-800 mb-1">
+            Payables Management
+          </h1>
+          <p className="text-sm text-gray-600">
+            Manage student payables, record payments, and generate receipts.
+          </p>
+        </div>
+      )}
 
-    
-
-  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1 mt-2">
+      <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1 mt-2">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const active = selectedDepartmentType === tab.key;

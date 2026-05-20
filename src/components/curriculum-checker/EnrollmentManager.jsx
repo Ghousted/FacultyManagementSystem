@@ -28,17 +28,9 @@ const STATUS_META = {
     label: 'Enrolled',
     pill: 'bg-emerald-50 text-emerald-700 border-emerald-200'
   },
-  'needs-update': {
-    label: 'Needs update',
-    pill: 'bg-amber-50 text-amber-700 border-amber-200'
-  },
   'not-enrolled': {
     label: 'Not enrolled',
     pill: 'bg-gray-100 text-gray-600 border-gray-200'
-  },
-  unset: {
-    label: 'Unset',
-    pill: 'bg-sky-50 text-sky-700 border-sky-200'
   }
 };
 
@@ -60,7 +52,7 @@ const normalizeTerm = (activeTerm) => ({
 });
 
 const FolderSkeleton = () => (
-  <div className="relative rounded-xl border border-gray-300 bg-white p-4 shadow-sm animate-pulse">
+  <div className="relative rounded-lg border border-gray-300 bg-white p-4  animate-pulse">
     <div className="flex items-center gap-3">
       <div className="h-10 w-10 rounded-lg bg-blue-50" />
       <div className="flex-1 space-y-2">
@@ -115,6 +107,7 @@ const EnrollmentManager = ({ activeTerm }) => {
   const [selectMode, setSelectMode] = useState(false);
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
+  const [modal, setModal] = useState({ show: false, type: '', student: null, bulkIds: [] });
 
   const term = normalizeTerm(activeTerm);
 
@@ -280,7 +273,7 @@ const EnrollmentManager = ({ activeTerm }) => {
 
   const counts = useMemo(() => {
     return (students || []).reduce((acc, student) => {
-      const status = student?.enrollmentStatus ?? (student?.enrolled === true ? 'enrolled' : (student?.enrolled === false ? 'not-enrolled' : 'unset'));
+      const status = student?.enrollmentStatus === 'enrolled' ? 'enrolled' : 'not-enrolled';
       acc[status] = (acc[status] || 0) + 1;
       if (student?.active === false) {
         acc.inactive += 1;
@@ -288,7 +281,7 @@ const EnrollmentManager = ({ activeTerm }) => {
         acc.active += 1;
       }
       return acc;
-    }, { enrolled: 0, 'needs-update': 0, 'not-enrolled': 0, unset: 0, active: 0, inactive: 0 });
+    }, { enrolled: 0, 'not-enrolled': 0, active: 0, inactive: 0 });
   }, [students]);
 
   const allVisibleSelected =
@@ -378,72 +371,20 @@ const EnrollmentManager = ({ activeTerm }) => {
     return res;
   };
 
-  const handleEnroll = async (student) => {
+  const handleEnroll = (student) => {
     if (termIncomplete) {
       setError('Please set the active semester and school year before enrolling students.');
       return;
     }
 
-    setError('');
-    setBusy(student.id, true);
-
-    try {
-      const res = await enrollStudent(student.id);
-
-      if (!res?.success) {
-        setError(res?.error || 'Failed to enroll student.');
-        return;
-      }
-
-      setStudents((prev) =>
-        prev.map((item) =>
-          item.id === student.id
-            ? {
-                ...item,
-                enrollmentStatus: 'enrolled',
-                enrolledTerm: { semester: term.semester, schoolYear: term.schoolYear }
-              }
-            : item
-        )
-      );
-
-      await refresh();
-    } catch (err) {
-      setError(err?.message || 'Failed to enroll student.');
-    } finally {
-      setBusy(student.id, false);
-    }
+    setModal({ show: true, type: 'enroll', student, bulkIds: [] });
   };
 
-  const handleUnenroll = async (student) => {
-    setError('');
-    setBusy(student.id, true);
-
-    try {
-      const res = await setStudentNotEnrolled(student.id);
-
-      if (!res?.success) {
-        setError(res?.error || 'Failed to unenroll student.');
-        return;
-      }
-
-      setStudents((prev) =>
-        prev.map((item) =>
-          item.id === student.id
-            ? { ...item, enrollmentStatus: 'not-enrolled', enrolledTerm: null }
-            : item
-        )
-      );
-
-      await refresh();
-    } catch (err) {
-      setError(err?.message || 'Failed to unenroll student.');
-    } finally {
-      setBusy(student.id, false);
-    }
+  const handleUnenroll = (student) => {
+    setModal({ show: true, type: 'unenroll', student, bulkIds: [] });
   };
 
-  const handleEnrollSelected = async () => {
+  const handleEnrollSelected = () => {
     if (termIncomplete) {
       setError('Please set the active semester and school year before enrolling students.');
       return;
@@ -455,74 +396,96 @@ const EnrollmentManager = ({ activeTerm }) => {
 
     if (ids.length === 0) return;
 
-    setError('');
-    setBulkSaving(true);
-
-    try {
-      const res = await bulkEnrollStudents(ids);
-
-      if (!res?.success) {
-        setError(res?.error || 'Failed to enroll selected students.');
-        return;
-      }
-
-      setStudents((prev) =>
-        prev.map((student) =>
-          ids.includes(student.id)
-            ? {
-                ...student,
-                enrollmentStatus: 'enrolled',
-                enrolledTerm: { semester: term.semester, schoolYear: term.schoolYear }
-              }
-            : student
-        )
-      );
-
-      setSelectedIds([]);
-      await refresh();
-    } catch (err) {
-      setError(err?.message || 'Failed to enroll selected students.');
-    } finally {
-      setBulkSaving(false);
-    }
+    setModal({ show: true, type: 'enroll', student: null, bulkIds: ids });
   };
 
-  const handleUnenrollSelected = async () => {
+  const handleUnenrollSelected = () => {
     const ids = selectedStudents
       .filter((student) => student.enrollmentStatus !== 'not-enrolled')
       .map((student) => student.id);
 
     if (ids.length === 0) return;
 
+    setModal({ show: true, type: 'unenroll', student: null, bulkIds: ids });
+  };
+
+  const confirmModal = async () => {
+    const { type, student, bulkIds } = modal;
+    setModal({ show: false, type: '', student: null, bulkIds: [] });
     setError('');
-    setBulkSaving(true);
 
-    ids.forEach((id) => setBusy(id, true));
+    if (bulkIds.length > 0) {
+      // bulk logic
+      setBulkSaving(true);
 
-    try {
-      const results = await Promise.all(ids.map((id) => setStudentNotEnrolled(id)));
-      const failed = results.find((res) => !res?.success);
+      try {
+        let res;
+        if (type === 'enroll') {
+          res = await bulkEnrollStudents(bulkIds);
+        } else {
+          const results = await Promise.all(bulkIds.map((id) => setStudentNotEnrolled(id)));
+          res = { success: !results.some(r => !r?.success), error: results.find(r => !r?.success)?.error };
+        }
 
-      if (failed) {
-        setError(failed.error || 'Failed to unenroll selected students.');
-        return;
+        if (!res?.success) {
+          setError(res?.error || `Failed to ${type} selected students.`);
+          return;
+        }
+
+        setStudents((prev) =>
+          prev.map((student) =>
+            bulkIds.includes(student.id)
+              ? {
+                  ...student,
+                  enrollmentStatus: type === 'enroll' ? 'enrolled' : 'not-enrolled',
+                  enrolledTerm: type === 'enroll' ? { semester: term.semester, schoolYear: term.schoolYear } : null
+                }
+              : student
+          )
+        );
+
+        setSelectedIds([]);
+        await refresh();
+      } catch (err) {
+        setError(err?.message || `Failed to ${type} selected students.`);
+      } finally {
+        setBulkSaving(false);
       }
+    } else {
+      // individual logic
+      setBusy(student.id, true);
 
-      setStudents((prev) =>
-        prev.map((student) =>
-          ids.includes(student.id)
-            ? { ...student, enrollmentStatus: 'not-enrolled', enrolledTerm: null }
-            : student
-        )
-      );
+      try {
+        let res;
+        if (type === 'enroll') {
+          res = await enrollStudent(student.id);
+        } else {
+          res = await setStudentNotEnrolled(student.id);
+        }
 
-      setSelectedIds([]);
-      await refresh();
-    } catch (err) {
-      setError(err?.message || 'Failed to unenroll selected students.');
-    } finally {
-      ids.forEach((id) => setBusy(id, false));
-      setBulkSaving(false);
+        if (!res?.success) {
+          setError(res?.error || `Failed to ${type} student.`);
+          return;
+        }
+
+        setStudents((prev) =>
+          prev.map((item) =>
+            item.id === student.id
+              ? {
+                  ...item,
+                  enrollmentStatus: type === 'enroll' ? 'enrolled' : 'not-enrolled',
+                  enrolledTerm: type === 'enroll' ? { semester: term.semester, schoolYear: term.schoolYear } : null
+                }
+              : item
+          )
+        );
+
+        await refresh();
+      } catch (err) {
+        toast.error(err?.message || `Failed to ${type} student.`);
+      } finally {
+        setBusy(student.id, false);
+      }
     }
   };
 
@@ -530,33 +493,29 @@ const EnrollmentManager = ({ activeTerm }) => {
     <div className="space-y-5">
      
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-          {error}
-        </div>
-      )}
+      {/* errors shown via toast notifications */}
 
       <div className="">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+          <div className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
             <span className="block text-xs text-gray-600">All</span>
                         <span className="mt-1 block text-lg font-semibold text-gray-900">{students.length}</span>
 
           </div>
 
-          <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+          <div className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
             <span className="block text-xs text-gray-600">Enrolled</span>
             <span className="mt-1 block text-lg font-semibold text-gray-900">{counts.enrolled || 0}</span>
           </div>
-          <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+          <div className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
             <span className="block text-xs text-gray-600">Active</span>
             <span className="mt-1 block text-lg font-semibold text-gray-900">{counts.active || 0}</span>
           </div>
-          <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+          <div className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
             <span className="block text-xs text-gray-600">Inactive</span>
             <span className="mt-1 block text-lg font-semibold text-gray-900">{counts.inactive || 0}</span>
           </div>
-          <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+          <div className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
             <span className="block text-xs text-gray-600">Not enrolled</span>
             <span className="mt-1 block text-lg font-semibold text-gray-900">{counts['not-enrolled'] || 0}</span>
           </div>
@@ -577,7 +536,7 @@ const EnrollmentManager = ({ activeTerm }) => {
           </div>
 
           {loading ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {Array.from({ length: 4 }).map((_, index) => (
                 <FolderSkeleton key={index} />
               ))}
@@ -588,7 +547,7 @@ const EnrollmentManager = ({ activeTerm }) => {
               <p className="mt-1 text-xs text-gray-500">Try another status filter.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {folders.map((folder) => (
                 <button
                   key={`${folder.isIrregular ? 'irregular' : folder.year}-${folder.block}`}
@@ -603,7 +562,7 @@ const EnrollmentManager = ({ activeTerm }) => {
                     setSelectedIds([]);
                     setSelectMode(false);
                   }}
-                  className="group relative cursor-pointer rounded-xl border border-gray-300 bg-white p-4 text-left shadow-sm transition  hover:border-blue-400 hover:shadow-md"
+                  className="group relative cursor-pointer rounded-lg border border-gray-300 bg-white p-4 text-left transition  hover:border-blue-400 hover:shadow-md"
                 >
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
@@ -623,21 +582,81 @@ const EnrollmentManager = ({ activeTerm }) => {
           )}
         </div>
       ) : (
-        <div className="space-y-3">
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-            <div className="overflow-x-auto">
-             
+        <div className="">
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
              
-            
+            <div className='flex items-center gap-2'>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !selectMode;
+                    setSelectMode(next);
+                    if (!next) setSelectedIds([]);
+                  }}
+                  title={selectMode ? 'Turn off selection' : 'Select students'}
+                  className={`inline-flex items-center gap-2 rounded-lg border border-gray-300 p-2 text-sm transition cursor-pointer
+                    ${
+                      selectMode
+                        ? 'bg-blue-50 text-blue-600 border-blue-300'
+                        : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                    }`}
+                >
+                  <Square className="h-4 w-4" />
+                  Select
+                </button>
+
+              
+
+                <button
+                type="button"
+                onClick={handleEnrollSelected}
+                disabled={!selectMode || termIncomplete || bulkSaving || loading || !canEnrollSelected}
+                className={`p-2 rounded-xl transition
+                    ${selectMode 
+                      ? termIncomplete || bulkSaving || loading || !canEnrollSelected
+                         ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer'
+                        : 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                    }
+                  `}
+                title="Enroll selected"
+                aria-label="Enroll selected"
+              >
+                <UserCheck className="h-4 w-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleUnenrollSelected}
+                disabled={!selectMode || bulkSaving || loading || !canUnenrollSelected}
+                className={`p-2 rounded-xl transition
+                    ${selectMode
+                      ? bulkSaving || loading || !canUnenrollSelected
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer'
+                      : 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                    }
+                  `}
+                aria-label="Unenroll selected"
+              >
+                <UserX className="h-4 w-4" />
+              </button>
+
+                {hasSelected && (
+            <div className="text-xs text-slate-500">
+              {selectedIds.length} selected
+            </div>
+          )}
+            </div>
+                        
 
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={refresh}
                 disabled={loading}
-                className={`p-2 rounded-xl bg-gray-200 text-gray-600 disabled:opacity-50 ${loading ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-300'}`}
+                className="p-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
                 title="Refresh"
                 aria-label="Refresh"
               >
@@ -651,61 +670,19 @@ const EnrollmentManager = ({ activeTerm }) => {
                   placeholder="Search students"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="h-9 w-full rounded-xl border border-gray-300 bg-white pl-9 pr-3 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-gray-900"
+                      className="w-full border text-sm border-slate-200 bg-white rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                 />
               </div>
 
             
             </div>
-
-            <div className='flex items-center gap-2'>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = !selectMode;
-                    setSelectMode(next);
-                    if (!next) setSelectedIds([]);
-                  }}
-                  title={selectMode ? 'Turn off selection' : 'Select students'}
-                  className={`inline-flex items-center gap-2 rounded-xl border border-gray-300 px-3 py-2 text-xs transition ${
-                    selectMode
-                      ? 'bg-gray-100 text-gray-500'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  <Square className="h-4 w-4" />
-                  Select
-                </button>
-
-                {hasSelected && (
-            <div className="text-xs text-slate-500">
-              {selectedIds.length} selected
-            </div>
-          )}
-
-                <button
-                type="button"
-                onClick={handleEnrollSelected}
-                disabled={!selectMode || termIncomplete || bulkSaving || loading || !canEnrollSelected}
-                className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 rounded-xl"
-                title="Enroll selected"
-                aria-label="Enroll selected"
-              >
-                <UserCheck className="h-4 w-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={handleUnenrollSelected}
-                disabled={!selectMode || bulkSaving || loading || !canUnenrollSelected}
-                className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 rounded-xl"
-                title="Unenroll selected"
-                aria-label="Unenroll selected"
-              >
-                <UserX className="h-4 w-4" />
-              </button>
-            </div>
           </div>
+
+          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+            <div className="overflow-x-auto">
+             
+
+              
 
               <table className="w-full text-sm">
                 <thead className="text-sm bg-blue-500 text-white text-left">
@@ -719,12 +696,12 @@ const EnrollmentManager = ({ activeTerm }) => {
                           onChange={toggleSelectAllVisible}
                         />
                       ) : (
-                        <span className="font-medium">#</span>
+                        <span className="font-medium">No.</span>
                       )}
                     </th>
 
                     <th className="px-4 py-2 ">
-                      Student ID
+                      Student No.
                     </th>
 
                     <th className="px-4 py-2 ">
@@ -737,16 +714,8 @@ const EnrollmentManager = ({ activeTerm }) => {
                       </button>
                     </th>
 
-                    <th className="px-4 py-2 ">
-                      <button
-                        type="button"
-                        onClick={() => handleSort('yearBlock')}
-                        className="inline-flex items-center cursor-pointer"
-                      >
-                        Year / Block <SortIcon column="yearBlock" />
-                      </button>
-                    </th>
-
+                    <th className="px-4 py-2 ">Contact No.</th>
+                    <th className="px-4 py-2 ">Email</th>
                     <th className="px-4 py-2 ">
                       <button
                         type="button"
@@ -759,7 +728,7 @@ const EnrollmentManager = ({ activeTerm }) => {
 
                   
 
-                    <th className="px-4 py-2  text-left">Action</th>
+                    <th className="px-4 py-2  text-left">Actions</th>
                   </tr>
                 </thead>
 
@@ -774,8 +743,7 @@ const EnrollmentManager = ({ activeTerm }) => {
                     </tr>
                   ) : (
                     tableStudents.map((student, index) => {
-                      const meta = STATUS_META[student.enrollmentStatus] || STATUS_META.unset;
-                      const block = getBlock(student);
+                      const meta = STATUS_META[student.enrollmentStatus] || STATUS_META['not-enrolled'];
                       const busy = busyIds.has(student.id);
                       const isEnrolledHere = student.enrollmentStatus === 'enrolled';
 
@@ -799,13 +767,15 @@ const EnrollmentManager = ({ activeTerm }) => {
                             </td>
 
                           <td className="px-4 py-2 ">
-                            <p className="font-medium text-gray-900">{student.name}</p>
+                            <p className=" text-gray-900">{student.name}</p>
                           </td>
 
-                          <td className="whitespace-nowrap px-4 py-2  text-gray-600">
-                            {student.isIrregular
-                              ? `${getYearLabel(Number(student.yearLevel || 1))} Year · Irregular`
-                              : `${getYearLabel(Number(student.yearLevel || 1))} Year · Block ${block}`}
+                          <td className="px-4 py-2 whitespace-nowrap text-gray-600">
+                            {student.contactNumber || ''}
+                          </td>
+
+                          <td className="px-4 py-2 whitespace-nowrap text-gray-600">
+                            {student.email || ''}
                           </td>
 
                           <td className="px-4 py-2 ">
@@ -827,7 +797,7 @@ const EnrollmentManager = ({ activeTerm }) => {
                                   }}
                                   disabled={busy}
                                   title="Unenroll"
-                                    className={`p-2 rounded-full bg-gray-200 text-gray-600 disabled:opacity-50 ${busy ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-300'}`}
+                                  className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
                                 >
                                   <UserX className="h-3.5 w-3.5" />
                                 </button>
@@ -842,7 +812,7 @@ const EnrollmentManager = ({ activeTerm }) => {
                                     }}
                                     disabled={busy || termIncomplete}
                                     title={termIncomplete ? 'Set active semester and school year first' : 'Enroll'}
-                                    className={`p-2 rounded-full bg-gray-200 text-gray-600 disabled:opacity-50 ${(busy || termIncomplete) ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-300'}`}
+                                    className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
                                   >
                                     <UserCheck className="h-3.5 w-3.5" />
                                   </button>
@@ -857,7 +827,7 @@ const EnrollmentManager = ({ activeTerm }) => {
                                       }}
                                       disabled={busy}
                                       title="Unenroll"
-                                      className={`p-2 rounded-full bg-gray-200 text-gray-600 disabled:opacity-50 ${busy ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-gray-300'}`}
+                                      className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
                                     >
                                       <UserX className="h-3.5 w-3.5" />
                                     </button>
@@ -872,6 +842,38 @@ const EnrollmentManager = ({ activeTerm }) => {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[2px] bg-opacity-50">
+          <div className="rounded-2xl bg-white p-8 shadow-lg max-w-md w-full ">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Confirm {modal.type === 'enroll' ? 'Enrollment' : 'Unenrollment'}
+            </h3>
+            <p className="text-gray-600 mb-8">
+              {modal.bulkIds.length > 0
+                ? `Are you sure you want to ${modal.type} ${modal.bulkIds.length} student${modal.bulkIds.length > 1 ? 's' : ''}?`
+                : `Are you sure you want to ${modal.type} ${modal.student?.name}?`
+              }
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setModal({ show: false, type: '', student: null, bulkIds: [] })}
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmModal}
+                className="px-4 py-1.5 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+              >
+                Confirm
+              </button>
             </div>
           </div>
         </div>

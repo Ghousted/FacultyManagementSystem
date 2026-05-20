@@ -26,6 +26,7 @@ import {
   ChevronsUpDown, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { db } from '../../firebase';
+import { toast } from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOtherDepartments } from '../../models/facultyModels';
 import { getOfferedModules } from '../../models/payablesModels';
@@ -40,6 +41,8 @@ const emptyPayableForm = {
   title: '',
   amount: '',
   category: 'general',
+  targetCourse: '',
+  targetBlocks: '',
   moduleId: '',
   moduleCode: '',
   moduleTitle: '',
@@ -146,11 +149,11 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
   const handleSaveIndividualPayable = async () => {
     const isModule = individualPayableForm.category === 'module';
     if (!individualPayableForm.amount || !individualPayableForm.yearLevel || (!isModule && !individualPayableForm.type) || (isModule && (!individualPayableForm.selectedModuleIds || individualPayableForm.selectedModuleIds.length === 0))) {
-      setError('Please fill in all required fields');
+      showError('Please fill in all required fields');
       return;
     }
     if (!selectedStudentForIndividualPayable) {
-      setError('No student selected');
+      showError('No student selected');
       return;
     }
     setLoading(true);
@@ -165,7 +168,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
         const amount = parseFloat(individualPayableForm.amount);
         const selected = individualPayableForm.selectedModuleIds || [];
         if (selected.length === 0) {
-          setError('Please select at least one module');
+          showError('Please select at least one module');
           setLoading(false);
           return;
         }
@@ -208,7 +211,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
           });
           await loadDepartmentData();
         } else {
-          setError(`${failedCount} previous balance(s) failed to save. Please try again.`);
+          showError(`${failedCount} previous balance(s) failed to save. Please try again.`);
         }
       } else {
         const newPayableData = {
@@ -418,6 +421,37 @@ useEffect(() => {
     [offeredModules, payableForm.selectedModuleIds]
   );
 
+  const courseOptions = useMemo(() => {
+    const courses = new Set();
+    students.forEach(student => {
+      if (student.course) courses.add(student.course);
+    });
+    return ['All', ...Array.from(courses).sort()];
+  }, [students]);
+
+  const yearLevelOptions = useMemo(() => {
+    const levels = new Set();
+    students.forEach(student => {
+      if (payableForm.targetCourse === 'All' || student.course === payableForm.targetCourse) {
+        if (student.yearLevel) levels.add(student.yearLevel);
+      }
+    });
+    return ['All', ...Array.from(levels).sort()];
+  }, [students, payableForm.targetCourse]);
+
+  const blockOptions = useMemo(() => {
+    const blocks = new Set();
+    students.forEach(student => {
+      if (payableForm.targetCourse === 'All' || student.course === payableForm.targetCourse) {
+        if (payableForm.targetYearLevel === 'All' || student.yearLevel === payableForm.targetYearLevel) {
+          const block = student.block ? String(student.block).trim().toUpperCase() : 'A';
+          blocks.add(block);
+        }
+      }
+    });
+    return ['All', ...Array.from(blocks).sort()];
+  }, [students, payableForm.targetCourse, payableForm.targetYearLevel]);
+
   const studentsById = useMemo(() => {
     return students.reduce((acc, student) => {
       acc[student.id] = student;
@@ -487,12 +521,14 @@ useEffect(() => {
 
   const showError = (message) => {
     setSuccess('');
-    setError(message);
+    setError('');
+    toast.error(message);
   };
 
   const showSuccess = (message) => {
     setError('');
-    setSuccess(message);
+    setSuccess('');
+    toast.success(message);
   };
 
   const loadDepartments = useCallback(async () => {
@@ -1010,6 +1046,11 @@ const renderSortIcon = (field) => {
       return;
     }
 
+    const targetCourse = payableForm.targetCourse?.trim() || '';
+    const targetYearLevel = payableForm.targetYearLevel?.trim() || '';
+    const targetBlock = payableForm.targetBlock?.trim().toUpperCase() || '';
+    const targetBlocks = targetBlock ? [targetBlock] : [];
+
     setLoading(true);
     clearStatus();
     try {
@@ -1019,6 +1060,10 @@ const renderSortIcon = (field) => {
         departmentId: selectedDepartmentId,
         amount,
         category: payableForm.category || 'general',
+        targetCourse,
+        targetYearLevel,
+        targetBlock,
+        targetBlocks,
         updatedAt: new Date().toISOString()
       };
 
@@ -1114,6 +1159,9 @@ const renderSortIcon = (field) => {
       title: payable.title || '',
       amount: String(numberOrZero(payable.amount)),
       category: payable.category || 'general',
+      targetCourse: payable.targetCourse || '',
+      targetYearLevel: payable.targetYearLevel ? String(payable.targetYearLevel) : '',
+      targetBlock: payable.targetBlock || (Array.isArray(payable.targetBlocks) && payable.targetBlocks[0]) || '',
       moduleId: payable.moduleId || '',
       moduleCode: payable.moduleCode || '',
       moduleTitle: payable.moduleTitle || '',
@@ -1322,8 +1370,9 @@ const renderSortIcon = (field) => {
   };
 
   const buildOtherPayablesForReceipt = (studentId, excludedPayableId) => {
+    const student = studentsById[studentId];
     const otherPayables = payables
-      .filter((payable) => payable.id !== excludedPayableId)
+      .filter((payable) => payable.id !== excludedPayableId && isPayableRelevantToStudent(payable, student))
       .map((payable) => ({
         payableId: payable.id,
         type: payable.title || 'Payable',
@@ -1685,6 +1734,32 @@ const renderSortIcon = (field) => {
     return Math.max(0, payableAmount - settled);
   };
 
+  const isPayableRelevantToStudent = (payable, student) => {
+    if (!payable || !student) return false;
+    if (payable.studentId) {
+      return payable.studentId === student.id;
+    }
+
+    const targetCourse = String(payable.targetCourse || '').trim().toLowerCase();
+    const targetYearLevel = String(payable.targetYearLevel || '').trim();
+    const targetBlock = String(payable.targetBlock || '').trim().toUpperCase();
+
+    if (targetCourse && String(student.course || '').trim().toLowerCase() !== targetCourse) {
+      return false;
+    }
+
+    if (targetYearLevel && String(student.yearLevel || '').trim() !== targetYearLevel) {
+      return false;
+    }
+
+    if (targetBlock) {
+      const studentBlock = String(student.block || '').trim().toUpperCase();
+      return targetBlock === studentBlock;
+    }
+
+    return true;
+  };
+
   const getStudentPayablePayments = useCallback((studentId, payableId) => {
     return payments
       .filter((payment) => payment.studentId === studentId && payment.payableId === payableId)
@@ -1699,7 +1774,9 @@ const renderSortIcon = (field) => {
   }, [getStudentPayablePayments, selectedStudentForPayment]);
 
   const getStudentPayables = (studentId) => {
-    return payables.filter((p) => !p.studentId || p.studentId === studentId);
+    const student = studentsById[studentId];
+    if (!student) return [];
+    return payables.filter((payable) => isPayableRelevantToStudent(payable, student));
   };
 
   const getStudentTotalBalance = (studentId) => {
@@ -1736,8 +1813,7 @@ const renderSortIcon = (field) => {
 
   return (
     <div className="">
-      {error && <div className="rounded-lg border border-rose-200 bg-rose-50 text-rose-700 px-4 py-2 text-sm">{error}</div>}
-      {success && <div className="rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 px-4 py-2 text-sm">{success}</div>}
+      {/* messages shown via toast notifications */}
 
       {!selectedDepartment && (
         <>
@@ -1747,7 +1823,7 @@ const renderSortIcon = (field) => {
             <button
               type="button"
               onClick={openCreateDepartmentModal}
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg cursor-pointer bg-green-500 text-white hover:bg-green-600"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg cursor-pointer bg-green-500 text-white hover:bg-green-600"
             >
               <BadgePlus className="w-4 h-4" />
               Add Department
@@ -1778,14 +1854,14 @@ const renderSortIcon = (field) => {
                       <button
                         type="button"
                         onClick={() => handleEditDepartment(department)}
-                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                       >
                         <Pencil className="w-3 h-3" /> Edit
                       </button>
                       <button
                         type="button"
                         onClick={() => openDeleteDepartmentModal(department)}
-                        className="w-full text-left px-3 py-2 text-sm text-rose-700 hover:bg-rose-50 flex items-center gap-2"
+                        className="w-full text-left px-4 py-2 text-sm text-rose-700 hover:bg-rose-50 flex items-center gap-2"
                       >
                         <Trash2 className="w-3 h-3" /> Delete
                       </button>
@@ -1849,7 +1925,7 @@ const renderSortIcon = (field) => {
           <button
             type="button"
             onClick={openCreatePayableModal}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm cursor-pointer bg-green-500 text-white hover:bg-green-600"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm cursor-pointer bg-green-500 text-white hover:bg-green-600"
           >
             <BadgePlus className="w-4 h-4" />
             Add Payable
@@ -1937,7 +2013,7 @@ const renderSortIcon = (field) => {
       <tr>
         <th
           onClick={() => handleSort("student")}
-          className="px-3 py-1.5 w-[30%] cursor-pointer"
+          className="px-4 py-2 w-[30%] cursor-pointer"
         >
           <div className="flex items-center gap-1">
             Student
@@ -1947,7 +2023,7 @@ const renderSortIcon = (field) => {
 
         <th
           onClick={() => handleSort("course")}
-          className="px-3 py-1.5 w-[15%] cursor-pointer"
+          className="px-4 py-2 w-[15%] cursor-pointer"
         >
           <div className="flex items-center gap-1">
             Course
@@ -1957,7 +2033,7 @@ const renderSortIcon = (field) => {
 
         <th
           onClick={() => handleSort("year")}
-          className="px-3 py-1.5 w-[10%] cursor-pointer"
+          className="px-4 py-2 w-[10%] cursor-pointer"
         >
           <div className="flex items-center gap-1">
             Year
@@ -1967,7 +2043,7 @@ const renderSortIcon = (field) => {
 
         <th
           onClick={() => handleSort("block")}
-          className="px-3 py-1.5 w-[10%] cursor-pointer"
+          className="px-4 py-2 w-[10%] cursor-pointer"
         >
           <div className="flex items-center gap-1">
             Block
@@ -1977,7 +2053,7 @@ const renderSortIcon = (field) => {
 
         <th
           onClick={() => handleSort("balance")}
-          className="px-3 py-1.5 w-[20%] cursor-pointer text-right"
+          className="px-4 py-2 w-[20%] cursor-pointer text-right"
         >
           <div className="flex items-center justify-end gap-1">
             Total Balance
@@ -1985,9 +2061,7 @@ const renderSortIcon = (field) => {
           </div>
         </th>
 
-        <th className="text-right px-3 py-1.5 w-[15%]">
-          Actions
-        </th>
+      
       </tr>
     </thead>
 
@@ -2006,28 +2080,22 @@ const renderSortIcon = (field) => {
           className="border-t border-slate-200 cursor-pointer hover:bg-slate-50"
           onClick={() => openStudentPaymentModal(student)}
         >
-          <td className="px-3 py-1.5 w-[30%]">{student.name}</td>
-          <td className="px-3 py-1.5 w-[15%]">
+          <td className="px-4 py-2 w-[30%]">{student.name}</td>
+          <td className="px-4 py-2 w-[15%]">
             {student.course || "-"}
           </td>
-          <td className="px-3 py-1.5 w-[10%]">
+          <td className="px-4 py-2 w-[10%]">
             {student.yearLevel}
           </td>
-          <td className="px-3 py-1.5 w-[10%]">
+          <td className="px-4 py-2 w-[10%]">
             {student.block}
           </td>
 
-          <td className="px-3 py-1.5 w-[20%] text-right font-semibold">
+          <td className="px-4 py-2 w-[20%] text-right font-semibold">
             {formatPeso(getStudentTotalBalance(student.id))}
           </td>
 
-          <td className="px-3 py-2 w-[15%] text-right">
-            <div className="flex justify-end items-center gap-1" onClick={(event) => event.stopPropagation()}>
-              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-500">
-                Managed in Student Management
-              </span>
-            </div>
-          </td>
+         
         </tr>
       ))}
     </tbody>
@@ -2037,13 +2105,13 @@ const renderSortIcon = (field) => {
         <tfoot className="bg-slate-50 border-t border-slate-200">
           <tr>
             <td
-              colSpan={4}
-              className="px-3 py-2 text-right font-semibold text-slate-700"
+              colSpan={3}
+              className="px-4 py-2 text-right font-semibold text-slate-700"
             >
               Total Balance
             </td>
 
-            <td className="px-3 py-2 text-right font-bold text-slate-900">
+            <td className="px-4 py-2 text-right font-bold text-slate-900">
               {formatPeso(
                 (selectedFolder
                   ? sortedStudents
@@ -2056,7 +2124,7 @@ const renderSortIcon = (field) => {
               )}
             </td>
 
-            <td className="px-3 py-2" />
+            <td className="px-4 py-2" />
           </tr>
         </tfoot>
       )}
@@ -2086,7 +2154,7 @@ const renderSortIcon = (field) => {
                 value={departmentForm.name}
                 onChange={(event) => setDepartmentForm((prev) => ({ ...prev, name: event.target.value }))}
                 required
-                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm"
+                className="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm"
               />
               <label htmlFor="dept-code" className="block text-sm font-medium text-slate-700">
                 Department Code
@@ -2097,7 +2165,7 @@ const renderSortIcon = (field) => {
                 value={departmentForm.code}
                 onChange={(event) => setDepartmentForm((prev) => ({ ...prev, code: event.target.value }))}
                 required
-                className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm"
+                className="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm"
               />
               <div className="flex justify-end gap-2 mt-8">
                 <button
@@ -2142,7 +2210,7 @@ const renderSortIcon = (field) => {
                   placeholder="e.g. Dela Cruz, Juan"
                   value={studentForm.name}
                   onChange={(event) => setStudentForm((prev) => ({ ...prev, name: event.target.value }))}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
+                  className="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-none"
                 />
               </div>
               <div className="flex gap-2">
@@ -2153,7 +2221,7 @@ const renderSortIcon = (field) => {
                     placeholder="Course (e.g. BSIT)"
                     value={studentForm.course}
                     onChange={(event) => setStudentForm((prev) => ({ ...prev, course: event.target.value }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
+                    className="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-none"
                   />
                 </div>
                 <div>
@@ -2161,7 +2229,7 @@ const renderSortIcon = (field) => {
                   <select
                     value={studentForm.yearLevel}
                     onChange={(event) => setStudentForm((prev) => ({ ...prev, yearLevel: event.target.value }))}
-                    className="w-20 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
+                    className="w-20 border border-slate-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-none"
                   >
                     <option value="">Select</option>
                     <option value="1">1st</option>
@@ -2177,7 +2245,7 @@ const renderSortIcon = (field) => {
                     placeholder="Block (e.g. A)"
                     value={studentForm.block}
                     onChange={(event) => setStudentForm((prev) => ({ ...prev, block: event.target.value }))}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-none"
+                    className="w-full border border-slate-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-none"
                   />
                 </div>
               </div>
@@ -2214,7 +2282,7 @@ const renderSortIcon = (field) => {
         {editingPayableId ? 'Edit Payable' : 'Add Payable'}
       </h4>
       <p className="text-sm text-slate-600 mb-6">
-        This payable applies to all students in <strong>{selectedDepartment?.name || 'this department'}</strong>, including newly added students.
+        This payable applies to all studentS thast match the target group you will select below.
       </p>
 
       <form onSubmit={handleSavePayable} className="space-y-4">
@@ -2261,6 +2329,73 @@ const renderSortIcon = (field) => {
   </div>
 </div>
 
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Course</label>
+            <select
+              value={payableForm.targetCourse || 'All'}
+              onChange={(event) => {
+                const value = event.target.value;
+                setPayableForm((prev) => ({
+                  ...prev,
+                  targetCourse: value === 'All' ? '' : value,
+                  targetYearLevel: '',
+                  targetBlock: ''
+                }));
+              }}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+            >
+              {courseOptions.map((course) => (
+                <option key={course} value={course}>
+                  {course}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Year Level</label>
+            <select
+              value={payableForm.targetYearLevel || 'All'}
+              onChange={(event) => {
+                const value = event.target.value;
+                setPayableForm((prev) => ({
+                  ...prev,
+                  targetYearLevel: value === 'All' ? '' : value,
+                  targetBlock: ''
+                }));
+              }}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+            >
+              {yearLevelOptions.map((level) => (
+                <option key={level} value={level}>
+                  {level}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Block</label>
+            <select
+              value={payableForm.targetBlock || 'All'}
+              onChange={(event) => {
+                const value = event.target.value;
+                setPayableForm((prev) => ({
+                  ...prev,
+                  targetBlock: value === 'All' ? '' : value
+                }));
+              }}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+            >
+              {blockOptions.map((block) => (
+                <option key={block} value={block}>
+                  {block}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <p className="text-xs text-slate-500 mt-1">Select course, year level, and block to target specific students. Use 'All' to include all options.</p>
+
         {/* Module Selection */}
         {payableForm.category === 'module' ? (
           <>
@@ -2279,7 +2414,7 @@ const renderSortIcon = (field) => {
                         setModuleSelectorContext('new');
                         setModuleSelectorOpen(true);
                       }}
-                      className="rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
+                      className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
                     >
                       Change
                     </button>
@@ -2303,7 +2438,7 @@ const renderSortIcon = (field) => {
                       setModuleSelectorContext('new');
                       setModuleSelectorOpen(true);
                     }}
-                    className="inline-flex items-center rounded-lg bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
+                    className="inline-flex items-center rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
                   >
                     Select Modules
                   </button>
@@ -2322,7 +2457,7 @@ const renderSortIcon = (field) => {
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
                 placeholder="e.g., 1500.00"
                 value={payableForm.amount}
                 onChange={(e) => setPayableForm((prev) => ({ ...prev, amount: e.target.value }))}
@@ -2352,7 +2487,7 @@ const renderSortIcon = (field) => {
                 placeholder="e.g. Laboratory Fee"
                 value={payableForm.title}
                 onChange={(event) => setPayableForm((prev) => ({ ...prev, title: event.target.value }))}
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
               />
             </div>
             <div>
@@ -2362,7 +2497,7 @@ const renderSortIcon = (field) => {
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
                 placeholder="e.g., 1500.00"
                 value={payableForm.amount}
                 onChange={(e) => setPayableForm((prev) => ({ ...prev, amount: e.target.value }))}
@@ -2755,6 +2890,14 @@ const renderSortIcon = (field) => {
                             <div className="flex-1">
                               <h4 className="text-lg font-bold">{payable.title}</h4>
                               <p className="text-sm text-gray-600">Total Amount: {formatPeso(payableAmount)}</p>
+                              {payable.targetCourse && (
+                                <p className="text-xs text-slate-500 mt-1">Target Course: {payable.targetCourse}</p>
+                              )}
+                              {payable.targetBlocks && (
+                                <p className="text-xs text-slate-500 mt-1">
+                                  Blocks: {Array.isArray(payable.targetBlocks) ? payable.targetBlocks.join(', ') : payable.targetBlocks}
+                                </p>
+                              )}
                             </div>
                             <div className="flex items-center gap-1">
                               <span className={`inline-flex mr-1 items-center px-3 py-1 rounded-full text-xs font-medium ${getPayableStatusClasses(status)}`}>
@@ -3049,7 +3192,7 @@ const renderSortIcon = (field) => {
             <button
               type="button"
               onClick={() => handleIndividualPayableInputChange('category', 'general')}
-              className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${
+              className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition ${
                 individualPayableForm.category === 'general'
                   ? 'bg-white text-blue-600 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
@@ -3064,7 +3207,7 @@ const renderSortIcon = (field) => {
                 setModuleSelectorContext('individual');
                 setModuleSelectorOpen(true);
               }}
-              className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition ${
+              className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition ${
                 individualPayableForm.category === 'module'
                   ? 'bg-white text-blue-600 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
@@ -3093,7 +3236,7 @@ const renderSortIcon = (field) => {
                         setModuleSelectorContext('individual');
                         setModuleSelectorOpen(true);
                       }}
-                      className="rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
+                      className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
                     >
                       Change
                     </button>
@@ -3117,7 +3260,7 @@ const renderSortIcon = (field) => {
                       setModuleSelectorContext('individual');
                       setModuleSelectorOpen(true);
                     }}
-                    className="inline-flex items-center rounded-lg bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
+                    className="inline-flex items-center rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
                   >
                     Select Modules
                   </button>
@@ -3136,7 +3279,7 @@ const renderSortIcon = (field) => {
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
                 placeholder="e.g., 1500.00"
                 value={individualPayableForm.amount}
                 onChange={(e) => handleIndividualPayableInputChange('amount', e.target.value)}
@@ -3163,7 +3306,7 @@ const renderSortIcon = (field) => {
               <label className="block text-sm font-medium text-slate-700 mb-1">Charge Type</label>
               <input
                 type="text"
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
                 placeholder="Payable Type (e.g., 2nd Year Balance, Laboratory Fee, etc.)"
                 value={individualPayableForm.type}
                 onChange={(e) => handleIndividualPayableInputChange('type', e.target.value)}
@@ -3176,7 +3319,7 @@ const renderSortIcon = (field) => {
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
                 placeholder="e.g., 1500.00"
                 value={individualPayableForm.amount}
                 onChange={(e) => handleIndividualPayableInputChange('amount', e.target.value)}
@@ -3191,7 +3334,7 @@ const renderSortIcon = (field) => {
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Year Level (when the charge was incurred)</label>
           <select
-            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
             value={individualPayableForm.yearLevel}
             onChange={(e) => handleIndividualPayableInputChange('yearLevel', e.target.value)}
           >
@@ -3261,7 +3404,7 @@ const renderSortIcon = (field) => {
               <button
                 type="button"
                 onClick={closeEditPayablesModal}
-                className="px-3 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-2 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Close
               </button>
@@ -3274,6 +3417,14 @@ const renderSortIcon = (field) => {
                     <div>
                       <p className="font-semibold text-slate-900">{payable.title || 'Untitled Payable'}</p>
                       <p className="text-sm text-slate-600">Amount: {formatPeso(payable.amount)}</p>
+                      {payable.targetCourse && (
+                        <p className="text-xs text-slate-500 mt-1">
+                          Target: {payable.targetCourse} {payable.targetYearLevel ? `${payable.targetYearLevel}${getOrdinalSuffix(parseInt(payable.targetYearLevel, 10))} YEAR` : ''} {payable.targetBlock ? `BLOCK ${payable.targetBlock}` : ''}
+                        </p>
+                      )}
+                      {!payable.targetCourse && (
+                        <p className="text-xs text-slate-500 mt-1">Target: All students</p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <button
@@ -3282,14 +3433,14 @@ const renderSortIcon = (field) => {
                           closeEditPayablesModal();
                           handleEditPayable(payable);
                         }}
-                        className="px-3 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                        className="px-4 py-2 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
                       >
                         Edit
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDeletePayable(payable.id)}
-                        className="px-3 py-1.5 rounded-full text-sm border text-rose-600 border-rose-500 bg-white hover:bg-rose-50 cursor-pointer"
+                        className="px-4 py-2 rounded-full text-sm border text-rose-600 border-rose-500 bg-white hover:bg-rose-50 cursor-pointer"
                       >
                         Delete
                       </button>
@@ -3397,7 +3548,7 @@ const renderSortIcon = (field) => {
               <button
                 type="button"
                 onClick={() => setTransactionModalOpen(false)}
-                className="px-3 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-2 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Close
               </button>
@@ -3425,7 +3576,7 @@ const renderSortIcon = (field) => {
                           <button
                             type="button"
                             onClick={() => handleEditExistingPayment(payment)}
-                            className="px-3 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                            className="px-4 py-2 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
                           >
                             <Pencil className="inline-block w-4 h-4 mr-1 align-[-2px]" />
                             Edit
@@ -3433,14 +3584,14 @@ const renderSortIcon = (field) => {
                           <button
                             type="button"
                             onClick={() => handlePrintExistingPayment(payment)}
-                            className="px-3 py-1.5 rounded-full text-sm border text-emerald-600 border-emerald-500 bg-white hover:bg-emerald-50 cursor-pointer"
+                            className="px-4 py-2 rounded-full text-sm border text-emerald-600 border-emerald-500 bg-white hover:bg-emerald-50 cursor-pointer"
                           >
                             Print
                           </button>
                           <button
                             type="button"
                             onClick={() => handleDeletePayment(payment.id)}
-                            className="px-3 py-1.5 rounded-full text-sm border text-rose-600 border-rose-500 bg-white hover:bg-rose-50 cursor-pointer"
+                            className="px-4 py-2 rounded-full text-sm border text-rose-600 border-rose-500 bg-white hover:bg-rose-50 cursor-pointer"
                           >
                             Delete
                           </button>

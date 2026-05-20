@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { toast } from 'react-hot-toast';
 
 import { 
   addStudent, 
@@ -18,6 +19,28 @@ import { BadgePlus, Pencil, Folder, Trash, Search, ChevronUp, ChevronDown, Chevr
 import { logSystemAction } from '../../utils/auditLogger';
 
 const SEMESTER_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
+const STUDENT_MODAL_YEAR_TABS = [
+  { key: 1, label: '1st Year' },
+  { key: 2, label: '2nd Year' },
+  { key: 3, label: '3rd Year' },
+  { key: 4, label: '4th Year' },
+  { key: 'irregular', label: 'All Irregular' }
+];
+
+const getSurnameKey = (name = '') => {
+  const raw = String(name).trim();
+  if (!raw) return '';
+  if (raw.includes(',')) {
+    return raw.split(',')[0].trim().toLowerCase();
+  }
+  const parts = raw.split(/\s+/).filter(Boolean);
+  return (parts[parts.length - 1] || '').toLowerCase();
+};
+
+const getBlockKey = (student) => {
+  if (!student || student.isIrregular) return '';
+  return String(student.block || 'A').trim().toUpperCase() || 'A';
+};
 
 const normalizeTerm = (activeTerm) => ({
   semester: activeTerm?.semester ?? activeTerm?.sem ?? activeTerm?.activeSemester,
@@ -28,11 +51,11 @@ const getEnrollmentStatus = (student) => {
   if (student?.enrollmentStatus) return student.enrollmentStatus;
   if (student?.enrolled === true) return 'enrolled';
   if (student?.enrolled === false) return 'not-enrolled';
-  return 'unset';
+  return 'not-enrolled';
 };
 
 const FolderSkeleton = () => (
-  <div className="relative rounded-xl border border-gray-300 bg-white p-4 shadow-sm animate-pulse">
+  <div className="relative rounded-lg border border-gray-300 bg-white p-4 animate-pulse">
     <div className="flex items-center gap-3">
       <div className="h-10 w-10 rounded-lg bg-blue-50" />
       <div className="flex-1 space-y-2">
@@ -45,25 +68,28 @@ const FolderSkeleton = () => (
 
 const RowSkeleton = () => (
   <tr className="border-t border-gray-300 animate-pulse">
-    <td className="px-4 py-2">
-      <div className="h-4 w-4 bg-gray-200 rounded" />
+    <td className="px-4 py-2 w-[3%]">
+      <div className="h-4 w-3 rounded bg-gray-200" />
     </td>
-    <td className="px-4 py-2">
-      <div className="h-4 w-24 bg-gray-200 rounded" />
+    <td className="px-4 py-2 w-[12%]">
+      <div className="h-4 w-full max-w-24 rounded bg-gray-200" />
     </td>
-    <td className="px-4 py-2">
-      <div className="h-4 w-32 bg-gray-200 rounded" />
+    <td className="px-4 py-2 w-[25%]">
+      <div className="h-4 w-full max-w-56 rounded bg-gray-200" />
     </td>
-    <td className="px-4 py-2">
-      <div className="h-4 w-40 bg-gray-200 rounded" />
+    <td className="px-4 py-2 w-[18%]">
+      <div className="h-4 w-full max-w-44 rounded bg-gray-200" />
     </td>
-    <td className="px-4 py-2">
-      <div className="h-4 w-28 bg-gray-200 rounded" />
+    <td className="px-4 py-2 w-[12%]">
+      <div className="h-4 w-full max-w-32 rounded bg-gray-200" />
     </td>
-    <td className="px-4 py-2">
-      <div className="h-4 w-32 bg-gray-200 rounded" />
+    <td className="px-4 py-2 w-[15%]">
+      <div className="h-4 w-full max-w-36 rounded bg-gray-200" />
     </td>
-    <td className="px-4 py-2">
+    <td className="px-4 py-2 w-[5%]">
+      <div className="mx-auto h-5 w-9 rounded-full bg-gray-200" />
+    </td>
+    <td className="px-4 py-2 w-[10%]">
       <div className="flex gap-2">
         <div className="h-4 w-4 bg-gray-200 rounded-full" />
         <div className="h-4 w-4 bg-gray-200 rounded-full" />
@@ -120,7 +146,13 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   const [editingDialogOpen, setEditingDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState(null);
+  const [inactiveConfirmOpen, setInactiveConfirmOpen] = useState(false);
+  const [studentToInactivate, setStudentToInactivate] = useState(null);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [studentToArchive, setStudentToArchive] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const studentToDeleteName = students.find((student) => student.id === studentToDelete)?.name;
   const [editingStudent, setEditingStudent] = useState(null);
   const [editingData, setEditingData] = useState({});
   // Temporary display overrides to keep recently-updated students visible in their original folder
@@ -137,7 +169,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   const [subjectPickerYearFilter, setSubjectPickerYearFilter] = useState('all');
   const [subjectPickerSemesterFilter, setSubjectPickerSemesterFilter] = useState('all');
   const [subjectPickerSearch, setSubjectPickerSearch] = useState('');
-  const [subjectPickerSortBy, setSubjectPickerSortBy] = useState('yearLevel');
+  const [subjectPickerSortBy, setSubjectPickerSortBy] = useState('courseCode');
   const [subjectPickerSortOrder, setSubjectPickerSortOrder] = useState('asc');
   const [irregularDeleteDialogOpen, setIrregularDeleteDialogOpen] = useState(false);
   const [irregularSubjectToDelete, setIrregularSubjectToDelete] = useState(null);
@@ -145,6 +177,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   // Sorting state for course tables
   const [sortBy, setSortBy] = useState('courseCode');
   const [sortOrder, setSortOrder] = useState('asc');
+  const [subjectGradeSearchTerm, setSubjectGradeSearchTerm] = useState('');
 
   // View mode state
   const [viewMode, setViewMode] = useState('list');
@@ -169,6 +202,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   const [multiDeleteOpen, setMultiDeleteOpen] = useState(false);
   const [multiEditYear, setMultiEditYear] = useState(1);
   const [multiEditBlock, setMultiEditBlock] = useState('A');
+  const [multiEditIsIrregular, setMultiEditIsIrregular] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
   // Archive modal state
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
@@ -180,11 +214,17 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   const [newArchiveFolderName, setNewArchiveFolderName] = useState('');
   const [archiving, setArchiving] = useState(false);
   const [activeTerm, setActiveTerm] = useState({ semester: null, schoolYear: '' });
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alertMessage, setAlertMessage] = useState('');
+  const [statusModalOpen, setStatusModalOpen] = useState(false);
+  const [statusModalType, setStatusModalType] = useState('all');
+  const [statusModalYearTab, setStatusModalYearTab] = useState(1);
+  const [statusModalSort, setStatusModalSort] = useState({ key: 'surname', direction: 'asc' });
 
   const term = normalizeTerm(activeTerm);
   const statusCounts = students.reduce(
     (acc, student) => {
-      const status = getEnrollmentStatus(student);
+      const status = getEnrollmentStatus(student) === 'enrolled' ? 'enrolled' : 'not-enrolled';
       if (!acc[status] && acc[status] !== 0) acc[status] = 0;
       acc[status] += 1;
       if (student.active === false) {
@@ -194,8 +234,135 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       }
       return acc;
     },
-    { enrolled: 0, 'needs-update': 0, 'not-enrolled': 0, unset: 0, active: 0, inactive: 0 }
+    { enrolled: 0, 'not-enrolled': 0, active: 0, inactive: 0 }
   );
+
+  const STATUS_CARD_META = {
+    all: { label: 'All Students', count: students.length },
+    enrolled: { label: 'Enrolled Students', count: statusCounts.enrolled || 0 },
+    active: { label: 'Active Students', count: statusCounts.active || 0 },
+    inactive: { label: 'Inactive Students', count: statusCounts.inactive || 0 },
+    'not-enrolled': { label: 'Not Enrolled Students', count: statusCounts['not-enrolled'] || 0 }
+  };
+
+  const openStatusModal = (type) => {
+    setStatusModalType(type);
+    setStatusModalYearTab(1);
+    setStatusModalSort({ key: 'surname', direction: 'asc' });
+    setStatusModalOpen(true);
+  };
+
+  const handleStatusModalSort = (key) => {
+    setStatusModalSort((prev) => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      return { key, direction: 'asc' };
+    });
+  };
+
+  const StatusSortIcon = ({ column }) => {
+    if (statusModalSort.key !== column) return <ChevronsUpDown className="h-3.5 w-3.5 opacity-80" />;
+    return statusModalSort.direction === 'asc'
+      ? <ChevronUp className="h-3.5 w-3.5" />
+      : <ChevronDown className="h-3.5 w-3.5" />;
+  };
+
+  const statusFilteredStudents = useMemo(() => {
+    const byType = students.filter((student) => {
+      if (statusModalType === 'all') return true;
+      if (statusModalType === 'active') return student.active !== false;
+      if (statusModalType === 'inactive') return student.active === false;
+      if (statusModalType === 'enrolled') return getEnrollmentStatus(student) === 'enrolled';
+      if (statusModalType === 'not-enrolled') return getEnrollmentStatus(student) === 'not-enrolled';
+      return true;
+    });
+
+    const byYearTab = byType.filter((student) => {
+      if (statusModalYearTab === 'irregular') return !!student.isIrregular;
+      return !student.isIrregular && Number(student.yearLevel) === Number(statusModalYearTab);
+    });
+
+    return byYearTab.sort((a, b) => {
+      let aValue = '';
+      let bValue = '';
+
+      switch (statusModalSort.key) {
+        case 'block':
+          aValue = getBlockKey(a);
+          bValue = getBlockKey(b);
+          break;
+        case 'studentNumber':
+          aValue = (a.studentNumber || '').toString();
+          bValue = (b.studentNumber || '').toString();
+          break;
+        case 'name':
+          aValue = (a.name || '').toString();
+          bValue = (b.name || '').toString();
+          break;
+        case 'email':
+          aValue = (a.email || '').toString();
+          bValue = (b.email || '').toString();
+          break;
+        case 'contactNumber':
+          aValue = (a.contactNumber || '').toString();
+          bValue = (b.contactNumber || '').toString();
+          break;
+        case 'active':
+          aValue = a.active === false ? 'inactive' : 'active';
+          bValue = b.active === false ? 'inactive' : 'active';
+          break;
+        case 'enrollment':
+          aValue = getEnrollmentStatus(a);
+          bValue = getEnrollmentStatus(b);
+          break;
+        case 'surname':
+        default:
+          aValue = getSurnameKey(a.name);
+          bValue = getSurnameKey(b.name);
+          break;
+      }
+
+      const cmp = aValue.localeCompare(bValue, undefined, { numeric: true, sensitivity: 'base' });
+      if (cmp !== 0) return statusModalSort.direction === 'asc' ? cmp : -cmp;
+
+      // deterministic tie-breaker
+      const tie = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      return statusModalSort.direction === 'asc' ? tie : -tie;
+    });
+  }, [students, statusModalType, statusModalYearTab, statusModalSort]);
+
+  const statusModalTabCounts = useMemo(() => {
+    const base = {
+      1: 0,
+      2: 0,
+      3: 0,
+      4: 0,
+      irregular: 0
+    };
+
+    const byType = students.filter((student) => {
+      if (statusModalType === 'all') return true;
+      if (statusModalType === 'active') return student.active !== false;
+      if (statusModalType === 'inactive') return student.active === false;
+      if (statusModalType === 'enrolled') return getEnrollmentStatus(student) === 'enrolled';
+      if (statusModalType === 'not-enrolled') return getEnrollmentStatus(student) === 'not-enrolled';
+      return true;
+    });
+
+    byType.forEach((student) => {
+      if (student.isIrregular) {
+        base.irregular += 1;
+        return;
+      }
+      const year = Number(student.yearLevel);
+      if ([1, 2, 3, 4].includes(year)) {
+        base[year] += 1;
+      }
+    });
+
+    return base;
+  }, [students, statusModalType]);
 
   const handleSort = (column) => {
     if (sortBy === column) {
@@ -223,7 +390,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       return;
     }
 
-    const shouldUpdateBlock = !selectedFolder?.isIrregular;
+    const shouldUpdateBlock = !multiEditIsIrregular;
     const selectedCount = selectedIds.length;
     const selectedStudent = selectedCount === 1
       ? students.find((student) => student.id === selectedIds[0])
@@ -242,33 +409,38 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
         await updateDoc(
           studentRef,
           shouldUpdateBlock
-            ? { yearLevel: multiEditYear, block: multiEditBlock, updatedAt: new Date() }
-            : { yearLevel: multiEditYear, updatedAt: new Date() }
+            ? { yearLevel: multiEditYear, block: multiEditBlock, isIrregular: false, updatedAt: new Date() }
+            : { yearLevel: multiEditYear, block: '', isIrregular: true, updatedAt: new Date() }
         );
       });
 
       await Promise.all(updates);
       await logSystemAction({
-        action: 'Updated',
+        action: selectedCount === 1 ? 'Updated Student Information' : 'Bulk Updated Student Information',
         module: 'Curriculum Checker',
         entityType: selectedCount === 1 ? 'student' : 'studentBatch',
         entityId: selectedCount === 1 ? selectedIds[0] : '',
         description: updateDescription,
         details: shouldUpdateBlock
-          ? { studentIds: selectedIds, count: selectedCount, yearLevel: multiEditYear, block: multiEditBlock }
-          : { studentIds: selectedIds, count: selectedCount, yearLevel: multiEditYear }
+          ? { studentIds: selectedIds, count: selectedCount, yearLevel: multiEditYear, block: multiEditBlock, isIrregular: false }
+          : { studentIds: selectedIds, count: selectedCount, yearLevel: multiEditYear, isIrregular: true }
       });
 
       setStudents(prev => prev.map(s =>
         selectedIds.includes(s.id)
-          ? { ...s, yearLevel: multiEditYear, ...(shouldUpdateBlock ? { block: multiEditBlock } : {}) }
+          ? {
+              ...s,
+              yearLevel: multiEditYear,
+              isIrregular: !shouldUpdateBlock,
+              ...(shouldUpdateBlock ? { block: multiEditBlock } : { block: '' })
+            }
           : s
       ));
-      setSuccess('Students updated successfully!');
+      toast.success('Students updated successfully!');
       setSelectedIds([]);
       setMultiEditOpen(false);
     } catch (err) {
-      setError('Failed to update students: ' + err.message);
+      toast.error('Failed to update students: ' + err.message);
     }
     setLoading(false);
   };
@@ -276,7 +448,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   // Batch delete: confirm then delete selected studs
   const handleConfirmMultiDelete = async () => {
     if (!currentUser) {
-      setError('Please sign in to delete students');
+      toast.error('Please sign in to delete students');
       return;
     }
 
@@ -291,21 +463,21 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
         ? students.find(student => student.id === selectedIds[0])?.name || selectedIds[0]
         : '2 or more students';
       await logSystemAction({
-        action: 'Deleted students',
+        action: 'Deleted Student Records',
         module: 'Curriculum Checker',
         entityType: 'studentBatch',
         entityId: '',
-        description: `deleted ${deletedLabel}`,
+        description: `Deleted ${deletedLabel} from the system`,
         details: { studentIds: selectedIds, count: selectedIds.length }
       });
 
       setStudents(prev => prev.filter(s => !selectedIds.includes(s.id)));
       if (selectedIds.includes(selectedStudent?.id)) setSelectedStudent(null);
-      setSuccess('Selected students deleted successfully!');
+      toast.success('Selected students deleted successfully!');
       setSelectedIds([]);
       setMultiDeleteOpen(false);
     } catch (err) {
-      setError('Failed to delete students: ' + err.message);
+      toast.error('Failed to delete students: ' + err.message);
     }
     setLoading(false);
   };
@@ -322,7 +494,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
   const loadStudents = useCallback(async () => {
     if (!currentUser) {
-      setError('Please sign in to access student data');
+      toast.error('Please sign in to access student data');
       return;
     }
     
@@ -332,14 +504,14 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     if (result.success) {
       setStudents(result.data);
     } else {
-      setError(result.error);
+      toast.error(result.error);
     }
     setLoading(false);
   }, [currentUser]);
 
   const loadCurriculums = useCallback(async () => {
     if (!currentUser) {
-      setError('Please sign in to access curriculum data');
+      toast.error('Please sign in to access curriculum data');
       return;
     }
     
@@ -349,7 +521,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     if (result.success) {
       setCurriculums(result.data);
     } else {
-      setError(result.error);
+      toast.error(result.error);
     }
     setLoading(false);
   }, [currentUser]);
@@ -396,6 +568,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       loadStudentCourses(selectedStudent.curriculumId);
       loadStudentGrades(selectedStudent.id);
       setIrregularSubjects({ sem1: [], sem2: [], sem3: [], ...(selectedStudent.irregularSubjects || {}) });
+      setSubjectGradeSearchTerm('');
     }
   }, [selectedStudent]);
 
@@ -527,7 +700,11 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   };
 
   const archiveSelectedStudentsToFolder = async (folderName) => {
-    if (!folderName) return alert('Please choose or enter a folder name');
+    if (!folderName) {
+      setAlertMessage('Please choose or enter a folder name');
+      setAlertOpen(true);
+      return;
+    }
     setArchiving(true);
     try {
       // Load selected students
@@ -546,7 +723,8 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       
       if (studentsWithPayables.length > 0) {
         setArchiving(false);
-        alert(`Cannot archive students with existing payables:\n${studentsWithPayables.join('\n')}\n\nPlease settle all payables before archiving these students.`);
+        setAlertMessage(`Cannot archive students with existing payables:\n${studentsWithPayables.join('\n')}\n\nPlease settle all payables before archiving these students.`);
+        setAlertOpen(true);
         return;
       }
 
@@ -560,11 +738,11 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
       await setDoc(archiveRef, { students: merged, name: folderName, updatedAt: serverTimestamp() }, { merge: true });
       await logSystemAction({
-        action: 'Archived selected students',
+        action: 'Archived Student Records',
         module: 'Curriculum Checker',
         entityType: 'archive',
         entityId: folderName,
-        description: `Archived ${selectedIds.length} students to ${folderName}`,
+        description: `Archived ${selectedIds.length} student records to folder: ${folderName}`,
         details: { folderName, studentIds: selectedIds }
       });
 
@@ -583,10 +761,11 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       setArchiveSelectedModalOpen(false);
       setNewArchiveFolderName('');
       setSelectedArchiveFolder('');
-      setSuccess('Students archived successfully.');
+      toast.success('Students archived successfully.');
     } catch (err) {
       console.error(err);
-      alert('Failed to archive students.');
+      setAlertMessage('Failed to archive students.');
+      setAlertOpen(true);
     } finally {
       setArchiving(false);
     }
@@ -618,7 +797,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     // Validate student number format only if provided
     const studentNumberPattern = /^\d{4}-\d{5}$/;
     if (studentForm.studentNumber && !studentNumberPattern.test(studentForm.studentNumber)) {
-      setError('Please enter a valid student number in the format XXXX-XXXXX');
+      toast.error('Please enter a valid student number in the format XXXX-XXXXX');
       return;
     }
 
@@ -626,7 +805,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     if (studentForm.studentNumber) {
       const existingStudent = students.find(student => student.studentNumber === studentForm.studentNumber);
       if (existingStudent) {
-        setError('A student with this student number already exists');
+        toast.error('A student with this student number already exists');
         return;
       }
     }
@@ -644,19 +823,24 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     
     setLoading(true);
     setError('');
+    const shouldEnroll = studentForm.enrolled === true;
     const result = await addStudent({
       ...studentForm,
       curriculumId: studentForm.curriculumId,
       block: studentForm.isIrregular ? '' : studentForm.block,
+      enrolled: shouldEnroll,
+      enrolledTerm: shouldEnroll && term.semester && term.schoolYear
+        ? { semester: Number(term.semester), schoolYear: term.schoolYear }
+        : null,
       irregularSubjects: studentForm.isIrregular ? { sem1: [], sem2: [], sem3: [] } : undefined
     });
     if (result.success) {
-      setSuccess('Student added successfully!');
+      toast.success('Student added successfully!');
       setStudentForm({ name: '', email: '', contactNumber: '', studentNumber: '', yearLevel: 1, curriculumId: '', block: '', enrolled: true, isIrregular: false });
       setStudentDialogOpen(false);
       loadStudents();
     } else {
-      setError(result.error);
+      toast.error(result.error);
     }
     setLoading(false);
   };
@@ -667,7 +851,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     setLoading(true);
     const result = await updateStudentCourse(selectedStudent.id, courseCode, isCompleted);
     if (result.success) {
-      setSuccess('Course status updated!');
+      toast.success('Course status updated!');
       
       // Update the local selectedStudent state immediately
       setSelectedStudent(prev => {
@@ -703,7 +887,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
         )
       );
     } else {
-      setError(result.error);
+      toast.error(result.error);
     }
     setLoading(false);
   };
@@ -718,10 +902,12 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       yearLevel: student.yearLevel,
       curriculumId: student.curriculumId,
       isIrregular: student.isIrregular || false,
+      enrolled: student.enrolled ?? true,
       block: student.block || getFirstBlockForYear(student.yearLevel, student.isIrregular || false),
       // keep originals so UI can keep student visible in the folder where edit started
       originalYearLevel: student.yearLevel,
-      originalBlock: student.block || getFirstBlockForYear(student.yearLevel, student.isIrregular || false)
+      originalBlock: student.block || getFirstBlockForYear(student.yearLevel, student.isIrregular || false),
+      originalEnrolled: student.enrolled ?? true
     });
     setEditingDialogOpen(true);
   };
@@ -772,6 +958,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
         curriculumId: editingData.curriculumId || '',
         block: editingData.isIrregular ? '' : (editingData.block || ''),
         isIrregular: editingData.isIrregular,
+        enrolled: editingData.enrolled === true,
         irregularSubjects: editingData.isIrregular
           ? { sem1: [], sem2: [], sem3: [], ...(selectedStudent?.irregularSubjects || {}) }
           : null,
@@ -783,20 +970,32 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       const yearOrBlockChanged =
         Number(editingData.originalYearLevel) !== Number(payload.yearLevel) ||
         (!payload.isIrregular && (editingData.originalBlock || '') !== (payload.block || ''));
-      const updateDescription = yearOrBlockChanged
-        ? payload.isIrregular
+      const enrollmentChanged = editingData.originalEnrolled !== editingData.enrolled;
+      
+      let updateDescription = `Updated student: ${payload.name || studentId}`;
+      if (enrollmentChanged) {
+        updateDescription = `${editingData.enrolled ? 'Enrolled' : 'Not enrolled'} student ${payload.name || studentId}`;
+      } else if (yearOrBlockChanged) {
+        updateDescription = payload.isIrregular
           ? `Updated ${payload.name || studentId} to year level ${payload.yearLevel}`
-          : `Updated ${payload.name || studentId} to year level ${payload.yearLevel} and block ${payload.block || 'A'}`
-        : `Updated student: ${payload.name || studentId}`;
+          : `Updated ${payload.name || studentId} to year level ${payload.yearLevel} and block ${payload.block || 'A'}`;
+      }
+      
       await logSystemAction({
-        action: 'Updated',
-        module: 'Curriculum Checker',
+        action: enrollmentChanged ? (editingData.enrolled ? 'Enrolled Student In Classes' : 'Unenrolled Student From Classes') : 'Updated Student Information',
+        module: enrollmentChanged ? 'Student Management' : 'Curriculum Checker',
         entityType: 'student',
         entityId: studentId,
         description: updateDescription,
-        details: payload
+        details: {
+          studentName: payload.name,
+          studentId: studentId,
+          enrolled: payload.enrolled,
+          enrollmentChanged: enrollmentChanged,
+          ...payload
+        }
       });
-      setSuccess('Student updated successfully!');
+      toast.success('Student updated successfully!');
       // Keep the updated student visible in the folder where the edit started
       setDisplayOverrides(prev => ({
         ...prev,
@@ -812,14 +1011,14 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       // reload students from server to get canonical data
       loadStudents();
     } catch (error) {
-      setError('Failed to update student: ' + error.message);
+      toast.error('Failed to update student: ' + error.message);
     }
     setLoading(false);
   };
 
   const handleDeleteStudent = async (studentId) => {
     if (!currentUser) {
-      setError('Please sign in to delete a student');
+      toast.error('Please sign in to delete a student');
       return;
     }
 
@@ -827,25 +1026,23 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     setDeleteDialogOpen(true);
   };
 
-  // Archive a single student: open the Archive Selected modal prefilled for this student
+  // Archive a single student: first confirm, then open the Archive Selected modal prefilled for this student
   const handleArchiveStudent = (e, student) => {
     e.stopPropagation();
     if (!currentUser) {
-      setError('Please sign in to archive a student');
+      toast.error('Please sign in to archive a student');
       return;
     }
 
-    // Preselect this student and open the archive modal so user can choose/create folder
-    setSelectedIds([student.id]);
-    setSelectedArchiveFolder('');
-    setNewArchiveFolderName('');
-    setArchiveSelectedModalOpen(true);
+    // First, confirm archiving
+    setStudentToArchive(student);
+    setArchiveConfirmOpen(true);
   };
 
   // Toggle active/inactive for a single student. If reactivating, open modal to choose year/block.
   const handleToggleActive = async (e, student) => {
     e.stopPropagation();
-    if (!currentUser) { setError('Please sign in to change student status'); return; }
+    if (!currentUser) { toast.error('Please sign in to change student status'); return; }
     // If student is inactive, open reactivation modal to choose year/block
     if (student.active === false) {
       setReactivateTarget(student);
@@ -856,25 +1053,48 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       return;
     }
 
-    // Otherwise, deactivate directly
+    // Otherwise, ask the user to confirm marking the student inactive
+    setStudentToInactivate(student);
+    setInactiveConfirmOpen(true);
+  };
+
+  const handleConfirmInactivate = async () => {
+    if (!studentToInactivate) return;
+
     setLoading(true);
+    setError('');
     try {
+      const student = studentToInactivate;
       const ref = doc(db, 'students', student.id);
       await updateDoc(ref, { active: false, inactiveAt: serverTimestamp(), inactiveYear: student.yearLevel, updatedAt: new Date() });
       await logSystemAction({
-        action: 'updated student status',
+        action: 'Marked Student As Inactive',
         module: 'Curriculum Checker',
         entityType: 'student',
         entityId: student.id,
-        description: `updated student status: ${student.name || student.id}`,
+        description: `Marked student ${student.name || student.id} as inactive`,
         details: { studentId: student.id, studentName: student.name || '', status: 'inactive' }
       });
       setStudents(prev => prev.map(s => s.id === student.id ? { ...s, active: false, inactiveAt: new Date(), inactiveYear: student.yearLevel } : s));
-      setSuccess('Student marked inactive');
+      toast.success('Student marked inactive');
+      setInactiveConfirmOpen(false);
+      setStudentToInactivate(null);
     } catch (err) {
-      setError('Failed to update status: ' + err.message);
+      toast.error('Failed to update status: ' + err.message);
     }
     setLoading(false);
+  };
+
+  const handleConfirmArchive = () => {
+    if (!studentToArchive) return;
+
+    // Preselect this student and open the archive modal so user can choose/create folder
+    setSelectedIds([studentToArchive.id]);
+    setSelectedArchiveFolder('');
+    setNewArchiveFolderName('');
+    setArchiveSelectedModalOpen(true);
+    setArchiveConfirmOpen(false);
+    setStudentToArchive(null);
   };
 
   const handleConfirmDelete = async () => {
@@ -887,11 +1107,11 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       const studentName = students.find(student => student.id === studentToDelete)?.name || studentToDelete;
       await deleteDoc(doc(db, 'students', studentToDelete));
       await logSystemAction({
-        action: 'Deleted student',
+        action: 'Deleted Student Record',
         module: 'Curriculum Checker',
         entityType: 'student',
         entityId: studentToDelete,
-        description: `deleted student ${studentName}`,
+        description: `Deleted student record for ${studentName}`,
         details: { studentId: studentToDelete, studentName }
       });
       
@@ -1086,7 +1306,8 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       return;
     }
 
-    const semKey = `sem${semester}`;
+    const enrolledSemester = Number(semester) || 1;
+    const semKey = `sem${enrolledSemester}`;
     const targetYear = courseTab + 1;
     const duplicate = (irregularSubjects[semKey] || []).some(
       (subject) =>
@@ -1108,7 +1329,9 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       prerequisites: Array.isArray(course.prerequisites) ? course.prerequisites : [],
       curriculumId: course.curriculumId || null,
       curriculumName: getCurriculumName(course.curriculumId) || 'Unknown Curriculum',
-      yearLevel: targetYear
+      yearLevel: targetYear,
+      enrolledSemester: enrolledSemester,
+      enrolledSchoolYear: term.schoolYear
     };
 
     const next = {
@@ -1123,11 +1346,11 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
         updatedAt: new Date()
       });
       await logSystemAction({
-        action: 'Created irregular subject',
+        action: 'Added Irregular Subject',
         module: 'Curriculum Checker',
         entityType: 'student',
         entityId: selectedStudent.id,
-        description: `created irregular subject for ${selectedStudent.name || selectedStudent.id}`,
+        description: `Added irregular subject ${item.courseCode} for student ${selectedStudent.name || selectedStudent.id}`,
         details: { subject: item }
       });
       setSelectedStudent(prev => (prev ? { ...prev, irregularSubjects: next } : prev));
@@ -1143,7 +1366,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     setSubjectPickerYearFilter(String(courseTab + 1));
     setSubjectPickerSemesterFilter('all');
     setSubjectPickerSearch('');
-    setSubjectPickerSortBy('yearLevel');
+    setSubjectPickerSortBy('courseCode');
     setSubjectPickerSortOrder('asc');
     setSubjectPickerOpen(true);
   };
@@ -1163,12 +1386,12 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
         updatedAt: new Date()
       });
       await logSystemAction({
-        action: 'Removed irregular subject',
+        action: 'Removed Irregular Subject',
         module: 'Curriculum Checker',
         entityType: 'student',
         entityId: selectedStudent.id,
-        description: `Removed irregular subject for ${selectedStudent.name || selectedStudent.id}`,
-        details: { semesterKey, index }
+        description: `Removed irregular subject for student ${selectedStudent.name || selectedStudent.id}`,
+        details: { semKey, subjectId }
       });
       setSelectedStudent(prev => (prev ? { ...prev, irregularSubjects: next } : prev));
       setSuccess('Subject removed');
@@ -1268,11 +1491,11 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           updatedAt: new Date()
         });
         await logSystemAction({
-          action: 'Updated student grade',
+          action: 'Updated Student Grade',
           module: 'Curriculum Checker',
           entityType: 'student',
           entityId: selectedStudent.id,
-          description: `Updated grade for ${courseCode}`,
+          description: `Updated grade for course ${courseCode} to ${grade}`,
           details: { courseCode, grade }
         });
         
@@ -1304,11 +1527,11 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           updatedAt: new Date()
         });
         await logSystemAction({
-          action: 'Deleted student grade',
+          action: 'Deleted Student Grade',
           module: 'Curriculum Checker',
           entityType: 'student',
           entityId: selectedStudent.id,
-          description: `Deleted grade for ${courseCode}`,
+          description: `Deleted grade for course ${courseCode}`,
           details: { courseCode }
         });
         
@@ -1350,27 +1573,152 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {/* Breadcrumb is rendered at the top-level App; child emits events */}
 
       <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+        <button
+          type="button"
+          onClick={() => openStatusModal('all')}
+          className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition"
+        >
           <span className="block text-xs text-gray-600">All</span>
           <span className="mt-1 block text-lg font-semibold text-gray-900">{students.length}</span>
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+        </button>
+        <button
+          type="button"
+          onClick={() => openStatusModal('enrolled')}
+          className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition"
+        >
           <span className="block text-xs text-gray-600">Enrolled</span>
           <span className="mt-1 block text-lg font-semibold text-gray-900">{statusCounts.enrolled || 0}</span>
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+        </button>
+        <button
+          type="button"
+          onClick={() => openStatusModal('active')}
+          className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition"
+        >
           <span className="block text-xs text-gray-600">Active</span>
           <span className="mt-1 block text-lg font-semibold text-gray-900">{statusCounts.active || 0}</span>
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+        </button>
+        <button
+          type="button"
+          onClick={() => openStatusModal('inactive')}
+          className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition"
+        >
           <span className="block text-xs text-gray-600">Inactive</span>
           <span className="mt-1 block text-lg font-semibold text-gray-900">{statusCounts.inactive || 0}</span>
-        </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 text-left">
+        </button>
+        <button
+          type="button"
+          onClick={() => openStatusModal('not-enrolled')}
+          className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition"
+        >
           <span className="block text-xs text-gray-600">Not enrolled</span>
           <span className="mt-1 block text-lg font-semibold text-gray-900">{statusCounts['not-enrolled'] || 0}</span>
-        </div>
+        </button>
       </div>
+
+      {statusModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setStatusModalOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-6xl rounded-2xl border border-gray-300 bg-white shadow-lg h-[80vh] overflow-hidden">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">{STATUS_CARD_META[statusModalType]?.label || 'Students'}</h3>
+                <p className="text-sm text-gray-500">{STATUS_CARD_META[statusModalType]?.count || 0} student(s)</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatusModalOpen(false)}
+                className="rounded-full p-1.5 cursor-pointer text-gray-500 hover:bg-gray-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="px-6 pt-4">
+              <div className="flex flex-wrap gap-2 items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+                {STUDENT_MODAL_YEAR_TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setStatusModalYearTab(tab.key)}
+                    className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                      statusModalYearTab === tab.key
+                        ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                        : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                    }`}
+                  >
+                    {tab.label}
+                    <span className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${statusModalYearTab === tab.key ? 'bg-blue-100 text-blue-500' : 'bg-gray-200 text-gray-600'}`}>
+                      {statusModalTabCounts[tab.key] || 0}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-6 overflow-auto max-h-[65vh]">
+              {statusFilteredStudents.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-300 px-4 py-10 text-center text-sm text-gray-500">
+                  No students found for this tab.
+                </div>
+              ) : (
+                <div className="border border-slate-300 rounded-xl overflow-hidden">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-blue-500 text-white sticky top-0">
+                      <tr>
+                        <th className="px-4 py-2 text-left w-[5%]">No.</th>
+                        <th className="px-4 py-2 text-left w-[5%]">
+                          <button type="button" onClick={() => handleStatusModalSort('block')} className="inline-flex items-center gap-1">
+                            Block
+                            <StatusSortIcon column="block" />
+                          </button>
+                        </th>
+                        <th className="px-4 py-2 text-left w-[15%]">
+                          <button type="button" onClick={() => handleStatusModalSort('studentNumber')} className="inline-flex items-center gap-1">
+                            Student No.
+                            <StatusSortIcon column="studentNumber" />
+                          </button>
+                        </th>
+                        <th className="px-4 py-2 text-left w-[25%]">
+                          <button type="button" onClick={() => handleStatusModalSort('surname')} className="inline-flex items-center gap-1">
+                            Name
+                            <StatusSortIcon column="surname" />
+                          </button>
+                        </th>
+                        <th className="px-4 py-2 text-left w-[25%]">
+                          <button type="button" onClick={() => handleStatusModalSort('email')} className="inline-flex items-center gap-1">
+                            Email
+                            <StatusSortIcon column="email" />
+                          </button>
+                        </th>
+                        <th className="px-4 py-2 text-left w-[25%]">
+                          <button type="button" onClick={() => handleStatusModalSort('contactNumber')} className="inline-flex items-center gap-1">
+                            Contact No.
+                            <StatusSortIcon column="contactNumber" />
+                          </button>
+                        </th>
+                       
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {statusFilteredStudents.map((student, idx) => (
+                        <tr key={student.id} className="border-t border-gray-200 hover:bg-gray-50">
+                          <td className="px-4 py-2">{idx + 1}</td>
+                          <td className="px-4 py-2">{student.isIrregular ? 'Irregular' : getBlockKey(student)}</td>
+                          <td className="px-4 py-2">{student.studentNumber || ''}</td>
+                          <td className="px-4 py-2">{student.name || ''}</td>
+                          <td className="px-4 py-2">{student.email || ''}</td>
+                          <td className="px-4 py-2">{student.contactNumber || ''}</td>
+                         
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {!selectedFolder && (
         <div className="mb-4 flex items-center justify-between gap-4">
@@ -1425,6 +1773,19 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
               </div>
             </div>
           )}
+
+          {alertOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+              <div className="absolute inset-0 bg-black/40" onClick={() => setAlertOpen(false)}></div>
+              <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-6">
+                <div className="text-lg font-semibold mb-2">Notice</div>
+                <div className="text-sm text-gray-700 whitespace-pre-wrap">{alertMessage}</div>
+                <div className="flex justify-end mt-4">
+                  <button onClick={() => setAlertOpen(false)} className="px-4 py-2 rounded bg-blue-600 text-white">OK</button>
+                </div>
+              </div>
+            </div>
+          )}
      </div>
 
 
@@ -1434,14 +1795,19 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           {archiveSelectedModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center">
               <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setArchiveSelectedModalOpen(false)}></div>
-              <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-6">
-                <div className="text-lg font-semibold mb-2">Archive Selected Students</div>
-                <p className="text-sm text-gray-600 mb-4">Choose an existing folder or create a new one to group the selected students.</p>
+              <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+                <div className="text-xl font-semibold mb-2">Archive  Students</div>
+                <p className=" text-gray-70 mb-4 text-justify">Choose an existing folder or create a new one to group the selected students.</p>
 
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <div>
                     <label className="block text-sm text-gray-600 mb-1">Existing folders</label>
-                    <select className="w-full border border-slate-200 px-4 py-2 rounded-lg" value={selectedArchiveFolder} onChange={e => setSelectedArchiveFolder(e.target.value)} onClick={fetchArchiveFolders}>
+                    <select 
+                      className="w-full border cursor-pointer text-sm border-slate-200 pr-12 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                      value={selectedArchiveFolder} 
+                      onChange={e => setSelectedArchiveFolder(e.target.value)} 
+                      onClick={fetchArchiveFolders}
+                    >
                       <option value="" hidden diasbled>Choose Folder</option>
                       {archiveFolders.map(f => (
                         <option key={f.id} value={f.id}>{f.id}</option>
@@ -1455,7 +1821,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                       value={newArchiveFolderName} 
                       onChange={e => setNewArchiveFolderName(e.target.value)} 
                       placeholder="Enter folder name" 
-                      className="w-full border border-slate-200 px-4 py-2 rounded-lg" 
+                      className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     />
                   </div>
                 </div>
@@ -1463,17 +1829,21 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 <div className="flex justify-end gap-2 mt-8">
                   <button 
                     onClick={() => setArchiveSelectedModalOpen(false)} 
-                    className="px-4 py-2 cursor-pointer rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50">Cancel</button>
+                    className="px-4 py-2 cursor-pointer rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50">Cancel</button>
                   <button
                     onClick={async () => {
                       const folder = newArchiveFolderName.trim() || selectedArchiveFolder;
-                      if (!folder) return alert('Please select or enter a folder name');
+                      if (!folder) {
+                        setAlertMessage('Please select or enter a folder name');
+                        setAlertOpen(true);
+                        return;
+                      }
                       await archiveSelectedStudentsToFolder(folder);
                     }}
                     disabled={archiving}
-                    className="px-4 py-2 cursor-pointer rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                    className="px-4 py-2 w-28 cursor-pointer rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {archiving ? 'Archiving...' : 'Archive Selected'}
+                    {archiving ? 'Archiving...' : 'Archive'}
                   </button>
                 </div>
               </div>
@@ -1486,59 +1856,88 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {multiEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setMultiEditOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-6">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className="text-lg mb-2 font-medium">
-              {selectedFolder?.isIrregular ? 'Edit Year Level for Selected Students' : 'Edit Year Level and Block for Selected Students'}
+              {multiEditIsIrregular ? 'Update Year Level' : 'Update Year Level and Blocks'}
             </div>
             
-             
-
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Year Level</label>
-              <select
-                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm cursor-pointer"
-                value={multiEditYear}
-                onChange={(e) => setMultiEditYear(parseInt(e.target.value, 10))}
-              >
-                {[1,2,3,4].map(y => (
-                  <option key={y} value={y}>{y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : '4th'} Year</option>
-                ))}
-              </select>
-            </div>
-
-            {!selectedFolder?.isIrregular && (
-              <div className="mt-3">
-                <label className="block text-sm text-gray-600 mb-1">Block</label>
-                <select
-                  className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm cursor-pointer"
-                  value={multiEditBlock}
-                  onChange={(e) => setMultiEditBlock(e.target.value)}
-                >
-                  {['A', 'B', 'C', 'D', 'E'].map((block) => (
-                    <option key={block} value={block}>{block}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Info / Warning */}
-              <div className="px-4 py-2 mb-8 text-sm mt-4  text-blue-800 bg-blue-50 border border-blue-200 rounded-lg">
-                {selectedFolder?.isIrregular
+             {/* Info / Warning */}
+              <div className=" mb-4 text-gray-700 text-justify">
+                {multiEditIsIrregular
                   ? 'Updating the year level will affect all selected students.'
                   : 'Updating the year level and block will affect all selected students.'}
               </div>
+             
+
+            <div className={`flex flex-col gap-3 ${!multiEditIsIrregular ? 'sm:flex-row' : ''}`}>
+              <div className={multiEditIsIrregular ? 'w-full' : 'sm:w-2/3'}>
+                <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+                <select
+                      className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                  value={multiEditYear}
+                  onChange={(e) => setMultiEditYear(parseInt(e.target.value, 10))}
+                >
+                  {[1,2,3,4].map(y => (
+                    <option key={y} value={y}>{y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : '4th'} Year</option>
+                  ))}
+                </select>
+              </div>
+
+           
+
+              {!multiEditIsIrregular && (
+                <div className="sm:w-1/3">
+                  <label className="block text-sm text-gray-600 mb-1">Block</label>
+                  <select
+                      className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                    value={multiEditBlock}
+                    onChange={(e) => setMultiEditBlock(e.target.value)}
+                  >
+                    {['A', 'B', 'C', 'D', 'E'].map((block) => (
+                      <option key={block} value={block}>{block}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+               <div className="flex mt-4 items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
+                <div>
+                  <div className="text-sm font-medium text-gray-700">Irregular Student</div>
+                  <div className="text-xs text-gray-500">
+                    {multiEditIsIrregular ? 'Selected students are marked irregular.' : 'Selected students will have a block assigned.'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={multiEditIsIrregular}
+                  onClick={() => setMultiEditIsIrregular(prev => !prev)}
+                  className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition ${
+                    multiEditIsIrregular ? 'bg-blue-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 rounded-full bg-white shadow transition ${
+                      multiEditIsIrregular ? 'translate-x-5' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+              </div>
+
+           
 
             <div className="mt-8 flex justify-end gap-2">
               <button 
                 onClick={() => setMultiEditOpen(false)} 
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-2 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button 
                 onClick={handleMultiEditSave} 
                 disabled={loading} 
-                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 rounded-lg w-28 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 Save
               </button>
@@ -1559,14 +1958,14 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
             <div className="flex justify-end gap-2">
               <button 
                 onClick={() => setMultiDeleteOpen(false)} 
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-2 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button 
                 onClick={handleConfirmMultiDelete}
                  disabled={loading} 
-                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 rounded-lg w-28 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   {loading ? 'Deleting...' : 'Delete'}
                 </button>
@@ -1644,7 +2043,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       isIrregular: false,
       isInactiveFolder: true,
       students: inactiveStudents,
-      label: 'Archived Students'
+      label: 'Inactive Students'
     });
     // Ensure we still show a default 1st Year Block A folder even if empty
    
@@ -1694,11 +2093,11 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 ">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 ">
             {folders.map((f) => (
               <div
                 key={`${f.isIrregular ? 'irr' : f.year}-${f.isIrregular ? 'all' : f.block}`}
-                className={`p-4 border rounded-xl bg-white hover:shadow-lg transition-all duration-200 cursor-pointer ${
+                className={`p-4 border rounded-lg bg-white hover:shadow-lg transition-all duration-200 cursor-pointer ${
                   f.isInactiveFolder
                     ? 'border-rose-200 hover:border-rose-400'
                     : 'border-gray-200 hover:border-blue-400'
@@ -1821,11 +2220,12 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                         if (!next) setSelectedIds([]);
                       }}
                       title={selectMode ? 'Turn off selection' : 'Select students'}
-                      className={`p-2 border border-gray-300 cursor-pointer rounded-xl transition 
-                          ${selectMode 
-                            ? 'bg-gray-100 text-gray-400 '
-                          : 'hover:bg-gray-100 text-gray-700 bg-gray-200 '
-                        }`}
+                      className={`inline-flex items-center gap-2 rounded-lg border border-gray-300 p-2 text-sm transition cursor-pointer
+                    ${
+                      selectMode
+                        ? 'bg-blue-50 text-blue-600 border-blue-300'
+                        : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                    }`}
                     >
                       <div className="flex items-center gap-2">
                         <Square className="w-4 h-4" />
@@ -1838,6 +2238,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                         const first = students.find(s => s.id === selectedIds[0]);
 
                         setMultiEditYear(first ? first.yearLevel : 1);
+                        setMultiEditIsIrregular(first ? !!first.isIrregular : false);
 
                         setMultiEditBlock(
                           first && !first.isIrregular && first.block
@@ -2000,11 +2401,11 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                           };
                           await updateDoc(ref, payload);
                           await logSystemAction({
-                            action: 'updated student status',
+                            action: 'Reactivated Student Account',
                             module: 'Curriculum Checker',
                             entityType: 'student',
                             entityId: reactivateTarget.id,
-                            description: `updated student status: ${reactivateTarget.name || reactivateTarget.id}`,
+                            description: `Reactivated student account for ${reactivateTarget.name || reactivateTarget.id}`,
                             details: {
                               studentId: reactivateTarget.id,
                               studentName: reactivateTarget.name || '',
@@ -2015,13 +2416,6 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                           setReactivateModalOpen(false);
                           setReactivateTarget(null);
                           setReactivateIsIrregular(false);
-                          // Navigate to the reactivated student's folder
-                          setSelectedFolder({
-                            year: reactivateIsIrregular ? null : reactivateYear,
-                            block: reactivateIsIrregular ? null : reactivateBlock,
-                            isIrregular: !!reactivateIsIrregular,
-                            isInactiveFolder: false
-                          });
                           setSuccess('Student reactivated');
                         } catch (err) {
                           setError('Failed to reactivate: ' + err.message);
@@ -2042,7 +2436,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
               <table className="min-w-full text-sm">
                 <thead className="bg-blue-500 text-white sticky top-0">
                   <tr>
-                    <th className="px-4 py-2 w-[5%] text-left">
+                    <th className="px-4 py-2 w-[3%] text-left">
                       {selectMode ? (
                         <input
                           type="checkbox"
@@ -2058,11 +2452,11 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                           }}
                         />
                       ) : (
-                        <span className="font-medium">#</span>
+                        <span className="font-medium">No.</span>
                       )}
                     </th>
                     <th
-                      className="px-4 py-2 w-[15%] text-left cursor-pointer"
+                      className="px-4 py-2 w-[12%] text-left cursor-pointer"
                       onClick={() => handleSort('studentNumber')}
                     >
                       Student No. {sortBy === 'studentNumber' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
@@ -2074,13 +2468,13 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                       Name {sortBy === 'name' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
                     </th>
                     <th
-                      className="px-4 py-2 w-[20%] text-left cursor-pointer"
+                      className="px-4 py-2 w-[18%] text-left cursor-pointer"
                       onClick={() => handleSort('email')}
                     >
                       Email {sortBy === 'email' ? (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />) : <ChevronsUpDown className="w-4 h-4 inline-flex opacity-80 mb-1" />}
                     </th>
                     <th
-                      className="px-4 py-2 w-[20%] text-left cursor-pointer"
+                      className="px-4 py-2 w-[12%] text-left cursor-pointer"
                       onClick={() => handleSort('contactNumber')}
                     >
                       Contact No.
@@ -2091,7 +2485,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                     >
                       Curriculum 
                     </th>
-                    <th className="px-4 py-2 w-[8%] text-left">Active</th>
+                    <th className="px-4 py-2 w-[5%] text-left">Active</th>
                     <th className="px-4 py-2 w-[10%] text-left">Actions</th>
                   </tr>
                 </thead>
@@ -2110,7 +2504,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                         className="border-t border-gray-300 hover:bg-gray-50 cursor-pointer"
                         onClick={() => handleSelectStudent(student)}
                       >
-                        <td className="px-4 py-2">
+                        <td className="px-4 py-2 w-[3%]">
                           {selectMode ? (
                             <input
                               type="checkbox"
@@ -2123,32 +2517,33 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                             <span className="text-sm text-gray-700">{displayIndex}</span>
                           )}
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-4 py-2 w-[12%]">
                           <span className="">{student.studentNumber || ''}</span>
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-4 py-2 w-[25%]">
                           <span className="">{student.name}</span>
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-4 py-2 w-[18%">
                           <span>{student.email}</span>
                         </td>
                     
-                        <td className="px-4 py-2">
+                        <td className="px-4 py-2 w-[12%]">
                           <span>{student.contactNumber || ''}</span>
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-4 py-2 w-[15%]">
                           <span>{getCurriculumName(student.curriculumId)}</span>
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-4 py-2 w-[5%]">
                           <button
+                            type="button"
                             onClick={(e) => { e.stopPropagation(); handleToggleActive(e, student); }}
-                            className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none ${student.active === false ? 'bg-gray-200' : 'bg-teal-500'}`}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${student.active === false ? 'bg-gray-200' : 'bg-blue-500'}`}
                             title={student.active === false ? 'Reactivate student' : 'Mark student inactive'}
                           >
                             <span className={`inline-block h-3 w-3 bg-white rounded-full transform transition ${student.active === false ? 'translate-x-0 ml-1' : 'translate-x-5 mr-1'}`}></span>
                           </button>
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="px-4 py-2 w-[10%]">
                           <div className="flex items-center gap-2">
                             <button
                               onClick={(e) => {
@@ -2213,6 +2608,27 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     if (!selectedStudent) return null;
 
     const currentYear = courseTab + 1;
+    const normalizedSubjectSearch = subjectGradeSearchTerm.trim().toLowerCase();
+    const matchesSubjectGradeSearch = (courseLike) => {
+      if (!normalizedSubjectSearch) return true;
+
+      const courseCode = (courseLike.courseCode || '').toString().toLowerCase();
+      const courseTitle = (courseLike.courseTitle || '').toString().toLowerCase();
+      const units = String(courseLike.units ?? '').toLowerCase();
+      const prerequisites = Array.isArray(courseLike.prerequisites)
+        ? courseLike.prerequisites.join(' ').toLowerCase()
+        : '';
+      const grade = (editingGrades[courseLike.courseCode] || studentGrades[courseLike.courseCode] || '').toString().toLowerCase();
+
+      return (
+        courseCode.includes(normalizedSubjectSearch) ||
+        courseTitle.includes(normalizedSubjectSearch) ||
+        units.includes(normalizedSubjectSearch) ||
+        prerequisites.includes(normalizedSubjectSearch) ||
+        grade.includes(normalizedSubjectSearch)
+      );
+    };
+
     const scholarshipEligibility = calculateScholarshipEligibility(currentYear);
     const hasSummerInCurrentYear = studentCourses.some(
       (course) => Number(course.yearLevel) === currentYear && Number(course.semester) === 3
@@ -2223,80 +2639,85 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       return (
         <div className="flex flex-col h-full">
          
-          <div className="mt-2 mb-4 gap-2 flex">
-            {[1, 2, 3, 4].map((year, idx) => (
-              <button
-                key={year}
-                onClick={() => setCourseTab(idx)}
-                className={`px-3 py-1 rounded-full shadow-md border transition-all flex items-center gap-1 text-sm cursor-pointer 
+       <div className="mb-4 flex items-center justify-between gap-4">
+            <div className="flex w-fit gap-12 border-b border-gray-200">
+              {[1, 2, 3, 4].map((year, idx) => (
+                <button
+                  key={year}
+                  onClick={() => setCourseTab(idx)}
+                  className={` py-2 text-sm font-semibold transition cursor-pointer border-b-2 -mb-px
 
                   ${courseTab === idx
-                    ? 'bg-blue-600 text-white border-blue-700 scale-105'
-                    : 'bg-white text-blue-700 hover:bg-blue-100 border-gray-300'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
                   }
                 `}
-              >
-                {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
-              </button>
-            ))}
+                >
+                  {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
+                </button>
+              ))}
+            </div>
+
+            <div className="relative w-full max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                className="w-full border text-sm border-slate-200 bg-white rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                placeholder="Search subjects or grades..."
+                value={subjectGradeSearchTerm}
+                onChange={(e) => setSubjectGradeSearchTerm(e.target.value)}
+              />
+            </div>
           </div>
 
-          {semestersForCurrentYear.map((semester) => {
+            {semestersForCurrentYear.map((semester) => {
             const semKey = `sem${semester}`;
             const semSubjects = (irregularSubjects[semKey] || []).filter(s => Number(s.yearLevel || currentYear) === currentYear);
+            const filteredSemSubjects = semSubjects.filter((subject) => matchesSubjectGradeSearch(subject));
             return (
-              <div
+              <div key={semester}>
+
+              <div className='flex items-center justify-between gap-4 mb-4 '>
+                <span className="font-medium text-gray-700">{semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester</span>
+
+                 <button
+      type="button"
+      onClick={() => openSubjectPicker(semester)}
+
+      className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-green-500 text-white hover:bg-green-600 transition cursor-pointer">
+      <Plus className="w-4 h-4" />
+      Add Subject
+    </button>
+                </div>
+
+                  <div
   key={semester}
   className="mb-5 rounded-2xl overflow-hidden bg-white shadow-sm border border-gray-200"
 >
 
   
-  {/* Header */}
-  <div className="flex items-center justify-between px-5 py-3 bg-linear-to-r from-blue-600 to-blue-700 text-white">
-    <div className="flex items-center gap-2">
-      <span className="text-sm font-semibold">
-        {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
-      </span>
-      
-    </div>
+  
 
- 
-  </div>
-
-  <div className='flex items-center justify-between py-0.5 border-b border-slate-300'>
-    {/* Sub-header */}
-  <div className="px-5 py-2 text-sm text-gray-500 ">
-    Select subjects offered for this semester.
-  </div>
-
-     <button
-      type="button"
-      onClick={() => openSubjectPicker(semester)}
-
-      className="mr-5 inline-flex items-center gap-1 rounded-lg cursor-pointer bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 transition">
-      <Plus className="w-4 h-4" />
-      Add Subject
-    </button>
-  </div>
+  
 
   {/* Table */}
   <div className="overflow-x-auto">
     <table className="min-w-full text-sm">
-      <thead className="bg-blue-50 text-blue-800 text-xs uppercase border-b border-gray-300">
+      <thead className="bg-blue-500 text-white">
         <tr>
-          <th className="px-2 py-1.5 text-left w-[10%]">Code</th>
-          <th className="px-4 py-1.5 text-left w-[30%]">Title</th>
-          <th className="px-4 py-1.5 text-left w-[10%]">Units</th>
-          <th className="px-4 py-1.5 text-left w-[20%]">Prerequisites</th>
-          <th className="px-4 py-1.5 text-left w-[20%]">Grade</th>
-          <th className="px-4 py-1.5 text-right w-[10%]">Action</th>
+          <th className="px-4 py-2 text-left w-[8%]">Code</th>
+          <th className="px-4 py-2 text-left w-[25%]">Title</th>
+          <th className="px-4 py-2 text-left w-[8%]">Units</th>
+          <th className="px-4 py-2 text-left w-[18%]">Prerequisites</th>
+          <th className="px-4 py-2 text-left w-[15%]">Enrolled Term</th>
+          <th className="px-4 py-2 text-left w-[16%]">Grade</th>
+          <th className="px-4 py-2 text-right w-[10%]">Action</th>
         </tr>
       </thead>
 
       <tbody>
           {semSubjects.length === 0 ? (
             <tr>
-            <td colSpan={6} className="py-8 text-center text-gray-400">
+            <td colSpan={7} className="py-8 text-center text-gray-400">
               <div className="flex flex-col items-center gap-1">
                 <span className="text-sm">No subjects yet</span>
                 <span className="text-xs">
@@ -2305,8 +2726,14 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
               </div>
             </td>
           </tr>
+        ) : filteredSemSubjects.length === 0 ? (
+          <tr>
+            <td colSpan={7} className="py-6 text-center text-gray-400">
+              No matching subjects found
+            </td>
+          </tr>
         ) : (
-          semSubjects.map((subject, index) => {
+          filteredSemSubjects.map((subject, index) => {
             const fallbackCourse = allCourses.find((course) =>
               (course.courseCode || '').toString().trim().toUpperCase() === (subject.courseCode || '').toString().trim().toUpperCase()
             );
@@ -2319,25 +2746,36 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 key={subject.id}
                 className={`transition ${
                   index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                } text-xs`}
+                } text-sm`}
               >
-                <td className="px-4 py-1.5 font-semibold text-blue-600 w-[10%]">
+                <td className="px-4 py-2 font-semibold text-blue-600 w-[8%]">
                   {subject.courseCode}
                 </td>
 
-                <td className="px-4 py-1.5 text-gray-700 w-[30%]">
+                <td className="px-4 py-2 text-gray-700 w-[25%]">
                   {subject.courseTitle}
                 </td>
 
-                <td className="px-4 py-1.5 text-gray-600 w-[10%]">
+                <td className="px-4 py-2 text-gray-600 w-[8%]">
                   {subject.units}
                 </td>
 
-                <td className="px-4 py-1.5 text-gray-600 text-xs w-[20%]">
+                <td className="px-4 py-2 text-gray-600 w-[18%]">
                   {prerequisites.length > 0 ? prerequisites.join(', ') : 'None'}
                 </td>
 
-                <td className="px-4 py-1.5 w-[20%]">
+                <td className="px-4 py-2 text-gray-600 w-[15%]">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-xs font-medium">
+                      {subject.enrolledSemester ? `${subject.enrolledSemester === 1 ? '1st' : subject.enrolledSemester === 2 ? '2nd' : 'Summer'} Sem` : 'N/A'}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {subject.enrolledSchoolYear || 'N/A'}
+                    </span>
+                  </div>
+                </td>
+
+                <td className="px-4 py-2 w-[16%]">
                   <select
                     className="w-full border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none rounded-lg px-2 py-1 text-xs bg-white"
                     value={editingGrades[subject.courseCode] || ''}
@@ -2378,7 +2816,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   </div>
                 </td>
 
-                <td className="px-4 py-1.5 text-end w-[10%]">
+                <td className="px-4 py-2 text-end w-[10%]">
                   <button
                     onClick={() => promptRemoveIrregularSubject(semester, subject)}
                     className="p-1 rounded-full cursor-pointer bg-gray-50 text-gray-600 hover:bg-gray-100 transition"
@@ -2393,6 +2831,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       </tbody>
     </table>
   </div>
+</div>
 </div>
             );
           })}
@@ -2421,9 +2860,30 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
 
     {[
-      { period: '1st semester', label: "Dean's lister", icon: 'calendar', eligible: calculateDeansListerEligibility(1, headerYear), badge: calculateDeansListerEligibility(1, headerYear) ? { text: 'Eligible', cls: 'bg-green-50 text-green-800', icon: 'check' } : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500', icon: 'minus' } },
-      { period: '2nd semester', label: "Dean's lister", icon: 'calendar', eligible: calculateDeansListerEligibility(2, headerYear), badge: calculateDeansListerEligibility(2, headerYear) ? { text: 'Eligible', cls: 'bg-green-50 text-green-800', icon: 'check' } : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500', icon: 'minus' } },
-      { period: 'Scholarship', label: 'Eligibility', icon: 'award', eligible: headerScholarshipEligibility.eligible, badge: headerScholarshipEligibility.eligible ? { text: `${headerScholarshipEligibility.percentage}%`, cls: 'bg-blue-50 text-blue-800', icon: 'percentage' } : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500', icon: 'minus' } },
+      { period: '1st semester', 
+        label: "Dean's lister", 
+        icon: 'calendar', 
+        eligible: calculateDeansListerEligibility(1, headerYear), 
+        badge: calculateDeansListerEligibility(1, headerYear) 
+                ? { text: 'Eligible', cls: 'bg-green-50 text-green-500 border border-green-500', icon: 'check' } 
+                : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500 border border-gray-500', icon: 'minus' } 
+      },
+      { period: '2nd semester', 
+        label: "Dean's lister", 
+        icon: 'calendar', 
+        eligible: calculateDeansListerEligibility(2, headerYear), 
+        badge: calculateDeansListerEligibility(2, headerYear) 
+                ? { text: 'Eligible', cls: 'bg-green-50 text-green-500 border border-green-500', icon: 'check' } 
+                : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500 border border-gray-500', icon: 'minus' } 
+        },
+      { period: 'Scholarship', 
+        label: 'Eligibility', 
+        icon: 'award', 
+        eligible: headerScholarshipEligibility.eligible, 
+        badge: headerScholarshipEligibility.eligible 
+                ? { text: `${headerScholarshipEligibility.percentage}%`, cls: 'bg-blue-50 text-blue-800 border border-blue-500', icon: 'percentage' } 
+                : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500 border border-gray-500', icon: 'minus' } 
+      },
     ].map((item) => (
       <div key={item.period} className="bg-gray-50  border border-gray-200 rounded-lg p-3.5 flex flex-col gap-2.5">
         <span className="text-xs text-gray-400 flex items-center gap-1.5">
@@ -2440,36 +2900,53 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
   </div>
 </div>
-       <div className="flex w-fit gap-12 border-b border-gray-200 mb-4">
-  {[1, 2, 3, 4].map((year, idx) => (
-    <button
-      key={year}
-      type="button"
-      onClick={() => setCourseTab(idx)}
-      className={` py-2 text-sm font-semibold transition cursor-pointer border-b-2 -mb-px
+       <div className="mb-4 flex items-center justify-between gap-4">
+        <div className="flex w-fit gap-4 border-b border-gray-200">
+          {[1, 2, 3, 4].map((year, idx) => (
+            <button
+              key={year}
+              type="button"
+              onClick={() => setCourseTab(idx)}
+              className={` px-4 py-2 text-sm font-semibold transition cursor-pointer border-b-2 -mb-px
       
       ${
         courseTab === idx
           ? 'border-blue-500 text-blue-600'
-          : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-300'
+          : 'border-transparent text-slate-600 hover:text-blue-600 hover:border-blue-600'
       }
       `}
-    >
-      {year === 1
-        ? '1st'
-        : year === 2
-        ? '2nd'
-        : year === 3
-        ? '3rd'
-        : '4th'}{' '}
-      Year
-    </button>
-  ))}
-</div>
+            >
+              {year === 1
+                ? '1st'
+                : year === 2
+                ? '2nd'
+                : year === 3
+                ? '3rd'
+                : '4th'}{' '}
+              Year
+            </button>
+          ))}
+        </div>
+
+        <div className="relative w-full max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <input
+            className="w-full border text-sm border-slate-200 bg-white rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+            placeholder="Search subjects or grades..."
+            value={subjectGradeSearchTerm}
+            onChange={(e) => setSubjectGradeSearchTerm(e.target.value)}
+          />
+        </div>
+      </div>
 
 
         <div className="flex-1 flex flex-col">
-          {semestersForCurrentYear.map((semester) => (
+          {semestersForCurrentYear.map((semester) => {
+            const semesterCourses = studentCourses
+              .filter((course) => course.yearLevel === currentYear && course.semester === semester)
+              .filter((course) => matchesSubjectGradeSearch(course));
+
+            return (
             <div key={semester} className="flex-1 flex flex-col mb-3">
               <div className="text-lg font-semibold text-blue-700 mb-2">
                 {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
@@ -2478,23 +2955,22 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   <table className="min-w-full text-sm">
     <thead className="bg-blue-500 text-white">
       <tr>
-        <th className="px-4 py-1.5 w-[12%] text-left cursor-pointer" onClick={() => handleSort('courseCode')}>
-           Code {sortBy === 'courseCode' && (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />)}
+        <th className="px-4 py-2 w-[12%] text-left cursor-pointer" onClick={() => handleSort('courseCode')}>
+           Subject Code {sortBy === 'courseCode' && (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />)}
         </th>
-        <th className="px-4 py-1.5 w-[35%] text-left cursor-pointer" onClick={() => handleSort('courseTitle')}>
-          Course Description {sortBy === 'courseTitle' && (sortOrder === 'asc' ? '↑' : '↓')}
+        <th className="px-4 py-2 w-[35%] text-left cursor-pointer" onClick={() => handleSort('courseTitle')}>
+          Subject Title {sortBy === 'courseTitle' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
-          <th className="px-4 py-1.5 w-[8%] text-center cursor-pointer" onClick={() => handleSort('units')}>
+          <th className="px-4 py-2 w-[8%] text-center cursor-pointer" onClick={() => handleSort('units')}>
             Units {sortBy === 'units' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
-        <th className="px-4 py-1.5 w-[20%] text-left">Prerequisites</th>
-        <th className="px-4 py-1.5 w-[10%] text-left">Grade</th>
+        <th className="px-4 py-2 w-[20%] text-left">Prerequisites</th>
+        <th className="px-4 py-2 w-[10%] text-left">Grade</th>
       </tr>
     </thead>
 
     <tbody>
-      {studentCourses
-        .filter((course) => course.yearLevel === currentYear && course.semester === semester)
+      {semesterCourses
         .sort((a, b) => {
           let aValue, bValue;
           switch (sortBy) {
@@ -2516,14 +2992,16 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
         })
         .map((course) => (
           <tr key={course.id} className="border-t border-gray-300 hover:bg-gray-50">
-            <td className="px-4 py-1.5">
+            <td className="px-4 py-2 w-[12%]">
               <span className="font-semibold text-blue-700">{course.courseCode}</span>
             </td>
-            <td className="px-4 py-1.5">
+            <td className="px-4 py-2 w-[35%]">
               <span>{course.courseTitle}</span>
             </td>
-            <td className="px-4 py-1.5 text-center">{course.units}</td>
-            <td className="px-4 py-1.5">
+            <td className="px-4 py-2 text-center w-[8%]">
+              {course.units}
+            </td>
+            <td className="px-4 py-2 w-[20%]">
               {course.prerequisites.length > 0 ? (
                 <div className="flex flex-wrap gap-1">
                   {course.prerequisites.slice(0, 2).map((prereq) => (
@@ -2550,7 +3028,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
               )}
             </td>
 
-            <td className="px-4 py-1.5">
+            <td className="px-4 py-2">
               <select
                 className="border border-gray-300 rounded px-2 py-1 text-sm"
                 value={editingGrades[course.courseCode] || ''}
@@ -2594,10 +3072,12 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           </tr>
         ))}
 
-      {studentCourses.filter((c) => c.yearLevel === currentYear && c.semester === semester).length === 0 && (
+      {semesterCourses.length === 0 && (
         <tr>
           <td colSpan={5} className="text-center text-gray-500 py-4">
-            No courses in Year {currentYear}, {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
+            {subjectGradeSearchTerm.trim()
+              ? 'No matching subjects found'
+              : `No courses in Year ${currentYear}, ${semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester`}
           </td>
         </tr>
       )}
@@ -2606,7 +3086,8 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 </div>
 
             </div>
-          ))}
+          );
+          })}
         </div>
       </div>
     );
@@ -2627,8 +3108,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
         </div>
       )}
 
-      {error && <div className="mb-2 rounded border border-red-200 bg-red-50 text-red-800 px-4 py-2">{error}</div>}
-      {success && <div className="mb-2 rounded border border-green-200 bg-green-50 text-green-800 px-4 py-2">{success}</div>}
+      {/* messages shown via toast notifications */}
 
       {currentUser ? (
         <div className="flex-1 flex flex-col">
@@ -2659,8 +3139,8 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {editingDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setEditingDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-lg border border-gray-300 bg-white rounded-2xl shadow p-8">
-            <div className="text-xl font-semibold mb-4">Edit Student</div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+            <div className="text-xl font-semibold mb-4">Update Student</div>
            
             <div className="space-y-3">
               <div>
@@ -2669,7 +3149,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   type="text"
                   inputMode="numeric"
                   maxLength={10}
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+                  className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   placeholder="Enter student number (e.g., 2024-00001)"
                   value={editingData.studentNumber || ''}
                   onChange={(e) => setEditingData({ ...editingData, studentNumber: formatStudentNumber(e.target.value) })}
@@ -2680,7 +3160,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Student Name</label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+                  className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   placeholder="Last Name, First Name, Middle Name"
                   value={editingData.name}
                   onChange={(e) => setEditingData({ ...editingData, name: e.target.value })}
@@ -2690,7 +3170,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 <label className="block text-sm text-gray-600 mb-1">Email</label>
                 <input
                   type="email"
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+                  className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   placeholder="name@example.com"
                   value={editingData.email || ''}
                   onChange={(e) => setEditingData({ ...editingData, email: e.target.value })}
@@ -2700,7 +3180,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 <label className="block text-sm text-gray-600 mb-1">Contact Number</label>
                 <input
                   type="text"
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+                  className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   placeholder="Enter contact number"
                   value={editingData.contactNumber || ''}
                   onChange ={(e) => {
@@ -2726,7 +3206,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 <div className={editingData.isIrregular ? 'w-full' : 'w-2/3'}>
                 <label className="block text-sm text-gray-600 mb-1">Year Level</label>
                 <select
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+                  className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   value={editingData.yearLevel}
                   onChange={(e) => setEditingData({ ...editingData, yearLevel: parseInt(e.target.value, 10) })}
                 >
@@ -2741,24 +3221,23 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
               {!editingData.isIrregular && (
                 <div className='w-1/3'>
                   <label className="block text-sm text-gray-600 mb-1">Block</label>
-                  <select
-                    className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+                  <input
+                    type="text"
+                    maxLength={1}
+                    pattern="[A-Za-z]"
+                    className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     value={editingData.block || ''}
                     required
-                    onChange={(e) => setEditingData({ ...editingData, block: e.target.value })}
-                  >
-                    <option value="" disabled>-- choose block --</option>
-                    {['A','B','C','D','E'].map((b) => (
-                      <option key={b} value={b}>{b}</option>
-                    ))}
-                  </select>
+                    onChange={(e) => setEditingData({ ...editingData, block: e.target.value.replace(/[^A-Za-z]/g, '').slice(0, 1).toUpperCase() })}
+                    placeholder="A"
+                  />
                 </div>
               )}
               </div>
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Curriculum</label>
                 <select
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+                  className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   value={editingData.curriculumId}
                   onChange={(e) => { setEditingData({ ...editingData, curriculumId: e.target.value }); if (curriculumSelectError) setCurriculumSelectError(''); }}
                 >
@@ -2784,20 +3263,44 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 />
                 <label className="text-sm text-gray-700">Irregular student</label>
               </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
+                <div>
+                  <div className="text-sm font-medium text-gray-700">Enrollment Status</div>
+                  <div className="text-xs text-gray-500">
+                    {editingData.enrolled ?? true ? 'Student is currently enrolled.' : 'Student is not currently enrolled.'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={editingData.enrolled ?? true}
+                  onClick={() => setEditingData({ ...editingData, enrolled: !(editingData.enrolled ?? true) })}
+                  className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition ${
+                    (editingData.enrolled ?? true) ? 'bg-blue-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 rounded-full bg-white shadow transition ${
+                      (editingData.enrolled ?? true) ? 'translate-x-5' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-8 flex justify-end gap-2">
               <button
                 onClick={handleCancelEdit}
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-2 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleSaveEdit(editingData.id)}
                 disabled={loading || !editingData.name}
-                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
-                Save Changes
+                Update
               </button>
             </div>
           </div>
@@ -2807,7 +3310,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {studentDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setStudentDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-lg border border-gray-300 bg-white rounded-2xl shadow p-8">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className="text-xl font-semibold mb-4">{studentForm.isIrregular ? 'Add New Irregular Student' : 'Add New Student'}</div>
            
             <div className="space-y-3">
@@ -2817,7 +3320,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   type="text"
                   inputMode="numeric"
                   maxLength={10}
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
+                  className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   placeholder="(e.g., 2024-00001)"
                   value={studentForm.studentNumber || ''}
                   onChange={(e) => setStudentForm({ ...studentForm, studentNumber: formatStudentNumber(e.target.value) })}
@@ -2828,7 +3331,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Student Name</label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
+                  className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   placeholder="Last Name, First Name, Middle Name"
                   value={studentForm.name}
                   onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
@@ -2839,7 +3342,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
               <label className="block text-sm text-gray-600 mb-1">Contact Number</label>
               <input
                 type="tel"
-                className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
+                className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                 placeholder="(eg. 0917 123 4567)"
                 value={studentForm.contactNumber || ''}
                 onChange={(e) => {
@@ -2886,7 +3389,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 <label className="block text-sm text-gray-600 mb-1">Email</label>
                 <input
                   type="email"
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm "
+                  className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   placeholder="name@example.com"
                   value={studentForm.email || ''}
                   onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
@@ -2896,7 +3399,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                <div className={studentForm.isIrregular ? 'w-full' : 'w-2/3'}>
   <label className="block text-sm text-gray-600 mb-1">Year Level</label>
   <select
-    className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+    className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
     value={studentForm.yearLevel || ""}
     required
     onChange={(e) => {
@@ -2930,17 +3433,16 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
             {!studentForm.isIrregular && (
               <div className='w-1/3'>
                 <label className="block text-sm text-gray-600 mb-1">Block</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+                <input
+                  type="text"
+                  maxLength={1}
+                  pattern="[A-Za-z]"
+                  className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   value={studentForm.block || ''}
                   required
-                  onChange={(e) => setStudentForm({ ...studentForm, block: e.target.value })}
-                >
-                  <option value="" disabled>-- choose block --</option>
-                  {['A','B','C','D','E'].map((b) => (
-                    <option key={b} value={b}>{b}</option>
-                  ))}
-                </select>
+                  onChange={(e) => setStudentForm({ ...studentForm, block: e.target.value.replace(/[^A-Za-z]/g, '').slice(0, 1).toUpperCase() })}
+                  placeholder="A"
+                />
               </div>
             )}
 
@@ -2948,7 +3450,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 <div>
   <label className="block text-sm text-gray-600 mb-1">Curriculum</label>
   <select
-    className="w-full border border-gray-300 rounded-lg cursor-pointer px-3 py-1.5 text-sm"
+    className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
     value={studentForm.curriculumId || ""}
     required
     onChange={(e) => {
@@ -2985,12 +3487,12 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   role="switch"
                   aria-checked={studentForm.enrolled}
                   onClick={() => setStudentForm({ ...studentForm, enrolled: !studentForm.enrolled })}
-                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                  className={`relative inline-flex h-6 w-10 shrink-0 items-center rounded-full transition ${
                     studentForm.enrolled ? 'bg-blue-600' : 'bg-gray-300'
                   }`}
                 >
                   <span
-                    className={`inline-block h-5 w-5 rounded-full bg-white shadow transition ${
+                    className={`inline-block h-4 w-4 rounded-full bg-white shadow transition ${
                       studentForm.enrolled ? 'translate-x-5' : 'translate-x-0.5'
                     }`}
                   />
@@ -3006,19 +3508,19 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 <label className="text-sm text-gray-700">Irregular student</label>
               </div>
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-8 flex justify-end gap-2">
               <button
                 onClick={() => setStudentDialogOpen(false)}
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-2 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddStudent}
                 disabled={loading || !studentForm.name}
-                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 w-24 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
-                Add Student
+                Add 
               </button>
             </div>
           </div>
@@ -3030,8 +3532,9 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setDeleteDialogOpen(false)}></div>
           <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Confirm Delete</div>
-            <div className="text-gray-700 mb-8">
-              Are you sure you want to delete this student? This action cannot be undone.
+            <div className="text-gray-700 mb-8 text-justify">
+              Are you sure you want to delete student: <span className="font-semibold">{studentToDeleteName || 'this student'}</span>? 
+              {" "} This action cannot be undone and all associated data will be permanently removed.
             </div>
             <div className="flex justify-end gap-2">
               <button
@@ -3039,16 +3542,79 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   setDeleteDialogOpen(false);
                   setStudentToDelete(null);
                 }}
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-2 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDelete}
                 disabled={loading}
-                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 w-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 {loading ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {inactiveConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setInactiveConfirmOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+            <div className="text-xl font-semibold mb-4">Confirm Inactivate</div>
+            <div className="text-gray-700 mb-8 text-justify">
+              Are you sure you want to mark <span className="font-semibold">{studentToInactivate?.name || 'this student'}</span> as inactive? This will move the student to  Inactive folder.
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setInactiveConfirmOpen(false);
+                  setStudentToInactivate(null);
+                }}
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmInactivate}
+                disabled={loading}
+                className="px-4 py-1.5 w-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+              >
+                {loading ? 'Inactivating...' : 'Inactivate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {archiveConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setArchiveConfirmOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+            <div className="text-xl font-semibold mb-4">Confirm Archive</div>
+            <div className="text-gray-700 text-justify mb-8">
+              Are you sure you want to archive  student: <span className="font-semibold">{studentToArchive?.name}</span>? This will move the student to an archive folder.
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setArchiveConfirmOpen(false);
+                  setStudentToArchive(null);
+                }}
+                className="px-4 py-2 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmArchive}
+                className="px-4 py-2 w-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
+              >
+                Archive
               </button>
             </div>
           </div>
@@ -3060,7 +3626,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setIrregularDeleteDialogOpen(false)}></div>
           <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Remove Subject</div>
-            <div className="text-gray-700 m text-justify text-sm">
+            <div className="text-gray-700 text-justify ">
               Are you sure you want to remove this subject to <span className='font-semibold'>{selectedStudent.name}</span>? This action cannot be undone.
               {irregularSubjectToDelete && (
                 <div className="mt-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
@@ -3069,20 +3635,20 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 </div>
               )}
             </div>
-            <div className="flex justify-end gap-2 mt-10">
+            <div className="flex justify-end gap-2 mt-9">
               <button
                 onClick={() => {
                   setIrregularDeleteDialogOpen(false);
                   setIrregularSubjectToDelete(null);
                 }}
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-2 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmIrregularDelete}
                 disabled={loading}
-                className="px-4 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 {loading ? 'Removing...' : 'Remove'}
               </button>
@@ -3097,7 +3663,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           <div className="relative z-10 w-full max-w-5xl border border-gray-300 bg-white rounded-2xl shadow p-4 md:p-6 max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-blue-700">Add Irregular Subject</h3>
+                <h3 className="text-lg font-semibold text-gray-800">Add Irregular Subject</h3>
                <p className="text-sm text-gray-600">
                     Showing all subjects from all curriculums. Sort by curriculum, year level, or semester.
                 </p>
@@ -3157,7 +3723,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
             
 
-              <div className="relative">
+              <div className="relative w-80">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   value={subjectPickerSearch}
@@ -3171,7 +3737,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
             <div className="border border-gray-200 rounded-lg overflow-hidden">
               <div className="max-h-[55vh] overflow-auto">
                 <table className="min-w-full text-sm">
-                  <thead className="bg-blue-50 text-blue-800 sticky top-0">
+                  <thead className="bg-blue-500 text-white sticky top-0">
                     <tr>
                       <th
                         className="px-2 py-2 text-left cursor-pointer select-none"
@@ -3306,7 +3872,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                                 <button
                                   type="button"
                                   onClick={() => handleAddIrregularSubject(subjectPickerSemester, course)}
-                                  className="w-15 text-center px-2 py-1 rounded text-xs bg-blue-600 text-white hover:bg-blue-700"
+                                  className="w-15 text-center px-2 py-1 rounded text-xs bg-green-500 text-white hover:bg-green-600 cursor-pointer"
                                 >
                                   Add
                                 </button>

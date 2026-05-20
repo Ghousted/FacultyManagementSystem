@@ -11,6 +11,7 @@ import {
   ChevronsUpDown,
   RefreshCw
 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import {
   getProfessors,
   addProfessor,
@@ -126,7 +127,7 @@ const ProfessorList = ({ onSelectProfessor }) => {
     setError('');
 
     if (!form.name.trim()) {
-      setError('Professor name is required.');
+      toast.error('Professor name is required.');
       return;
     }
 
@@ -148,7 +149,7 @@ const ProfessorList = ({ onSelectProfessor }) => {
       setEditingId(null);
       await refresh();
     } else {
-      setError(res.error || 'Failed to save professor.');
+      toast.error(res.error || 'Failed to save professor.');
     }
   };
 
@@ -161,7 +162,7 @@ const ProfessorList = ({ onSelectProfessor }) => {
       setConfirmDelete(null);
       await refresh();
     } else {
-      setError(res.error || 'Failed to delete professor.');
+      toast.error(res.error || 'Failed to delete professor.');
     }
   };
 
@@ -173,20 +174,20 @@ const ProfessorList = ({ onSelectProfessor }) => {
             <button
               onClick={refresh}
               disabled={loading}
-              className="inline-flex items-center justify-center gap-2 p-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 cursor-pointer"
+              className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
               title="Reload professors"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
 
-            <div className="relative">
+            <div className="relative w-80">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search professors..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
               />
             </div>
           </div>
@@ -308,7 +309,7 @@ const ProfessorList = ({ onSelectProfessor }) => {
                       >
                         <button
                           onClick={() => openEdit(p)}
-                          className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 hover:text-blue-600 cursor-pointer"
+                        className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
                           title="Edit"
                         >
                           <Pencil className="w-4 h-4" />
@@ -316,7 +317,7 @@ const ProfessorList = ({ onSelectProfessor }) => {
 
                         <button
                           onClick={() => setConfirmDelete(p)}
-                          className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 hover:text-red-600 cursor-pointer"
+                        className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
                           title="Delete"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -332,10 +333,10 @@ const ProfessorList = ({ onSelectProfessor }) => {
       </div>
 
       {modalOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
             <h6 className="text-lg font-semibold text-gray-800 mb-4">
-              {editingId ? 'Edit Professor' : 'Add Professor'}
+              {editingId ? 'Update Professor' : 'Add Professor'}
             </h6>
 
             <div className="space-y-3">
@@ -345,7 +346,7 @@ const ProfessorList = ({ onSelectProfessor }) => {
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   placeholder="e.g. Juan Dela Cruz"
                 />
               </div>
@@ -356,7 +357,7 @@ const ProfessorList = ({ onSelectProfessor }) => {
                   type="text"
                   value={form.employeeId}
                   onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   placeholder="Optional"
                 />
               </div>
@@ -367,21 +368,21 @@ const ProfessorList = ({ onSelectProfessor }) => {
                   type="email"
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   placeholder="Optional"
                 />
               </div>
 
-              {error && <p className="text-red-500 text-xs">{error}</p>}
+              {/* validation errors shown via toast notifications */}
             </div>
 
-            <div className="flex justify-end gap-2 mt-5">
+            <div className="flex justify-end gap-2 mt-8">
               <button
                 onClick={() => {
                   setModalOpen(false);
                   setError('');
                 }}
-                className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
                 disabled={saving}
               >
                 Cancel
@@ -389,10 +390,10 @@ const ProfessorList = ({ onSelectProfessor }) => {
 
               <button
                 onClick={handleSave}
-                className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 cursor-pointer"
+                className="px-4 py-1.5 w-24 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 disabled={saving}
               >
-                {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Add Professor'}
+                {saving ? 'Updating...' : editingId ? 'Update' : 'Add'}
               </button>
             </div>
           </div>
@@ -401,26 +402,26 @@ const ProfessorList = ({ onSelectProfessor }) => {
 
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
-            <h6 className="text-lg font-semibold text-gray-800 mb-2">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
+            <h6 className="text-xl font-semibold text-gray-800 mb-2">
               Delete Professor
             </h6>
 
-            <p className="text-sm text-gray-600 mb-5">
+            <p className="text-gray-700 mb-8 text-justify">
               Remove <span className="font-medium text-gray-800">{confirmDelete.name}</span> from the department? This will also remove all subject assignments for this professor.
             </p>
 
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmDelete(null)}
-                className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
 
               <button
                 onClick={handleDelete}
-                className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 cursor-pointer"
+                className="px-4 py-1.5 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 Delete
               </button>

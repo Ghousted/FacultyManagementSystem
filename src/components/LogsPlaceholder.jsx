@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
 import { RefreshCw, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { db } from '../firebase';
+import Breadcrumbs from './common/Breadcrumbs';
 
 const getLogDateParts = (log) => {
   if (log.date && log.time) {
@@ -209,18 +210,7 @@ const LogsPlaceholder = () => {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <button
-          type="button"
-          onClick={() => (window.location.hash = '#/dashboard')}
-          className="text-gray-600 hover:text-blue-600"
-        >
-          Dashboard
-        </button>
-        <span className="text-gray-300">&gt;</span>
-        <span className="font-medium text-blue-600">System Logs</span>
-      </div>
+      <Breadcrumbs items={[{ label: 'System Logs' }]} className="" />
 
       {/* Header */}
       <div className="space-y-1">
@@ -237,35 +227,11 @@ const LogsPlaceholder = () => {
         {/* Toolbar */}
         <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
           <div className="flex items-center justify-between">
-            {/* Search + refresh */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={loadLogs}
-                disabled={loading}
-                className="flex items-center gap-2 rounded-lg border border-blue-200 bg-white p-2 text-sm font-semibold text-blue-700 transition-all hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              </button>
-              <div className="relative w-full sm:w-72">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  placeholder="Search logs..."
-                  className="w-full rounded-lg border border-gray-200 py-2 pl-9 pr-3 text-sm outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                />
-              </div>
-            </div>
+           
 
             {/* Pagination */}
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">
-                Showing {startLog}–{endLog} out of {filteredLogs.length} logs
-              </span>
+              
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => goToPage(currentPage - 1)}
@@ -282,7 +248,35 @@ const LogsPlaceholder = () => {
                   <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
+              <span className="text-xs text-gray-500">
+                Showing {startLog}–{endLog} out of {filteredLogs.length} logs
+              </span>
             </div>
+
+             {/* Search + refresh */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={loadLogs}
+                disabled={loading}
+className="p-2.5 rounded-lg bg-white border cursor-pointer border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+              <div className="relative w-full sm:w-72">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  placeholder="Search logs..."
+className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                />
+              </div>
+            </div>
+
           </div>
         </div>
 
@@ -299,9 +293,9 @@ const LogsPlaceholder = () => {
         {loading ? (
           <div className="space-y-3 p-4">
             {[1, 2, 3, 4, 5].map((item) => (
-              <div key={item} className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_0.8fr_1fr_1.5fr]">
+              <div key={item} className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_0.8fr_1fr_1.5fr]">
                 {[...Array(5)].map((_, i) => (
-                  <div key={i} className="h-8 animate-pulse rounded bg-gray-100" />
+                  <div key={i} className="h-4 animate-pulse rounded bg-gray-100" />
                 ))}
               </div>
             ))}

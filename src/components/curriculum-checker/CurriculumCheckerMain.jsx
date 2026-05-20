@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
+import { toast } from 'react-hot-toast';
 import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAllCourses, getCurriculums } from '../../models/curriculumModels';
 import { useAuth } from '../../contexts/AuthContext';
 import { Printer, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowLeft, RefreshCcw, Folder} from 'lucide-react';
-import CurriculumPreview from './CurriculumPReview';
+import CurriculumPreview from './CurriculumPreview';
 import ViewArchivedClasses from './ViewArchivedClasses';
+import Breadcrumbs from '../common/Breadcrumbs';
 
 const CurriculumCheckerMain = () => {
     const [showArchivedPanel, setShowArchivedPanel] = useState(false);
@@ -22,14 +24,71 @@ const CurriculumCheckerMain = () => {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewTarget, setPreviewTarget] = useState(null);
   const [printOnlyOpen, setPrintOnlyOpen] = useState(false);
+  const [printErrorModalOpen, setPrintErrorModalOpen] = useState(false);
+  const [printErrorMessage, setPrintErrorMessage] = useState('');
   const [expandedYears, setExpandedYears] = useState({ 1: true, 2: true, 3: true, 4: true });
   const [showEquivalentCourses, setShowEquivalentCourses] = useState(false);
   const [showAvailableCourses, setShowAvailableCourses] = useState(true);
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+  const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
   const [selectedFolder, setSelectedFolder] = useState(null); // { year, block, isIrregular }
   const [lastSelectedStudentId, setLastSelectedStudentId] = useState(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [selectedYear, setSelectedYear] = useState(1);
+
+  const getYearLabel = (year) => {
+    if (year === 1) return '1st Year';
+    if (year === 2) return '2nd Year';
+    if (year === 3) return '3rd Year';
+    return '4th Year';
+  };
+
+  const folderStudentList = useMemo(() => {
+    if (!selectedFolder) return [];
+
+    let list = students.filter(student =>
+      selectedFolder.isIrregular
+        ? student.isIrregular
+        : student.yearLevel === selectedFolder.year &&
+          (selectedFolder.block ? student.block === selectedFolder.block : true) &&
+          !student.isIrregular
+    );
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      list = list.filter(student => student.name.toLowerCase().includes(term));
+    }
+
+    if (sortConfig.key) {
+      list.sort((a, b) => {
+        if (sortConfig.key === 'completedCourses') {
+          const aValue = a.completedCourses?.length || 0;
+          const bValue = b.completedCourses?.length || 0;
+          if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+          if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+          return 0;
+        }
+
+        const aValue = a[sortConfig.key] ?? '';
+        const bValue = b[sortConfig.key] ?? '';
+        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return list;
+  }, [students, selectedFolder, searchTerm, sortConfig]);
+
+  const folderStats = useMemo(() => ({
+    total: students.length,
+    regular: students.filter(student => !student.isIrregular).length,
+    irregular: students.filter(student => student.isIrregular).length,
+    folders: new Set(
+      students
+        .filter(student => !student.isIrregular)
+        .map(student => `${student.yearLevel}-${student.block || 'Not Set'}`)
+    ).size
+  }), [students]);
 
   useEffect(() => {
     if (currentUser) {
@@ -149,7 +208,7 @@ const CurriculumCheckerMain = () => {
 
   const loadStudents = async () => {
     if (!currentUser) {
-      setError('Please sign in to access student data');
+      toast.error('Please sign in to access student data');
       return;
     }
 
@@ -180,7 +239,7 @@ const CurriculumCheckerMain = () => {
         await loadStudentCourses(studentsWithCurriculum[0].curriculumId);
       }
     } else {
-      setError(result.error);
+      toast.error(result.error || 'Failed to load students');
     }
     setLoading(false);
   };
@@ -224,7 +283,8 @@ const CurriculumCheckerMain = () => {
       window.print();
     } catch (e) {
       console.error('Print failed', e);
-      alert('Print failed. Your browser may block programmatic printing.');
+      setPrintErrorMessage('Print failed. Your browser may block programmatic printing.');
+      setPrintErrorModalOpen(true);
     }
     setPreviewOpen(false);
     setPreviewTarget(null);
@@ -244,6 +304,7 @@ const CurriculumCheckerMain = () => {
     return () => clearTimeout(t);
   }, [printOnlyOpen]);
 
+
   const handleStudentSelect = async (student) => {
     setSelectedStudent(student);
     setLastSelectedStudentId(student.id);
@@ -255,19 +316,19 @@ const CurriculumCheckerMain = () => {
       setStudentCurriculum(result.data);
       loadStudentCourses(student.curriculumId);
     } else {
-      setError(result.error);
+      toast.error(result.error || 'Failed to load curriculum status');
     }
     setLoading(false);
   };
 
   const handleCheckCurriculum = async () => {
     if (!currentUser) {
-      setError('Please sign in to check curriculum status');
+      toast.error('Please sign in to check curriculum status');
       return;
     }
 
     if (!selectedStudent) {
-      setError('Please select a student first');
+      toast.error('Please select a student first');
       return;
     }
 
@@ -276,9 +337,9 @@ const CurriculumCheckerMain = () => {
     const result = await getStudentCurriculumStatus(selectedStudent.id);
     if (result.success) {
       setStudentCurriculum(result.data);
-      setSuccess('Curriculum status loaded successfully!');
+      toast.success('Curriculum status loaded successfully!');
     } else {
-      setError(result.error);
+      toast.error(result.error || 'Failed to check curriculum status');
     }
     setLoading(false);
   };
@@ -495,43 +556,59 @@ const CurriculumCheckerMain = () => {
           <div className="flex-1">
             {/* Folder grid or selected folder card (left column) */}
             {!selectedFolder ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4  gap-4">
-                {[1, 2, 3, 4].flatMap(year =>
-                  Array.from(new Set(students.filter(s => !s.isIrregular && s.yearLevel === year).map(s => s.block || 'Not Set'))).map(block => {
-                    const yearLabel = year === 1 ? '1st Year' : year === 2 ? '2nd Year' : year === 3 ? '3rd Year' : '4th Year';
-                    const count = students.filter(s => !s.isIrregular && s.yearLevel === year && (s.block || 'Not Set') === block).length;
-                    return (
-                      <button
-                        key={`${year}-${block}`}
-                        onClick={() => setSelectedFolder({ year, block: block === 'Not Set' ? null : block, isIrregular: false })}
-                        className="group relative cursor-pointer rounded-xl border border-gray-300 bg-white p-4 text-left shadow-sm transition hover:border-blue-400 hover:shadow-md"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                            <Folder className="h-5 w-5" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold text-blue-800">{yearLabel} Block {block}</p>
-                            <p className="mt-1 text-xs text-gray-500">{count} student{count !== 1 ? 's' : ''}</p>
-                          </div>
+              loading ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <div key={i} className="relative rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-lg bg-blue-50 animate-pulse" />
+                        <div className="flex-1">
+                          <div className="h-4 w-32 rounded bg-gray-200 mb-2 animate-pulse" />
+                          <div className="h-3 w-20 rounded bg-gray-100 animate-pulse" />
                         </div>
-                      </button>
-                    );
-                  })
-                )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {[1, 2, 3, 4].flatMap(year =>
+                    Array.from(new Set(students.filter(s => !s.isIrregular && s.yearLevel === year).map(s => s.block || 'Not Set'))).map(block => {
+                      const yearLabel = year === 1 ? '1st Year' : year === 2 ? '2nd Year' : year === 3 ? '3rd Year' : '4th Year';
+                      const count = students.filter(s => !s.isIrregular && s.yearLevel === year && (s.block || 'Not Set') === block).length;
+                      return (
+                        <button
+                          key={`${year}-${block}`}
+                          onClick={() => setSelectedFolder({ year, block: block === 'Not Set' ? null : block, isIrregular: false })}
+                          className="group relative cursor-pointer rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-400 hover:shadow-md"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                              <Folder className="h-5 w-5" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-blue-800">{yearLabel} Block {block}</p>
+                              <p className="mt-1 text-xs text-gray-500">{count} student{count !== 1 ? 's' : ''}</p>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
 
-                <button onClick={() => setSelectedFolder({ isIrregular: true })} className="group relative cursor-pointer rounded-xl border border-gray-300 bg-white p-4 text-left shadow-sm transition hover:border-blue-400 hover:shadow-md">
-                  <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                      <Folder className="h-5 w-5" />
+                  <button onClick={() => setSelectedFolder({ isIrregular: true })} className="group relative cursor-pointer rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-400 hover:shadow-md">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                        <Folder className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-blue-800">Irregular Students</p>
+                        <p className="mt-1 text-xs text-gray-500">{students.filter(s => s.isIrregular).length} students</p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-blue-800">Irregular Students</p>
-                      <p className="mt-1 text-xs text-gray-500">{students.filter(s => s.isIrregular).length} students</p>
-                    </div>
-                  </div>
-                </button>
-              </div>
+                  </button>
+                </div>
+              )
             ) : (
               <div />
             )}
@@ -539,12 +616,12 @@ const CurriculumCheckerMain = () => {
 
           <div className="w-80">
             {selectedFolder && (
-              <div className="relative flex items-center">
+              <div className="relative flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => { loadStudents(); }}
                   title="Reload students"
-                  className="inline-flex items-center justify-center h-9 w-9 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 mr-2"
+className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
                 >
                   <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
@@ -559,7 +636,7 @@ const CurriculumCheckerMain = () => {
                     placeholder="Search students by name..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full text-sm border border-gray-300 rounded-lg pl-9 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   />
                 </div>
               </div>
@@ -570,61 +647,99 @@ const CurriculumCheckerMain = () => {
 
       {/* If a folder is selected render the students in that folder, otherwise render the main student table */}
       {selectedFolder ? (
-        <div className="overflow-hidden rounded-lg border border-gray-300 bg-white mb-4">
-          <table className="min-w-full text-sm">
-            <thead className="bg-blue-600 text-white">
-              <tr>
-                <th className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[12%]">Student No.</th>
-                <th className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[20%]">Name</th>
-                <th className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[18%]">Email</th>
-                <th className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[10%]">Contact No.</th>
-                <th className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[20%]">Curriculum</th>
-                <th className="px-2 py-1.5 text-left font-semibold border-b border-gray-300 w-[15%]">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                // show 6 skeleton rows while loading
-                Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={i} className="border-b border-gray-200 last:border-b-0 animate-pulse">
-                    <td className="px-3 py-2 w-[12%]"><div className="h-4 bg-gray-200 rounded w-24" /></td>
-                    <td className="px-3 py-2 w-[20%]"><div className="h-4 bg-gray-200 rounded w-40" /></td>
-                    <td className="px-3 py-2 w-[18%]"><div className="h-4 bg-gray-200 rounded w-36" /></td>
-                    <td className="px-3 py-2 w-[10%]"><div className="h-4 bg-gray-200 rounded w-24" /></td>
-                    <td className="px-3 py-2 w-[20%]"><div className="h-4 bg-gray-200 rounded w-48" /></td>
-                    <td className="px-3 py-2 text-cente w-[15%]"><div className="h-4 bg-gray-200 rounded w-20" /></td>
-                  </tr>
-                ))
+  <div className="overflow-hidden rounded-lg border border-gray-300 bg-white mb-4">
+    <table className="min-w-full text-sm">
+      <thead className="bg-blue-600 text-white">
+        <tr>
+          <th className="px-4 py-2 text-left font-semibold border-b border-gray-300 w-[5%] cursor-pointer hover:bg-blue-700 transition">
+            No.
+          </th>
+
+          <th className="px-4 py-2 text-left font-semibold border-b border-gray-300 w-[12%] cursor-pointer hover:bg-blue-700 transition" onClick={() => requestSort('studentNumber')}>
+            <div className="flex items-center gap-2">
+              Student No.
+              {sortConfig.key === 'studentNumber' ? (
+                sortConfig.direction === 'asc' ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )
               ) : (
-                students
-                  .filter(s => selectedFolder.isIrregular ? s.isIrregular : (s.yearLevel === selectedFolder.year && (selectedFolder.block ? (s.block === selectedFolder.block) : true) && !s.isIrregular))
-                  .map(student => (
-                    <tr key={student.id} id={`student-row-${student.id}`} onClick={() => handleStudentSelect(student)} className={`border-b border-gray-300 last:border-b-0 odd:bg-white even:bg-gray-50 hover:bg-gray-100 cursor-pointer transition`}>
-                      <td className="px-3 py-2 w-[12%]">{student.studentNumber}</td>
-                      <td className="px-3 py-2 w-[20%]">{student.name}</td>
-                      <td className="px-3 py-2 w-[18%]">{student.email}</td>
-                      <td className="px-3 py-2 w-[10%]">{student.contactNumber}</td>
-                      <td className="px-3 py-2 w-[20%]"><span>{student.curriculumName || student.curriculumId || 'Not Set'}</span></td>
-                      <td className="px-3 py-2 w-[15%]">
-                       {student.enrolled ? (
-                        <span className="inline-flex w-24 justify-center text-center px-2 py-1 rounded-full border border-green-300 bg-green-100 text-green-700 text-xs font-medium">
-                          Enrolled
-                        </span>
-                      ) : (
-                        <span className="inline-flex w-24 justify-center text-center px-2 py-1 rounded-full border border-red-300 bg-red-100 text-red-700 text-xs font-medium">
-                          Not Enrolled
-                        </span>
-                      )}
-                      </td>
-                    </tr>
-                  ))
+                <ChevronsUpDown className="w-4 h-4 opacity-50" />
               )}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <></>
-      )}
+            </div>
+          </th>
+
+          <th className="px-4 py-2 ...">Name</th>
+          <th className="px-4 py-2 ...">Email</th>
+          <th className="px-4 py-2 ...">Contact No.</th>
+          <th className="px-4 py-2 ...">Curriculum</th>
+          <th className="px-4 py-2 ...">Status</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {loading ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <tr key={i} className="border-b border-gray-200 last:border-b-0 animate-pulse">
+              <td className="px-3 py-2 w-[5%]"><div className="h-4 bg-gray-200 rounded w-24" /></td>
+              <td className="px-3 py-2 w-[12%]"><div className="h-4 bg-gray-200 rounded w-24" /></td>
+              <td className="px-3 py-2 w-[20%]"><div className="h-4 bg-gray-200 rounded w-40" /></td>
+              <td className="px-3 py-2 w-[18%]"><div className="h-4 bg-gray-200 rounded w-36" /></td>
+              <td className="px-3 py-2 w-[10%]"><div className="h-4 bg-gray-200 rounded w-24" /></td>
+              <td className="px-3 py-2 w-[15%]"><div className="h-4 bg-gray-200 rounded w-48" /></td>
+              <td className="px-3 py-2 w-[15%]"><div className="h-4 bg-gray-200 rounded w-20" /></td>
+            </tr>
+          ))
+        ) : (
+          students
+            .filter(s =>
+              selectedFolder.isIrregular
+                ? s.isIrregular
+                : (
+                    s.yearLevel === selectedFolder.year &&
+                    (selectedFolder.block ? s.block === selectedFolder.block : true) &&
+                    !s.isIrregular
+                  )
+            )
+            .map((student, index) => (
+              <tr
+                key={student.id}
+                id={`student-row-${student.id}`}
+                onClick={() => handleStudentSelect(student)}
+                className="border-b border-gray-300 last:border-b-0 odd:bg-white even:bg-gray-50 hover:bg-gray-100 cursor-pointer transition"
+              >
+                {/* ✅ FIXED NUMBERING */}
+                <td className="px-3 py-2 w-[5%]">{index + 1}</td>
+
+                <td className="px-3 py-2 w-[12%]">{student.studentNumber}</td>
+                <td className="px-3 py-2 w-[20%]">{student.name}</td>
+                <td className="px-3 py-2 w-[18%]">{student.email}</td>
+                <td className="px-3 py-2 w-[10%]">{student.contactNumber}</td>
+                <td className="px-3 py-2 w-[20%]">
+                  <span>
+                    {student.curriculumName || student.curriculumId || 'Not Set'}
+                  </span>
+                </td>
+
+                <td className="px-3 py-2 w-[15%]">
+                  {student.enrolled ? (
+                    <span className="inline-flex w-24 justify-center text-center px-2 py-1 rounded-full border border-green-300 bg-green-100 text-green-700 text-xs font-medium">
+                      Enrolled
+                    </span>
+                  ) : (
+                    <span className="inline-flex w-24 justify-center text-center px-2 py-1 rounded-full border border-red-300 bg-red-100 text-red-700 text-xs font-medium">
+                      Not Enrolled
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))
+        )}
+      </tbody>
+    </table>
+  </div>
+) : null}
 
       {filteredStudents.length === 0 && searchTerm && (
         <div className="text-center py-2">
@@ -673,7 +788,7 @@ const CurriculumCheckerMain = () => {
         </div>
 
         {/* Year Tabs */}
-        <div className="flex gap-2 bg-gray-200/50 p-1 rounded-xl w-full my-4">
+<div className="flex gap-2  my-4 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
   {[1, 2, 3, 4].map(year => {
     const yearLabel = year === 1 ? '1st Year' : year === 2 ? '2nd Year' : year === 3 ? '3rd Year' : '4th Year';
     return (
@@ -681,10 +796,10 @@ const CurriculumCheckerMain = () => {
         key={year}
         type="button"
         onClick={() => setSelectedYear(year)}
-            className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition
+className={`rounded-lg px-4 py-1 text-sm font-medium transition-all 
           ${selectedYear === year
-            ? 'bg-blue-500 text-white'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 cursor-pointer'
+          ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+: 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
           }`}
       >
         {yearLabel}
@@ -737,12 +852,12 @@ const CurriculumCheckerMain = () => {
               <table className="min-w-full text-xs">
                 <thead className="bg-blue-100 text-blue-800">
                   <tr>
-                    <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[10%]">Code</th>
-                    <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[30%]">Description</th>
-                    <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[10%]">Units</th>
-                    <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[20%]">Prerequisites</th>
-                    <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[15%]">Status</th>
-                    <th className="text-left font-semibold px-2 py-1.5 border-b border-gray-300 w-[15%]">Grade</th>
+                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[10%]">Code</th>
+                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[30%]">Description</th>
+                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[10%]">Units</th>
+                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[20%]">Prerequisites</th>
+                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[15%]">Status</th>
+                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[15%]">Grade</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -820,40 +935,21 @@ const CurriculumCheckerMain = () => {
 
   return (
     <div className="flex flex-col">
-      <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
-        <button
-          type="button"
-          onClick={() => (window.location.hash = '#/dashboard')}
-          className="text-gray-600 hover:text-blue-600"
-        >
-          Dashboard
-        </button>
-        <span className="text-gray-300">&gt;</span>
-        <button
-          type="button"
-          onClick={() => { setSelectedFolder(null); setSelectedStudent(null); setTabValue(0); }}
-          className={`text-left ${!selectedStudent && !selectedFolder ? 'font-medium text-blue-600' : 'text-gray-600 hover:text-blue-600'}`}
-        >
-          Curriculum Checker
-        </button>
-        {selectedFolder && (
-          <>
-            <span className="text-gray-300">&gt;</span>
-            <button
-              type="button"
-              onClick={() => { setSelectedStudent(null); /* keep folder view */ }}
-              className={`text-left ${selectedStudent ? 'text-gray-600 hover:text-blue-600' : 'font-medium text-blue-600'}`}     >
-              {selectedFolder.isIrregular ? 'Irregular Students' : `${selectedFolder.year === 1 ? '1st' : selectedFolder.year === 2 ? '2nd' : selectedFolder.year === 3 ? '3rd' : '4th'} Year${selectedFolder.block ? ` Block ${selectedFolder.block}` : ''}`}
-            </button>
-          </>
-        )}
-        {selectedStudent && (
-          <>
-            <span className="text-gray-300">&gt;</span>
-            <span className="font-medium text-blue-600">{selectedStudent.name}</span>
-          </>
-        )}
-      </div>
+      <Breadcrumbs
+        items={[
+          {
+            label: 'Curriculum Checker',
+            onClick: selectedStudent || selectedFolder
+              ? () => { setSelectedFolder(null); setSelectedStudent(null); setTabValue(0); }
+              : null
+          },
+          ...(selectedFolder ? [{
+            label: selectedFolder.isIrregular ? 'Irregular Students' : `${selectedFolder.year === 1 ? '1st' : selectedFolder.year === 2 ? '2nd' : selectedFolder.year === 3 ? '3rd' : '4th'} Year${selectedFolder.block ? ` Block ${selectedFolder.block}` : ''}`,
+            onClick: selectedStudent ? () => { setSelectedStudent(null); } : null
+          }] : []),
+          ...(selectedStudent ? [{ label: selectedStudent.name }] : [])
+        ]}
+      />
 
         <div className='mb-4'>
           <h2 className='text-2xl font-bold text-gray-800'>Curriculum Checker</h2>
@@ -861,17 +957,12 @@ const CurriculumCheckerMain = () => {
         </div>
 
       {!currentUser && (
-        <div className="mx-3 mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-2 py-1.5 text-sm">
+        <div className="mx-3 mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-4 py-2 text-sm">
           Please sign in to access the Curriculum Checker
         </div>
       )}
 
-      {error && (
-        <div className="mx-3 mb-2 rounded border border-red-200 bg-red-50 text-red-800 px-2 py-1.5 text-sm">{error}</div>
-      )}
-      {success && (
-        <div className="mx-3 mb-2 rounded border border-green-200 bg-green-50 text-green-800 px-2 py-1.5 text-sm">{success}</div>
-      )}
+      {/* status messages shown via toast notifications */}
 
       {currentUser ? (
         <div className="flex-1 pt-0 mt-3">
@@ -931,6 +1022,18 @@ const CurriculumCheckerMain = () => {
         >
           <ChevronUp className="w-5 h-5" />
         </button>
+      )}
+      {printErrorModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setPrintErrorModalOpen(false)}></div>
+          <div className="relative bg-white rounded-2xl p-6 w-full max-w-md shadow-lg">
+            <h3 className="text-lg font-semibold mb-2">Print Failed</h3>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap">{printErrorMessage}</p>
+            <div className="flex justify-end mt-4">
+              <button onClick={() => setPrintErrorModalOpen(false)} className="px-4 py-2 rounded bg-blue-600 text-white">OK</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
