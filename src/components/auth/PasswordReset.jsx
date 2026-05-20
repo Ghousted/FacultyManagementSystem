@@ -33,39 +33,49 @@ const PasswordReset = ({ onSwitchToSignIn }) => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="max-w-md w-full p-4 bg-white rounded-lg shadow-lg">
-        <h4 className="text-center text-2xl font-bold mb-1">
+      <div className="max-w-md w-full p-8 bg-white rounded-xl shadow-lg">
+        <h4 className="text-left text-2xl font-bold mb-1">
           Reset your password
         </h4>
-        <p className="text-center text-sm text-gray-600 mb-2">
+        <p className="text-left text-sm text-gray-600 mb-2">
           Enter your email address and we'll send you a link to reset your password.
         </p>
         <form onSubmit={handleSubmit}>
-          <div className="space-y-4">
+          <div className="space-y-4 mt-6">
             {/* messages shown via toast notifications */}
-            <input
-              type="email"
-              className="w-full p-2 border border-gray-300 rounded"
-              placeholder="Email Address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-            />
+            <div>
+              <label
+                htmlFor="email"
+                className="block text-sm  text-gray-700 mb-1"
+              >
+                Email Address
+              </label>
+              <input
+                type="email"
+                className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                placeholder="tcc.ccs.official@gmail.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+           </div>
             <button
               type="submit"
-              className="w-full p-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+              className="w-full p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 cursor-pointer "
               disabled={loading}
             >
               {loading ? 'Sending...' : 'Send reset link'}
             </button>
-            <button
+           <div className='text-left'>
+             <button
               type="button"
               onClick={onSwitchToSignIn}
-              className="text-sm text-blue-600 hover:underline"
+              className="text-sm cursor-pointer text-blue-600 hover:underline"
             >
               Back to sign in
             </button>
+           </div>
           </div>
         </form>
       </div>

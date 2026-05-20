@@ -5,8 +5,14 @@ import PasswordReset from './PasswordReset';
 const AuthContainer = () => {
   const [authMode, setAuthMode] = useState('signin'); // 'signin', 'reset'
 
-  const switchToSignIn = () => setAuthMode('signin');
-  const switchToResetPassword = () => setAuthMode('reset');
+  const switchToSignIn = () => {
+    window.location.hash = '';
+    setAuthMode('signin');
+  };
+  const switchToResetPassword = () => {
+    window.location.hash = '#/forgot-password';
+    setAuthMode('reset');
+  };
 
   return (
     <div>

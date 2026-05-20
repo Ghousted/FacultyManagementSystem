@@ -18,6 +18,7 @@ const Dashboard = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
+  const [userFullName, setUserFullName] = useState('');
   const [adminStats, setAdminStats] = useState({
     latestStudents: [],
     activeTerm: null,
@@ -66,7 +67,9 @@ const Dashboard = () => {
         const userSnap = await getDoc(userRef);
 
         if (userSnap.exists()) {
-          setUserName(userSnap.data().userName);
+          const userData = userSnap.data();
+          setUserName(userData.userName || '');
+          setUserFullName(userData.fullName || '');
         }
       } catch (error) {
         console.error('Error fetching username:', error);
@@ -399,7 +402,7 @@ const Dashboard = () => {
                 {getTimePeriod()}
               </p>
               <h3 className="text-2xl font-semibold text-white md:text-3xl">
-                Welcome, {userName || currentUser?.displayName || currentUser?.email}
+                Welcome, {userFullName || userName || currentUser?.displayName || currentUser?.email}
               </h3>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-blue-50">
                 {getWelcomeMessage()}
@@ -467,7 +470,7 @@ const Dashboard = () => {
             </p>
 
             <h3 className="text-2xl font-semibold text-white md:text-3xl">
-              Welcome, {userName || currentUser?.displayName || currentUser?.email}
+              Welcome, {userFullName || userName || currentUser?.displayName || currentUser?.email}
             </h3>
 
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-blue-50">

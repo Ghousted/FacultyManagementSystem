@@ -4,6 +4,8 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { BadgePlus, BookMarked, FileSliders, Building2 } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import AuthContainer from './components/auth/AuthContainer';
+import PasswordReset from './components/auth/PasswordReset';
+import PasswordResetConfirm from './components/auth/PasswordResetConfirm';
 import Dashboard from './components/Dashboard';
 import Layout from './components/layout/Layout';
 import AdminPanel from './components/admin/AdminPanel';
@@ -277,9 +279,21 @@ function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
-  // Redirect to dashboard after login
+  // Redirect to dashboard after login, but preserve password reset flows
   useEffect(() => {
-    if (currentUser) {
+    if (!currentUser) return;
+
+    const currentHash = window.location.hash || '';
+    const currentHashPath = currentHash.split('?')[0];
+    const preserveHash =
+      currentHashPath === '#/forgot-password' ||
+      currentHash.startsWith('#/forgot-password?') ||
+      currentHashPath === '#/reset-password' ||
+      currentHash.startsWith('#/reset-password?') ||
+      window.location.search.includes('mode=resetPassword') ||
+      currentHash.includes('mode=resetPassword');
+
+    if (!preserveHash) {
       window.location.hash = '';
     }
   }, [currentUser]);
@@ -507,6 +521,31 @@ function App() {
           <p className="mt-4 text-gray-600">Loading...</p>
         </div>
       </div>
+    );
+  }
+
+  const currentHash = window.location.hash || '';
+  const currentHashPath = currentHash.split('?')[0];
+
+  const isPasswordResetAction =
+    currentHashPath === '#/reset-password' ||
+    window.location.search.includes('mode=resetPassword') ||
+    currentHash.includes('mode=resetPassword');
+
+  const isPasswordResetRequestRoute =
+    currentHashPath === '#/forgot-password' ||
+    currentHash.startsWith('#/forgot-password?');
+
+  if (isPasswordResetAction || isPasswordResetRequestRoute) {
+    return (
+      <>
+        <Toaster position="top-right" />
+        {isPasswordResetAction ? (
+          <PasswordResetConfirm />
+        ) : (
+          <PasswordReset onSwitchToSignIn={() => (window.location.hash = '')} />
+        )}
+      </>
     );
   }
 

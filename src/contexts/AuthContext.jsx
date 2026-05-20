@@ -6,9 +6,10 @@ import {
   sendPasswordResetEmail,
   updateProfile
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { logSystemAction } from '../utils/auditLogger';
+import { passwordResetActionCodeSettings } from '../utils/authHelpers';
 
 const AuthContext = createContext();
 
@@ -228,25 +229,32 @@ export const AuthProvider = ({ children }) => {
       }
     }
 
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    const normalizedPassword = password || '';
+
+    if (!normalizedEmail || !normalizedPassword) {
+      return { success: false, error: 'Email and password are required.', offline: false };
+    }
+
     try {
-      const result = await signInWithEmailAndPassword(auth, email, password);
+      const result = await signInWithEmailAndPassword(auth, normalizedEmail, normalizedPassword);
       
       // Cache user data and credentials for offline use
       const userData = cacheUserData(result.user);
-      localStorage.setItem('cachedCredentials', JSON.stringify({ email, password }));
-      console.log('Credentials cached for offline use:', { email, password: '***' });
+      localStorage.setItem('cachedCredentials', JSON.stringify({ email: normalizedEmail, password: normalizedPassword }));
+      console.log('Credentials cached for offline use:', { email: normalizedEmail, password: '***' });
       
       // Add to pending actions for sync
       addPendingAction({
         type: 'SIGN_IN',
-        data: { email, timestamp: new Date().toISOString() }
+        data: { email: normalizedEmail, timestamp: new Date().toISOString() }
       });
       await logSystemAction({
         action: 'Signed in',
         module: 'Authentication',
         entityType: 'user',
         entityId: result.user.uid,
-        description: `Signed in ${email}`,
+        description: `Signed in ${normalizedEmail}`,
         actor: {
           userId: result.user.uid,
           userEmail: result.user.email,
@@ -256,6 +264,41 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true, user: result.user, offline: false };
     } catch (error) {
+      // If Firebase Auth fails, check if admin set a temporary password in Firestore
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+        try {
+          console.log('Checking Firestore for admin-set temporary password...');
+          const usersRef = collection(db, 'users');
+          const q = query(usersRef, where('email', '==', normalizedEmail));
+          const snapshot = await getDocs(q);
+          
+          if (!snapshot.empty) {
+            const userData = snapshot.docs[0].data();
+            const userId = snapshot.docs[0].id;
+            
+            // Check if admin set a temporary password
+            if (userData.tempPassword && userData.tempPassword === normalizedPassword) {
+              console.log('Temporary password matched! Logging in with admin temp password.');
+              const fallbackUser = {
+                uid: userId,
+                email: normalizedEmail,
+                displayName: userData.fullName || normalizedEmail,
+                role: userData.role || 'admin'
+              };
+              cacheUserData(fallbackUser);
+              localStorage.setItem('cachedCredentials', JSON.stringify({ email: normalizedEmail, password: normalizedPassword }));
+              await setDoc(doc(db, 'users', userId), {
+                tempPassword: null,
+                requiresPasswordReset: false
+              }, { merge: true });
+              return { success: true, user: fallbackUser, offline: false };
+            }
+          }
+        } catch (firestoreError) {
+          console.error('Error checking Firestore for temporary password:', firestoreError);
+        }
+      }
+      
       // Handle specific Firebase auth errors
       if (error.code === 'auth/network-request-failed') {
         return { 
@@ -323,7 +366,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      await sendPasswordResetEmail(auth, email);
+      await sendPasswordResetEmail(auth, email, passwordResetActionCodeSettings);
       
       // Add to pending actions
       addPendingAction({

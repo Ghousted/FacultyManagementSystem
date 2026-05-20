@@ -42,6 +42,9 @@ const SignIn = ({ onSwitchToResetPassword }) => {
         <h4 className="text-center text-2xl font-bold mb-4">
           Sign in to your account
         </h4>
+        <p className="text-left text-sm text-gray-600 mb-6">
+          Enter your email and password to access your account.
+        </p>
         
         {/* Network Status Indicator */}
         <div className="flex justify-center mb-4">

@@ -26,6 +26,19 @@ const TermEnrollmentPanel = ({ headerOnly = false }) => {
     load();
   }, []);
 
+  useEffect(() => {
+    const openTermEditor = () => {
+      if (!loadingTerm) {
+        setDraftTerm(activeTerm);
+        setTermError('');
+        setEditingTerm(true);
+      }
+    };
+
+    window.addEventListener('open-term-editor', openTermEditor);
+    return () => window.removeEventListener('open-term-editor', openTermEditor);
+  }, [activeTerm, loadingTerm]);
+
   const handleSaveTerm = async () => {
     setTermError('');
     const sy = (draftTerm.schoolYear || '').trim();
@@ -84,115 +97,144 @@ const TermEnrollmentPanel = ({ headerOnly = false }) => {
   };
 
   const termControl = (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-    <div className="flex min-w-0 items-start gap-3">
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-100">
-        <CalendarRange className="h-5 w-5 text-amber-700" />
-      </div>
+    <>
+      <div className="rounded-xl border border-gray-200 bg-white px-8 py-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-8">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-100">
+              <CalendarRange className="h-5 w-5 text-amber-700" />
+            </div>
 
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-          Active Academic Term
-        </p>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                Active Academic Term
+              </p>
 
-        {loadingTerm ? (
-          <div className="mt-2 h-6 w-48 animate-pulse rounded bg-gray-100" />
-        ) : editingTerm ? (
-          <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(150px,auto)_minmax(140px,180px)]">
-            <label className="sr-only" htmlFor="semester">
-              Semester
-            </label>
-            <select
-              id="semester"
-              value={draftTerm.semester}
-              onChange={e =>
-                setDraftTerm({ ...draftTerm, semester: Number(e.target.value) })
-              }
-              disabled={savingTerm}
-              className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-800 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-50"
-            >
-              <option value={1}>1st Semester</option>
-              <option value={2}>2nd Semester</option>
-              <option value={3}>Summer</option>
-            </select>
+              {loadingTerm ? (
+                <div className="mt-2 h-6 w-48 animate-pulse rounded bg-gray-100" />
+              ) : (
+                <p className="mt-1 truncate text-lg font-medium text-gray-900">
+                  {SEMESTER_LABELS[activeTerm.semester] || '1st Semester'}
+                  {activeTerm.schoolYear ? ` · S.Y. ${activeTerm.schoolYear}` : ''}
+                </p>
+              )}
 
-            <label className="sr-only" htmlFor="schoolYear">
-              School year
-            </label>
-            <input
-              id="schoolYear"
-              type="text"
-              inputMode="numeric"
-              placeholder="2025-2026"
-              value={draftTerm.schoolYear}
-              onChange={e =>
-                setDraftTerm({ ...draftTerm, schoolYear: e.target.value })
-              }
-              disabled={savingTerm}
-              className="h-10 rounded-lg border border-gray-300 px-3 text-sm text-gray-800 shadow-sm outline-none transition placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-gray-50"
-            />
+              {termError && (
+                <p className="mt-2 text-sm font-medium text-red-600">
+                  {termError}
+                </p>
+              )}
+            </div>
           </div>
-        ) : (
-          <p className="mt-1 truncate text-lg font-semibold text-gray-900">
-            {SEMESTER_LABELS[activeTerm.semester] || "1st Semester"}
-            {activeTerm.schoolYear ? ` · S.Y. ${activeTerm.schoolYear}` : ""}
-          </p>
-        )}
 
-        {termError && (
-          <p className="mt-2 text-sm font-medium text-red-600">
-            {termError}
-          </p>
-        )}
+        
+        </div>
       </div>
-    </div>
 
-    <div className="flex shrink-0 items-center gap-2 sm:pt-1">
-      {editingTerm ? (
-        <>
-          <button
-            type="button"
-            onClick={() => {
-              setEditingTerm(false);
-              setDraftTerm(activeTerm);
-              setTermError("");
-            }}
-            disabled={savingTerm}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <X className="h-4 w-4" />
-            Cancel
-          </button>
+      {editingTerm && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl ring-1 ring-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-medium text-slate-800">Update Academic Term</h2>
+              </div>
+           
+            </div>
 
-          <button
-            type="button"
-            onClick={handleSaveTerm}
-            disabled={savingTerm}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Check className="h-4 w-4" />
-            {savingTerm ? "Saving..." : "Save"}
-          </button>
-        </>
-      ) : (
-        <button
-          type="button"
-          onClick={() => {
-            setEditingTerm(true);
-            setDraftTerm(activeTerm);
-          }}
-          disabled={loadingTerm}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <Pencil className="h-4 w-4" />
-          Change Term
-        </button>
+           <div className="px-6 py-5">
+            <div className="flex flex-col gap-4">
+              
+              {/* Semester */}
+              <div className="space-y-1">
+                <label
+                  htmlFor="semester"
+                  className="text-sm  text-slate-700"
+                >
+                  Semester
+                </label>
+
+                <select
+                  id="semester"
+                  value={draftTerm.semester}
+                  onChange={e =>
+                    setDraftTerm({
+                      ...draftTerm,
+                      semester: Number(e.target.value),
+                    })
+                  }
+                  disabled={savingTerm}
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                >
+                  <option value={1}>1st Semester</option>
+                  <option value={2}>2nd Semester</option>
+                  <option value={3}>Summer</option>
+                </select>
+              </div>
+
+              {/* School Year */}
+              <div className="space-y-1">
+                <label
+                  htmlFor="schoolYear"
+                  className="text-sm  text-slate-700"
+                >
+                  School Year
+                </label>
+
+                <input
+                  id="schoolYear"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="2025-2026"
+                  value={draftTerm.schoolYear}
+                  onChange={e =>
+                    setDraftTerm({
+                      ...draftTerm,
+                      schoolYear: e.target.value,
+                    })
+                  }
+                  disabled={savingTerm}
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                />
+              </div>
+            </div>
+
+            {termError && (
+              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                <p className="text-sm font-medium text-red-600">{termError}</p>
+              </div>
+            )}
+
+            
+            <div className="mt-8 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingTerm(false);
+                  setDraftTerm(activeTerm);
+                  setTermError('');
+                }}
+                disabled={savingTerm}
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveTerm}
+                disabled={savingTerm}
+                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+              >
+                {savingTerm ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+
+          </div>
+
+          </div>
+        </div>
       )}
-    </div>
-  </div>
-</div>
-
+    </>
   );
 
   if (headerOnly) {

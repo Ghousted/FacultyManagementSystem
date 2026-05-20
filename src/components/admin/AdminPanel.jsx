@@ -40,6 +40,10 @@ const AdminPanel = () => {
     }
   };
 
+  const handleChangeTerm = () => {
+    window.dispatchEvent(new CustomEvent('open-term-editor'));
+  };
+
   useEffect(() => {
     if (role === 'admin') fetchUsers();
     else setLoading(false);
@@ -131,193 +135,11 @@ const AdminPanel = () => {
       </div>
 
       {/* User Account Management - Create New Users */}
-      <UserAccountManagement />
+      <UserAccountManagement onChangeTerm={handleChangeTerm} />
 
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm">
-            <Users size={20} className="text-white" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900">User Management</h1>
-            <p className="text-sm text-gray-500">
-              {loading ? 'Loading...' : `${users.length} registered user${users.length !== 1 ? 's' : ''}`}
-            </p>
-          </div>
-        </div>
+    
 
-        {/* Search */}
-        <div className="relative w-full sm:w-72">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by email or ID…"
-            className="w-full pl-9 pr-4 py-2.5 text-sm bg-white border border-gray-200 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X size={13} />
-            </button>
-          )}
-        </div>
-      </div>
 
-      {/* errors shown via toast notifications */}
-
-      {/* Table Card */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50/80">
-                <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Email
-                </th>
-                <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Username
-                </th>
-                <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Role
-                </th>
-                <th className="px-6 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Action
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {loading ? (
-                Array.from({ length: 5 }).map((_, idx) => (
-                  <tr key={idx}>
-                    <td className="px-6 py-4">
-                      <div className="h-3.5 w-48 bg-gray-100 rounded-full animate-pulse" />
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="h-3.5 w-28 bg-gray-100 rounded-full animate-pulse" />
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="h-5 w-20 bg-gray-100 rounded-full animate-pulse" />
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="h-8 w-16 bg-gray-100 rounded-lg animate-pulse ml-auto" />
-                    </td>
-                  </tr>
-                ))
-              ) : filteredUsers.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-16 text-center">
-                    <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                      <Users size={22} className="text-gray-400" />
-                    </div>
-                    <p className="font-medium text-gray-600">No users found</p>
-                    <p className="text-gray-400 text-xs mt-1">Try adjusting your search or refresh the list.</p>
-                  </td>
-                </tr>
-              ) : (
-                filteredUsers.map((user) => {
-                  const meta = roleMeta(user.role);
-                  return (
-                    <tr key={user.id} className="hover:bg-gray-50/70 transition-colors">
-                      <td className="px-6 py-4 max-w-[320px] truncate">
-                        <span className="font-medium text-gray-800">{user.email || user.id}</span>
-                      </td>
-                      <td className="px-6 py-4 max-w-[200px] truncate text-gray-500">
-                        {user.userName || <span className="text-gray-300 italic">—</span>}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ring-1 ${meta.classes}`}
-                        >
-                          <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                          {meta.label}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => handleEditRole(user)}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-100 hover:border-blue-200 transition-all"
-                        >
-                          Edit Role
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Table Footer */}
-        {!loading && filteredUsers.length > 0 && (
-          <div className="px-6 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-between">
-            <p className="text-xs text-gray-400">
-              Showing <span className="font-medium text-gray-600">{filteredUsers.length}</span> of{' '}
-              <span className="font-medium text-gray-600">{users.length}</span> users
-            </p>
-            <button
-              onClick={fetchUsers}
-              className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
-            >
-              Refresh list
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Archive & Promote Modal */}
-      {archiveModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl ring-1 ring-gray-200 max-w-md w-full overflow-hidden">
-            <div className="px-6 py-5 border-b border-gray-100">
-              <h2 className="text-base font-semibold text-gray-900">Archive &amp; Promote Students</h2>
-              <p className="text-sm text-gray-500 mt-0.5">This action cannot be undone.</p>
-            </div>
-            <div className="px-6 py-5">
-              <div className="flex gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl mb-4">
-                <AlertCircle size={18} className="text-amber-500 shrink-0 mt-0.5" />
-                <p className="text-sm text-amber-700">
-                  This will archive all 4th year students and promote others to the next year level. Continue?
-                </p>
-              </div>
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => setArchiveModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-                  disabled={archiveLoading}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={async () => {
-                    setArchiveLoading(true);
-                    const now = new Date();
-                    const startYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
-                    const endYear = startYear + 1;
-                    const result = await archiveAndPromoteStudents(startYear, endYear);
-                    setArchiveLoading(false);
-                    setArchiveModalOpen(false);
-                    setToast({
-                      type: result.success ? 'success' : 'error',
-                      message: result.message
-                    });
-                  }}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-60"
-                  disabled={archiveLoading}
-                >
-                  {archiveLoading && <Loader2 size={14} className="animate-spin" />}
-                  {archiveLoading ? 'Processing…' : 'Continue'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Edit Role Modal */}
       {editingUser && (
