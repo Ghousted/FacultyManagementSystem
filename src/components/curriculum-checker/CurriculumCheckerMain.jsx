@@ -4,7 +4,7 @@ import { getStudents, getStudentCurriculumStatus, getCoursesByCurriculum, getAll
 import { useAuth } from '../../contexts/AuthContext';
 import { Printer, Search, ChevronUp, ChevronDown, ChevronsUpDown, ArrowLeft, RefreshCcw, Folder} from 'lucide-react';
 import CurriculumPreview from './CurriculumPreview';
-import ViewArchivedClasses from './ViewArchivedClasses';
+import ArchivedClasses from '../reports/ArchivedClasses';
 import Breadcrumbs from '../common/Breadcrumbs';
 
 const CurriculumCheckerMain = () => {
@@ -546,7 +546,7 @@ const CurriculumCheckerMain = () => {
                 Close
               </button>
             </div>
-            <ViewArchivedClasses />
+            <ArchivedClasses />
           </div>
         </div>
       )}

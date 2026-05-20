@@ -10,7 +10,8 @@ import {
   ChevronLeft,
   ChevronUp,
   ChevronDown,
-  ChevronsUpDown
+  ChevronsUpDown,
+  X
 } from 'lucide-react';
 import {
   getEnrollmentRoster,
@@ -22,6 +23,24 @@ import {
 // Filter students by status will be declared inside the component below
 
 const SEMESTER_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
+
+const STUDENT_MODAL_YEAR_TABS = [
+  { key: 1, label: '1st Year' },
+  { key: 2, label: '2nd Year' },
+  { key: 3, label: '3rd Year' },
+  { key: 4, label: '4th Year' },
+  { key: 'irregular', label: 'All Irregular' }
+];
+
+const getSurnameKey = (name = '') => {
+  const raw = String(name).trim();
+  if (!raw) return '';
+  if (raw.includes(',')) {
+    return raw.split(',')[0].trim().toLowerCase();
+  }
+  const parts = raw.split(/\s+/).filter(Boolean);
+  return (parts[parts.length - 1] || '').toLowerCase();
+};
 
 const STATUS_META = {
   enrolled: {
@@ -108,6 +127,119 @@ const EnrollmentManager = ({ activeTerm }) => {
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
   const [modal, setModal] = useState({ show: false, type: '', student: null, bulkIds: [] });
+
+  // Status modal (cards -> modal) state
+  const [statusModalOpen, setStatusModalOpen] = useState(false);
+  const [statusModalType, setStatusModalType] = useState('all');
+  const [statusModalYearTab, setStatusModalYearTab] = useState(1);
+  const [statusModalSort, setStatusModalSort] = useState({ key: 'surname', direction: 'asc' });
+
+  const openStatusModal = (type) => {
+    setStatusModalType(type);
+    setStatusModalYearTab(1);
+    setStatusModalSort({ key: 'surname', direction: 'asc' });
+    setStatusModalOpen(true);
+  };
+
+  const handleStatusModalSort = (key) => {
+    setStatusModalSort((prev) => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      return { key, direction: 'asc' };
+    });
+  };
+
+  const StatusSortIcon = ({ column }) => {
+    if (statusModalSort.key !== column) return <ChevronsUpDown className="h-3.5 w-3.5 opacity-80" />;
+    return statusModalSort.direction === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />;
+  };
+
+  const statusFilteredStudents = useMemo(() => {
+    const byType = students.filter((student) => {
+      if (statusModalType === 'all') return true;
+      if (statusModalType === 'active') return student.active !== false;
+      if (statusModalType === 'inactive') return student.active === false;
+      if (statusModalType === 'enrolled') return (student.enrollmentStatus || '') === 'enrolled';
+      if (statusModalType === 'not-enrolled') return (student.enrollmentStatus || '') === 'not-enrolled';
+      return true;
+    });
+
+    const byYearTab = byType.filter((student) => {
+      if (statusModalYearTab === 'irregular') return !!student.isIrregular;
+      return !student.isIrregular && Number(student.yearLevel) === Number(statusModalYearTab);
+    });
+
+    return byYearTab.sort((a, b) => {
+      let aValue = '';
+      let bValue = '';
+
+      switch (statusModalSort.key) {
+        case 'block':
+          aValue = (a.block || '').toString();
+          bValue = (b.block || '').toString();
+          break;
+        case 'studentNumber':
+          aValue = (a.studentNumber || '').toString();
+          bValue = (b.studentNumber || '').toString();
+          break;
+        case 'name':
+          aValue = (a.name || '').toString();
+          bValue = (b.name || '').toString();
+          break;
+        case 'email':
+          aValue = (a.email || '').toString();
+          bValue = (b.email || '').toString();
+          break;
+        case 'contactNumber':
+          aValue = (a.contactNumber || '').toString();
+          bValue = (b.contactNumber || '').toString();
+          break;
+        case 'active':
+          aValue = a.active === false ? 'inactive' : 'active';
+          bValue = b.active === false ? 'inactive' : 'active';
+          break;
+        case 'enrollment':
+          aValue = (a.enrollmentStatus || '').toString();
+          bValue = (b.enrollmentStatus || '').toString();
+          break;
+        case 'surname':
+        default:
+          aValue = getSurnameKey(a.name);
+          bValue = getSurnameKey(b.name);
+          break;
+      }
+
+      const cmp = aValue.toString().localeCompare(bValue.toString(), undefined, { numeric: true, sensitivity: 'base' });
+      if (cmp !== 0) return statusModalSort.direction === 'asc' ? cmp : -cmp;
+
+      const tie = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      return statusModalSort.direction === 'asc' ? tie : -tie;
+    });
+  }, [students, statusModalType, statusModalYearTab, statusModalSort]);
+
+  const statusModalTabCounts = useMemo(() => {
+    const base = { 1: 0, 2: 0, 3: 0, 4: 0, irregular: 0 };
+    const byType = students.filter((student) => {
+      if (statusModalType === 'all') return true;
+      if (statusModalType === 'active') return student.active !== false;
+      if (statusModalType === 'inactive') return student.active === false;
+      if (statusModalType === 'enrolled') return (student.enrollmentStatus || '') === 'enrolled';
+      if (statusModalType === 'not-enrolled') return (student.enrollmentStatus || '') === 'not-enrolled';
+      return true;
+    });
+
+    byType.forEach((student) => {
+      if (student.isIrregular) {
+        base.irregular += 1;
+        return;
+      }
+      const year = Number(student.yearLevel);
+      if ([1, 2, 3, 4].includes(year)) base[year] += 1;
+    });
+
+    return base;
+  }, [students, statusModalType]);
 
   const term = normalizeTerm(activeTerm);
 
@@ -283,6 +415,14 @@ const EnrollmentManager = ({ activeTerm }) => {
       return acc;
     }, { enrolled: 0, 'not-enrolled': 0, active: 0, inactive: 0 });
   }, [students]);
+
+  const STATUS_CARD_META = {
+    all: { label: 'All Students', count: students.length },
+    enrolled: { label: 'Enrolled Students', count: counts.enrolled || 0 },
+    active: { label: 'Active Students', count: counts.active || 0 },
+    inactive: { label: 'Inactive Students', count: counts.inactive || 0 },
+    'not-enrolled': { label: 'Not Enrolled Students', count: counts['not-enrolled'] || 0 }
+  };
 
   const allVisibleSelected =
     tableStudents.length > 0 && tableStudents.every((student) => selectedIds.includes(student.id));
@@ -497,28 +637,30 @@ const EnrollmentManager = ({ activeTerm }) => {
 
       <div className="">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          <div className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
+          <button type="button" onClick={() => openStatusModal('all')} className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
             <span className="block text-xs text-gray-600">All</span>
-                        <span className="mt-1 block text-lg font-semibold text-gray-900">{students.length}</span>
+            <span className="mt-1 block text-lg font-semibold text-gray-900">{students.length}</span>
+          </button>
 
-          </div>
-
-          <div className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
+          <button type="button" onClick={() => openStatusModal('enrolled')} className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
             <span className="block text-xs text-gray-600">Enrolled</span>
             <span className="mt-1 block text-lg font-semibold text-gray-900">{counts.enrolled || 0}</span>
-          </div>
-          <div className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
+          </button>
+
+          <button type="button" onClick={() => openStatusModal('active')} className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
             <span className="block text-xs text-gray-600">Active</span>
             <span className="mt-1 block text-lg font-semibold text-gray-900">{counts.active || 0}</span>
-          </div>
-          <div className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
+          </button>
+
+          <button type="button" onClick={() => openStatusModal('inactive')} className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
             <span className="block text-xs text-gray-600">Inactive</span>
             <span className="mt-1 block text-lg font-semibold text-gray-900">{counts.inactive || 0}</span>
-          </div>
-          <div className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
+          </button>
+
+          <button type="button" onClick={() => openStatusModal('not-enrolled')} className="rounded-lg border cursor-pointer border-gray-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/30 transition">
             <span className="block text-xs text-gray-600">Not enrolled</span>
             <span className="mt-1 block text-lg font-semibold text-gray-900">{counts['not-enrolled'] || 0}</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -874,6 +1016,109 @@ const EnrollmentManager = ({ activeTerm }) => {
               >
                 Confirm
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {statusModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setStatusModalOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-6xl rounded-2xl border border-gray-300 bg-white shadow-lg h-[80vh] overflow-hidden">
+            <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">{STATUS_CARD_META[statusModalType]?.label || 'Students'}</h3>
+                <p className="text-sm text-gray-500">{STATUS_CARD_META[statusModalType]?.count || 0} student(s)</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatusModalOpen(false)}
+                className="rounded-full p-1.5 cursor-pointer text-gray-500 hover:bg-gray-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="px-6 pt-4">
+              <div className="flex flex-wrap gap-2 items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+                {STUDENT_MODAL_YEAR_TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setStatusModalYearTab(tab.key)}
+                    className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                      statusModalYearTab === tab.key
+                        ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                        : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                    }`}
+                  >
+                    {tab.label}
+                    <span className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${statusModalYearTab === tab.key ? 'bg-blue-100 text-blue-500' : 'bg-gray-200 text-gray-600'}`}>
+                      {statusModalTabCounts[tab.key] || 0}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-6 overflow-auto max-h-[65vh]">
+              {statusFilteredStudents.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-300 px-4 py-10 text-center text-sm text-gray-500">
+                  No students found for this tab.
+                </div>
+              ) : (
+                <div className="border border-slate-300 rounded-xl overflow-hidden">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-blue-500 text-white sticky top-0">
+                      <tr>
+                        <th className="px-4 py-2 text-left w-[5%]">No.</th>
+                        <th className="px-4 py-2 text-left w-[5%]">
+                          <button type="button" onClick={() => handleStatusModalSort('block')} className="inline-flex items-center gap-1">
+                            Block
+                            <StatusSortIcon column="block" />
+                          </button>
+                        </th>
+                        <th className="px-4 py-2 text-left w-[15%]">
+                          <button type="button" onClick={() => handleStatusModalSort('studentNumber')} className="inline-flex items-center gap-1">
+                            Student No.
+                            <StatusSortIcon column="studentNumber" />
+                          </button>
+                        </th>
+                        <th className="px-4 py-2 text-left w-[25%]">
+                          <button type="button" onClick={() => handleStatusModalSort('surname')} className="inline-flex items-center gap-1">
+                            Name
+                            <StatusSortIcon column="surname" />
+                          </button>
+                        </th>
+                        <th className="px-4 py-2 text-left w-[25%]">
+                          <button type="button" onClick={() => handleStatusModalSort('email')} className="inline-flex items-center gap-1">
+                            Email
+                            <StatusSortIcon column="email" />
+                          </button>
+                        </th>
+                        <th className="px-4 py-2 text-left w-[25%]">
+                          <button type="button" onClick={() => handleStatusModalSort('contactNumber')} className="inline-flex items-center gap-1">
+                            Contact No.
+                            <StatusSortIcon column="contactNumber" />
+                          </button>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {statusFilteredStudents.map((student, idx) => (
+                        <tr key={student.id} className="border-t border-gray-200 hover:bg-gray-50">
+                          <td className="px-4 py-2">{idx + 1}</td>
+                          <td className="px-4 py-2">{student.isIrregular ? 'Irregular' : getBlock(student)}</td>
+                          <td className="px-4 py-2">{student.studentNumber || ''}</td>
+                          <td className="px-4 py-2">{student.name || ''}</td>
+                          <td className="px-4 py-2">{student.email || ''}</td>
+                          <td className="px-4 py-2">{student.contactNumber || ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </div>

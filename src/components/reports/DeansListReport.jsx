@@ -16,6 +16,15 @@ const semTabs = [
   { label: '1st Sem', value: 1 },
   { label: '2nd Sem', value: 2 }
 ];
+const irregularSemTabs = [
+  { label: '1st Sem', value: 1 },
+  { label: '2nd Sem', value: 2 },
+];
+
+const gwaComputationMethods = [
+  { label: 'Weighted (Grade/Units)', value: 'weighted' },
+  { label: 'Simple Average (Subjects)', value: 'simple' }
+];
 
 const CriteriaModal = ({ isOpen, onClose, criteria, onSave, isSaving }) => {
   const [localCriteria, setLocalCriteria] = useState({ ...criteria });
@@ -35,12 +44,14 @@ const CriteriaModal = ({ isOpen, onClose, criteria, onSave, isSaving }) => {
 
   return (
     <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-3xl shadow-2xl w-96 max-w-full transform transition-transform duration-200 scale-100 sm:scale-105">
-        <h3 className="text-xl font-bold text-blue-700 mb-6">Configure Dean's List Criteria</h3>
+      <div className="bg-white  rounded-2xl shadow-2xl w-96 max-w-full transform transition-transform duration-200 scale-100 sm:scale-105">
+        <div className='px-8 py-4 border-b border-slate-300'>
+          <h3 className="text-xl font-medium text-slate-800 ">Configure Dean's List Criteria</h3>
+        </div>
 
-        <div className="space-y-5">
+        <div className="space-y-5 px-8 py-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Major Grade Cutoff</label>
+            <label className="block text-xs  text-gray-700 mb-1">Major Grade Cutoff</label>
             <input
               type="number"
               step="0.01"
@@ -51,7 +62,7 @@ const CriteriaModal = ({ isOpen, onClose, criteria, onSave, isSaving }) => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Minor Grade Cutoff</label>
+            <label className="block text-xs  text-gray-700 mb-1">Minor Grade Cutoff</label>
             <input
               type="number"
               step="0.01"
@@ -62,7 +73,7 @@ const CriteriaModal = ({ isOpen, onClose, criteria, onSave, isSaving }) => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">GWA Cutoff</label>
+            <label className="block text-xs  text-gray-700 mb-1">GWA Cutoff</label>
             <input
               type="number"
               step="0.01"
@@ -71,24 +82,58 @@ const CriteriaModal = ({ isOpen, onClose, criteria, onSave, isSaving }) => {
               className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
             />
           </div>
-        </div>
 
-        <div className="flex justify-end gap-2 mt-6">
+          <div>
+            <label className="block text-xs  text-gray-700 mb-1">Minimum Units (Irregulars)</label>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={localCriteria.minUnits}
+              onChange={e => setLocalCriteria(c => ({ ...c, minUnits: parseInt(e.target.value, 10) || 0 }))}
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
+            />
+            <p className="text-[11px] text-gray-500 mt-1">Minimum units required for irregular students to be considered for dean's list</p>
+          </div>
+
+          <div>
+            <label className="block text-xs  text-gray-700 mb-1">GWA Computation Method</label>
+            <select
+              value={localCriteria.gwaMethod || 'weighted'}
+              onChange={e => setLocalCriteria(c => ({ ...c, gwaMethod: e.target.value }))}
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
+            >
+              {gwaComputationMethods.map(method => (
+                <option key={method.value} value={method.value}>
+                  {method.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-gray-500 mt-1">
+              Weighted: (sum of grade × units) / total units | Simple: sum of grades / number of subjects
+            </p>
+          </div>
+
+           <div className="flex justify-end gap-2 mt-8">
           <button
             onClick={onClose}
             disabled={isSaving}
-            className="px-4 py-1.5 text-sm cursor-pointer rounded-xl bg-gray-300 hover:bg-gray-400 text-gray-700 font-semibold shadow-sm transition"
+            className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={isSaving}
-            className="px-4 py-1.5 text-sm cursor-pointer rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md transition"
+            className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
           >
             {isSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
+
+        </div>
+
+       
       </div>
     </div>
   );
@@ -190,29 +235,39 @@ const FilenameModal = ({ isOpen, onClose, onConfirm, defaultName = 'deans_list_a
 
   return (
     <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-3xl shadow-2xl w-96 max-w-full">
-        <h3 className="text-lg font-bold text-blue-700">Export File</h3>
-        <p className="text-sm text-gray-600 mb-4">Enter a filename for the exported Excel file.</p>
+      <div className="bg-white  rounded-3xl shadow-2xl w-96 max-w-full">
+        <div className='px-8 py-4 border-b border-slate-300'>
+          <h3 className="text-xl font-medium text-slate-800 ">Export Dean's Lister</h3>
+        </div>  
+        <div className='px-8 py-4'>
+          <p className="text-sm text-gray-600 mb-1">Enter a filename for the exported Excel file.</p>      
         <div className="flex items-center">
+          
           <input
             value={name}
             onChange={e => setName(e.target.value)}
-            className="flex-1 border border-gray-300 rounded-l-lg px-3 py-1.5 text-sm focus:outline-none"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-l-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
             placeholder="filename"
           />
-          <span className="px-3 py-1.5 text-sm bg-gray-100 border border-gray-300 border-l-0 rounded-r-lg">.xlsx</span>
+          <span className="px-4 py-2 text-sm bg-gray-100 border border-gray-300 border-l-0 rounded-r-lg">.xlsx</span>
         </div>
         <div className="flex items-center justify-end gapx-6 py-2 mt-8">
         
           <div className="flex justify-end gap-2">
-            <button onClick={onClose} className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer">Cancel</button>
+            <button 
+              onClick={onClose} 
+              className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+            >
+              Cancel
+            </button>
             <button
               onClick={() => onConfirm((name || defaultName).trim(), useExactLayout ? 'full' : 'compact')}
-              className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
             >
               Export
             </button>
           </div>
+        </div>
         </div>
       </div>
     </div>
@@ -236,7 +291,9 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
   const [criteria, setCriteria] = useState({
     major: 1.7,
     minor: 2.0,
-    gwa: 1.7
+    gwa: 1.7,
+    minUnits: 15,
+    gwaMethod: 'weighted'
   });
   const [criteriaSaving, setCriteriaSaving] = useState(false);
   const [tabYear, setTabYear] = useState(0);
@@ -262,8 +319,30 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
   const normalizeCriteria = useCallback((nextCriteria = {}) => ({
     major: Number.isFinite(parseFloat(nextCriteria.major)) ? parseFloat(nextCriteria.major) : 1.7,
     minor: Number.isFinite(parseFloat(nextCriteria.minor)) ? parseFloat(nextCriteria.minor) : 2.0,
-    gwa: Number.isFinite(parseFloat(nextCriteria.gwa)) ? parseFloat(nextCriteria.gwa) : 1.7
+    gwa: Number.isFinite(parseFloat(nextCriteria.gwa)) ? parseFloat(nextCriteria.gwa) : 1.7,
+    minUnits: Number.isFinite(parseInt(nextCriteria.minUnits, 10)) ? parseInt(nextCriteria.minUnits, 10) : 15,
+    gwaMethod: ['weighted', 'simple'].includes(nextCriteria.gwaMethod) ? nextCriteria.gwaMethod : 'weighted'
   }), []);
+
+  const calculateGWA = useCallback((gradeDetails, method = 'weighted') => {
+    if (gradeDetails.length === 0) return null;
+    
+    if (method === 'simple') {
+      // Simple average: sum of grades / number of subjects
+      const sum = gradeDetails.reduce((acc, g) => acc + g.grade, 0);
+      return sum / gradeDetails.length;
+    } else {
+      // Weighted: sum of (grade × units) / total units
+      let totalUnits = 0;
+      let weightedSum = 0;
+      for (const g of gradeDetails) {
+        const units = g.units || 1;
+        totalUnits += units;
+        weightedSum += g.grade * units;
+      }
+      return totalUnits > 0 ? weightedSum / totalUnits : null;
+    }
+  }, []);
 
   const getCurrentScrollTop = useCallback(() => {
     const rootElement = document.getElementById('root');
@@ -337,6 +416,22 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
   }, [tabSem]);
 
   useEffect(() => {
+    // When switching to irregular students, use irregular semester tabs
+    if (selectedYear === 'irregular') {
+      if (tabSem >= irregularSemTabs.length) {
+        setTabSem(0); // Reset to first option if current tab is out of range
+      }
+      setSelectedSem(irregularSemTabs[tabSem].value);
+    } else {
+      // For regular students, use normal semester tabs
+      if (tabSem >= semTabs.length) {
+        setTabSem(0); // Reset to first option if current tab is out of range
+      }
+      setSelectedSem(semTabs[tabSem].value);
+    }
+  }, [selectedYear, tabSem]);
+
+  useEffect(() => {
     const fetchDeanList = async () => {
       setLoading(true);
       const studentsRes = await getStudents();
@@ -347,37 +442,78 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
       }
       const students = studentsRes.data;
       const yearVal = selectedYear;
-      const semVal = selectedSem;
+      let semVal = selectedSem;
+      
+      // For irregular students with 'alt_1' (1st Sem Current Year), use semester 1
+      // This is shown as an option when in 2nd sem view for irregulars
+      const actualSem = semVal === 'alt_1' ? 1 : semVal;
+      
       const filtered = students.filter(s => {
         if (yearVal === 'irregular') return s.isIrregular;
         return !s.isIrregular && s.yearLevel === yearVal;
       });
       const deanCandidates = [];
       for (const student of filtered) {
-        if (!student.curriculumId) continue;
-        const coursesRes = await getCoursesByCurriculum(student.curriculumId);
-        if (!coursesRes.success) continue;
-        const courses = coursesRes.data.filter(c => c.semester === semVal && (yearVal === 'irregular' || c.yearLevel === yearVal));
-        const grades = student.grades || {};
+        let gradeDetails = [];
         let totalUnits = 0;
         let weightedSum = 0;
         let eligible = true;
-        const gradeDetails = [];
-        for (const course of courses) {
-          const grade = parseFloat(grades[course.courseCode]);
-          if (isNaN(grade)) continue;
-          gradeDetails.push({
-            subject: course.courseTitle,
-            grade,
-            isMajor: course.isMajor || false
-          });
-          totalUnits += parseFloat(course.units) || 0;
-          weightedSum += grade * (parseFloat(course.units) || 1);
-          if (course.isMajor && grade > criteria.major) eligible = false;
-          if (!course.isMajor && grade > criteria.minor) eligible = false;
+
+        if (yearVal === 'irregular') {
+          // Handle irregular students using irregularSubjects
+          const irregularSubjects = student.irregularSubjects || {};
+          const semKey = `sem${actualSem}`;
+          const courses = irregularSubjects[semKey] || [];
+          
+          if (courses.length === 0) continue;
+          
+          const grades = student.grades || {};
+          
+          for (const course of courses) {
+            const grade = parseFloat(grades[course.courseCode]);
+            if (isNaN(grade)) continue;
+            const units = parseFloat(course.units) || 0;
+            gradeDetails.push({
+              subject: course.courseTitle,
+              grade,
+              isMajor: course.isMajor || false,
+              units
+            });
+            if (course.isMajor && grade > criteria.major) eligible = false;
+            if (!course.isMajor && grade > criteria.minor) eligible = false;
+          }
+        } else {
+          // Handle regular students using curriculum
+          if (!student.curriculumId) continue;
+          const coursesRes = await getCoursesByCurriculum(student.curriculumId);
+          if (!coursesRes.success) continue;
+          const courses = coursesRes.data.filter(c => c.semester === actualSem && c.yearLevel === yearVal);
+          const grades = student.grades || {};
+          
+          for (const course of courses) {
+            const grade = parseFloat(grades[course.courseCode]);
+            if (isNaN(grade)) continue;
+            const units = parseFloat(course.units) || 0;
+            gradeDetails.push({
+              subject: course.courseTitle,
+              grade,
+              isMajor: course.isMajor || false,
+              units
+            });
+            if (course.isMajor && grade > criteria.major) eligible = false;
+            if (!course.isMajor && grade > criteria.minor) eligible = false;
+          }
         }
-        const gwa = totalUnits > 0 ? weightedSum / totalUnits : null;
+
+        // Calculate GWA using selected method
+        const gwa = calculateGWA(gradeDetails, criteria.gwaMethod);
         if (gwa === null || gwa > criteria.gwa) eligible = false;
+        
+        // Calculate total units for irregular min units check
+        const totalUnitsValue = gradeDetails.reduce((sum, g) => sum + (g.units || 0), 0);
+        
+        // Check minimum units for irregulars
+        if (yearVal === 'irregular' && totalUnitsValue < criteria.minUnits) eligible = false;
         if (eligible && gradeDetails.length > 0) {
           deanCandidates.push({
             id: student.id,
@@ -393,7 +529,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
       setVisibleRows(4);
     };
     fetchDeanList();
-  }, [selectedYear, selectedSem, criteria]);
+  }, [selectedYear, selectedSem, criteria, calculateGWA]);
 
   const lastRowRef = useCallback(node => {
     if (loading) return;
@@ -417,7 +553,8 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
         return;
       }
       const students = studentsRes.data;
-      const semVal = selectedSem;
+      let semVal = selectedSem;
+      const actualSem = semVal === 'alt_1' ? 1 : semVal;
       const allCandidates = [];
 
       for (const tab of yearTabs) {
@@ -428,34 +565,68 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
         });
 
         for (const student of filtered) {
-          if (!student.curriculumId) continue;
-          const coursesRes = await getCoursesByCurriculum(student.curriculumId);
-          if (!coursesRes.success) continue;
-          const courses = coursesRes.data.filter(c => c.semester === semVal && (yearVal === 'irregular' || c.yearLevel === yearVal));
-          const grades = student.grades || {};
+          let gradeDetails = [];
           let totalUnits = 0;
           let weightedSum = 0;
           let eligible = true;
-          const gradeDetails = [];
 
-          for (const course of courses) {
-            const grade = parseFloat(grades[course.courseCode]);
-            if (isNaN(grade)) continue;
-            gradeDetails.push({
-              subject: course.courseTitle,
-              grade,
-              code: course.courseCode,
-              units: course.units || 3,
-              isMajor: course.isMajor || false
-            });
-            totalUnits += parseFloat(course.units) || 0;
-            weightedSum += grade * (parseFloat(course.units) || 1);
-            if (course.isMajor && grade > criteria.major) eligible = false;
-            if (!course.isMajor && grade > criteria.minor) eligible = false;
+          if (yearVal === 'irregular') {
+            // Handle irregular students using irregularSubjects
+            const irregularSubjects = student.irregularSubjects || {};
+            const semKey = `sem${actualSem}`;
+            const courses = irregularSubjects[semKey] || [];
+            
+            if (courses.length === 0) continue;
+            
+            const grades = student.grades || {};
+            
+            for (const course of courses) {
+              const grade = parseFloat(grades[course.courseCode]);
+              if (isNaN(grade)) continue;
+              const units = parseFloat(course.units) || 0;
+              gradeDetails.push({
+                subject: course.courseTitle,
+                grade,
+                code: course.courseCode,
+                units: units || 3,
+                isMajor: course.isMajor || false
+              });
+              if (course.isMajor && grade > criteria.major) eligible = false;
+              if (!course.isMajor && grade > criteria.minor) eligible = false;
+            }
+          } else {
+            // Handle regular students using curriculum
+            if (!student.curriculumId) continue;
+            const coursesRes = await getCoursesByCurriculum(student.curriculumId);
+            if (!coursesRes.success) continue;
+            const courses = coursesRes.data.filter(c => c.semester === actualSem && c.yearLevel === yearVal);
+            const grades = student.grades || {};
+
+            for (const course of courses) {
+              const grade = parseFloat(grades[course.courseCode]);
+              if (isNaN(grade)) continue;
+              const units = parseFloat(course.units) || 0;
+              gradeDetails.push({
+                subject: course.courseTitle,
+                grade,
+                code: course.courseCode,
+                units: units || 3,
+                isMajor: course.isMajor || false
+              });
+              if (course.isMajor && grade > criteria.major) eligible = false;
+              if (!course.isMajor && grade > criteria.minor) eligible = false;
+            }
           }
 
-          const gwa = totalUnits > 0 ? weightedSum / totalUnits : null;
+          // Calculate GWA using selected method
+          const gwa = calculateGWA(gradeDetails, criteria.gwaMethod);
           if (gwa === null || gwa > criteria.gwa) eligible = false;
+          
+          // Calculate total units for irregular min units check
+          const totalUnitsValue = gradeDetails.reduce((sum, g) => sum + (g.units || 0), 0);
+          
+          // Check minimum units for irregulars
+          if (yearVal === 'irregular' && totalUnitsValue < criteria.minUnits) eligible = false;
           if (eligible && gradeDetails.length > 0) {
             allCandidates.push({
               id: student.id,
@@ -598,7 +769,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
               <button
                 key={tab.value}
                 onClick={() => setTabYear(idx)}
-              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all 
+              className={`rounded-lg px-2.5 py-1 text-sm font-medium transition-all 
                   ${ tabYear === idx
                         ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
                   : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
@@ -621,9 +792,9 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
               id="semester-dropdown"
               value={tabSem}
               onChange={e => setTabSem(Number(e.target.value))}
-              className='border px-4 py-2 text-xs rounded-lg border-slate-300 focus:ring focus:ring-blue-500'
+              className='border w-fit px-4 py-2 text-xs rounded-lg border-slate-300 focus:ring focus:ring-blue-500'
             >
-              {semTabs.map((tab, idx) => (
+              {(selectedYear === 'irregular' ? irregularSemTabs : semTabs).map((tab, idx) => (
                 <option key={tab.value} value={idx}>
                   {tab.label}
                 </option>
@@ -655,10 +826,10 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
       <div className="overflow-x-auto border-x border-gray-300 rounded-xl shadow-sm mb-4">
   <table className="min-w-full text-sm border-separate border-spacing-0 rounded-xl overflow-hidden shadow-sm">
     <thead>
-      <tr className="bg-blue-500 text-white">
+      <tr className="bg-blue-500 text-white text-xs uppercase font-semibold">
        
         <th
-          className="px-4 py-2 border-b font-semibold cursor-pointer"
+          className="px-6 py-2 border-b font-semibold cursor-pointer"
           onClick={() => toggleSort('name')}
           role="button"
           title="Sort by name"
@@ -671,12 +842,12 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
           </div>
         </th>
         <th
-          className="px-4 py-2 border-b font-semibold text-center cursor-pointer"
+          className="px-6 py-2 border-b font-semibold text-left cursor-pointer"
           onClick={() => toggleSort('gwa')}
           role="button"
           title="Sort by GWA"
         >
-          <div className="flex items-center justify-center gap-2">
+          <div className="flex items-start justify-start gap-2">
             <span>GWA</span>
             <span className="text-blue-500">
               {sortBy === 'gwa' ? (sortDir === 'asc' ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />) : <ChevronsUpDown className="w-4 h-4" />}
@@ -732,8 +903,8 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
               setIsDetailsModalOpen(true);
             }}
           >
-            <td className="px-6 py-2 border-b border-gray-300 font-semibold ">{student.name}</td>
-            <td className="px-6 py-2 border-b border-gray-300 font-bold">{parseFloat(student.gwa).toFixed(2)}</td>
+            <td className="px-6 py-2 border-b border-gray-300  ">{student.name}</td>
+            <td className="px-6 py-2 border-b border-gray-300 ">{parseFloat(student.gwa).toFixed(2)}</td>
           </tr>
         ))
       )}

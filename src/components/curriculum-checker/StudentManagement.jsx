@@ -7,6 +7,9 @@ import {
   updateStudentCourse,
   getCurriculums,
   getCoursesByCurriculum,
+  getStudentCurriculumStatus,
+  getAcademicConfig,
+  saveAcademicConfig,
   getAllCourses,
   archiveAndPromoteStudents
 } from '../../models/curriculumModels';
@@ -220,6 +223,30 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   const [statusModalType, setStatusModalType] = useState('all');
   const [statusModalYearTab, setStatusModalYearTab] = useState(1);
   const [statusModalSort, setStatusModalSort] = useState({ key: 'surname', direction: 'asc' });
+
+  // Academic configuration modal
+  const [academicModalOpen, setAcademicModalOpen] = useState(false);
+  const [academicActiveTab, setAcademicActiveTab] = useState(0);
+  const [academicConfig, setAcademicConfig] = useState(null);
+  const [academicLoading, setAcademicLoading] = useState(false);
+
+  const loadAcademicConfig = async () => {
+    setAcademicLoading(true);
+    const res = await getAcademicConfig();
+    if (res?.success) setAcademicConfig(res.data);
+    else setAcademicConfig(null);
+    setAcademicLoading(false);
+  };
+
+  const getComputationFormulaGuide = (computation) => {
+    const selectedMethod = computation === 'simple' ? 'Simple Average' : 'Weighted Average';
+
+    return {
+      weighted: 'Weighted: (sum of grade × units) / total units',
+      simple: 'Simple: sum of grades / number of subjects',
+      selectedMethod
+    };
+  };
 
   const term = normalizeTerm(activeTerm);
   const statusCounts = students.reduce(
@@ -543,6 +570,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       loadStudents();
       loadCurriculums();
       loadAllCourses();
+      loadAcademicConfig();
     }
   }, [currentUser, loadStudents, loadCurriculums, loadAllCourses]);
 
@@ -597,8 +625,19 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     };
 
     window.addEventListener('open-add-student', handleOpenAddStudent);
-    return () => window.removeEventListener('open-add-student', handleOpenAddStudent);
+    // allow external callers (e.g., App header) to open the academic configuration modal
+    const handleOpenAcademicConfig = () => {
+      if (!currentUser) return;
+      setAcademicModalOpen(true);
+      loadAcademicConfig();
+    };
+    window.addEventListener('open-academic-config', handleOpenAcademicConfig);
+    return () => {
+      window.removeEventListener('open-add-student', handleOpenAddStudent);
+      window.removeEventListener('open-academic-config', handleOpenAcademicConfig);
+    };
   }, [selectedStudent]);
+
 
   useEffect(() => {
     const handleResetStudentManagement = () => {
@@ -779,10 +818,25 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
   const loadStudentCourses = async (curriculumId) => {
     if (!curriculumId) return;
-    
-    const result = await getCoursesByCurriculum(curriculumId);
-    if (result.success) {
-      setStudentCourses(result.data);
+    // Load courses and also attempt to fetch student-specific curriculum status (which includes availability)
+    try {
+      if (!selectedStudent) {
+        const result = await getCoursesByCurriculum(curriculumId);
+        if (result.success) setStudentCourses(result.data);
+        return;
+      }
+
+      const statusRes = await getStudentCurriculumStatus(selectedStudent.id);
+      if (statusRes?.success && statusRes?.data?.courses) {
+        setStudentCourses(statusRes.data.courses);
+      } else {
+        const result = await getCoursesByCurriculum(curriculumId);
+        if (result.success) setStudentCourses(result.data);
+      }
+    } catch (err) {
+      // fallback
+      const result = await getCoursesByCurriculum(curriculumId);
+      if (result.success) setStudentCourses(result.data);
     }
   };
 
@@ -1306,6 +1360,16 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       return;
     }
 
+    // Prevent adding a subject that already has a saved grade for this student
+    const newCode = (course.courseCode || '').toString().trim().toUpperCase();
+    if (studentGrades) {
+      const alreadyGraded = Object.keys(studentGrades).some(k => (k || '').toString().trim().toUpperCase() === newCode && studentGrades[k] !== undefined && studentGrades[k] !== '');
+      if (alreadyGraded) {
+        setError('This subject already has a recorded grade and cannot be added as irregular');
+        return;
+      }
+    }
+
     const enrolledSemester = Number(semester) || 1;
     const semKey = `sem${enrolledSemester}`;
     const targetYear = courseTab + 1;
@@ -1317,6 +1381,19 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
     if (duplicate) {
       setError('This subject is already added for the selected year and semester');
+      return;
+    }
+
+    const maxIrregularUnits = academicConfig?.unitsLimits?.default?.irregular ?? 15;
+    const currentUnits = (irregularSubjects[semKey] || []).reduce(
+      (sum, subject) => sum + (parseFloat(subject.units) || 0),
+      0
+    );
+    const courseUnits = parseFloat(course.units) || 0;
+    if (currentUnits + courseUnits > maxIrregularUnits) {
+      setError(
+        `Cannot add ${course.courseCode}: this would exceed the irregular unit limit of ${maxIrregularUnits} units.`
+      );
       return;
     }
 
@@ -1420,42 +1497,104 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
   // Calculate Dean's Lister eligibility for a semester
   const calculateDeansListerEligibility = (semester, year) => {
-    if (!selectedStudent || !studentGrades) return false;
-    
-    const semesterGrades = studentCourses
-      .filter(course => course.yearLevel === year && course.semester === semester)
-      .map(course => studentGrades[course.courseCode])
-      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC' && grade !== 'CRED');
-    
-    if (semesterGrades.length === 0) return false;
-    
-    // Check if no grades are higher than 2.1 (excluding 5.0 and INC)
-    return semesterGrades.every(grade => {
-      const numGrade = parseFloat(grade);
-      return numGrade <= 2.1;
-    });
+    if (!selectedStudent || !studentGrades || !academicConfig) return false;
+
+    const config = academicConfig.deanList || {};
+    const computation = config.computation || 'weighted';
+    const gwaCutoff = parseFloat(config.gwa ?? 1.7);
+    const majorCutoff = parseFloat(config.major ?? 1.7);
+    const minorCutoff = parseFloat(config.minor ?? 2.0);
+    const minUnits = Number(config.minUnits || 0);
+    const applyMinFor = config.applyMinUnitsFor || 'both';
+
+    const semesterCourses = studentCourses.filter(course => course.yearLevel === year && course.semester === semester);
+
+    // collect graded courses for the semester with units and major flag
+    const graded = semesterCourses.map(course => ({
+      course,
+      grade: studentGrades[course.courseCode]
+    })).filter(x => x.grade !== undefined && x.grade !== null && x.grade !== '' && x.grade !== 'INC' && x.grade !== 'CRED');
+
+    if (graded.length === 0) return false;
+
+    // units total for minUnits check
+    const totalUnits = graded.reduce((s, g) => s + (Number(g.course.units) || 0), 0);
+
+    // Check min units applicability
+    if (minUnits > 0) {
+      if (applyMinFor === 'regular' && selectedStudent.isIrregular) return false;
+      if (applyMinFor === 'irregular' && !selectedStudent.isIrregular) return false;
+      if (totalUnits < minUnits) return false;
+    }
+
+    // compute GWA
+    let gwa = 0;
+    if (computation === 'weighted') {
+      const num = graded.reduce((s, g) => s + (parseFloat(g.grade) * (Number(g.course.units) || 0)), 0);
+      const denom = graded.reduce((s, g) => s + (Number(g.course.units) || 0), 0) || graded.length;
+      gwa = denom === 0 ? 0 : num / denom;
+    } else {
+      const sum = graded.reduce((s, g) => s + parseFloat(g.grade), 0);
+      gwa = sum / graded.length;
+    }
+
+    if (isNaN(gwa)) return false;
+
+    if (gwa > gwaCutoff) return false;
+
+    // major/minor checks: ensure no major grade exceeds majorCutoff and no minor exceeds minorCutoff
+    const majorBad = graded.some(g => g.course.isMajor && parseFloat(g.grade) > majorCutoff);
+    const minorBad = graded.some(g => !g.course.isMajor && parseFloat(g.grade) > minorCutoff);
+
+    if (majorBad || minorBad) return false;
+
+    return true;
   };
 
   // Calculate Scholarship eligibility for both semesters
   const calculateScholarshipEligibility = (year) => {
-    if (!selectedStudent || !studentGrades) return { eligible: false, percentage: 0 };
-    
-    const yearGrades = studentCourses
-      .filter(course => course.yearLevel === year)
-      .map(course => studentGrades[course.courseCode])
-      .filter(grade => grade !== undefined && grade !== null && grade !== '' && grade !== 'INC' && grade !== 'CRED');
-    
-    if (yearGrades.length === 0) return { eligible: false, percentage: 0 };
-    
-    const maxGrade = Math.max(...yearGrades.map(grade => parseFloat(grade)));
-    
-    if (maxGrade <= 1.5) {
-      return { eligible: true, percentage: 100 };
-    } else if (maxGrade <= 1.7) {
-      return { eligible: true, percentage: 50 };
-    } else {
-      return { eligible: false, percentage: 0 };
+    if (!selectedStudent || !studentGrades || !academicConfig) return { eligible: false, percentage: 0 };
+
+    const config = academicConfig.scholarship || {};
+    const computation = config.computation || 'weighted';
+    const gwaCutoff = parseFloat(config.gwa ?? 1.7);
+    const majorCutoff = parseFloat(config.major ?? 1.7);
+    const minorCutoff = parseFloat(config.minor ?? 2.0);
+    const minUnits = Number(config.minUnits || 0);
+    const applyMinFor = config.applyMinUnitsFor || 'both';
+
+    const yearCourses = studentCourses.filter(course => course.yearLevel === year);
+    const graded = yearCourses.map(course => ({ course, grade: studentGrades[course.courseCode] }))
+      .filter(x => x.grade !== undefined && x.grade !== null && x.grade !== '' && x.grade !== 'INC' && x.grade !== 'CRED');
+
+    if (graded.length === 0) return { eligible: false, percentage: 0 };
+
+    const totalUnits = graded.reduce((s, g) => s + (Number(g.course.units) || 0), 0);
+    if (minUnits > 0) {
+      if (applyMinFor === 'regular' && selectedStudent.isIrregular) return { eligible: false, percentage: 0 };
+      if (applyMinFor === 'irregular' && !selectedStudent.isIrregular) return { eligible: false, percentage: 0 };
+      if (totalUnits < minUnits) return { eligible: false, percentage: 0 };
     }
+
+    // compute GWA
+    let gwa = 0;
+    if (computation === 'weighted') {
+      const num = graded.reduce((s, g) => s + (parseFloat(g.grade) * (Number(g.course.units) || 0)), 0);
+      const denom = graded.reduce((s, g) => s + (Number(g.course.units) || 0), 0) || graded.length;
+      gwa = denom === 0 ? 0 : num / denom;
+    } else {
+      const sum = graded.reduce((s, g) => s + parseFloat(g.grade), 0);
+      gwa = sum / graded.length;
+    }
+
+    if (isNaN(gwa)) return { eligible: false, percentage: 0 };
+
+    if (gwa > gwaCutoff) return { eligible: false, percentage: 0 };
+
+    // Percentage logic: simple thresholds for demonstration
+    if (gwa <= 1.5) return { eligible: true, percentage: 100 };
+    if (gwa <= 1.7) return { eligible: true, percentage: 50 };
+    return { eligible: false, percentage: 0 };
   };
 
   // Handle grade input change and automatically save grades
@@ -1615,6 +1754,18 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
         </button>
       </div>
 
+      <div className="flex items-center justify-end gap-2 mb-4">
+        {currentUser && currentUser.isAdmin && (
+          <button
+            type="button"
+            onClick={() => setAcademicModalOpen(true)}
+            className="px-3 py-2 rounded-lg text-sm bg-gray-100 hover:bg-gray-200 text-gray-700"
+          >
+            Academic Configuration
+          </button>
+        )}
+      </div>
+
       {statusModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setStatusModalOpen(false)}></div>
@@ -1715,6 +1866,218 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {academicModalOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setAcademicModalOpen(false)} />
+          <div className="relative z-10 w-full max-w-md rounded-2xl border border-gray-300 bg-white shadow-lg overflow-hidden">
+            <div className="flex items-center justify-between px-8 py-4 border-b border-slate-300">
+              <h3 className="text-xl font-medium text-slate-800">Academic Configuration</h3>
+            </div>
+
+            <div className="px-6 py-4">
+              <div className="flex gap-2 justify-between w-full mb-4 items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+                <button 
+                  onClick={() => setAcademicActiveTab(0)} 
+                  className={`flex-1 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                    academicActiveTab===0
+                      ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                      : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                    }`}
+                    >
+                      Dean's List 
+                    </button>
+                <button 
+                  onClick={() => setAcademicActiveTab(1)} 
+                  className={`flex-1 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                    academicActiveTab===1
+                      ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                      : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                      }`}
+                    >
+                      Scholarship 
+                    </button>
+                <button 
+                  onClick={() => setAcademicActiveTab(2)} 
+                  className={`flex-1 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                    academicActiveTab===2
+                        ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                        : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                    }`}
+                >
+                      Units Limit 
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {academicActiveTab === 0 && (
+                  <div>
+                    {/* Dean's List Config */}
+                    <div className="flex flex-col gap-2">
+                    
+                      <div>
+                        <label className="text-sm">Major cutoff</label>
+                        <input type="number" step="0.01" value={academicConfig?.deanList?.major ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, major: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
+                      </div>
+                      <div>
+                        <label className="text-sm">Minor cutoff</label>
+                        <input type="number" step="0.01" value={academicConfig?.deanList?.minor ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, minor: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
+                      </div>
+                        <div>
+                        <label className="text-sm">GWA cutoff</label>
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          value={academicConfig?.deanList?.gwa ?? ''} 
+                          onChange={(e)=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, gwa: e.target.value}}))} 
+                          className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm">Minimum units</label>
+                        <input type="number" value={academicConfig?.deanList?.minUnits ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, minUnits: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="text-sm">Apply minimum units for</label>
+                      <select value={academicConfig?.deanList?.applyMinUnitsFor || 'both'} onChange={(e)=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, applyMinUnitsFor: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow">
+                        <option value="regular">Regular students only</option>
+                        <option value="irregular">Irregular students only</option>
+                        <option value="both">Both</option>
+                      </select>
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="text-sm">Computation method</label>
+                      <div className="flex gap-3 mt-1">
+                        <label className="inline-flex items-center gap-2"><input type="radio" name="deanComp" checked={(academicConfig?.deanList?.computation||'weighted')==='weighted'} onChange={()=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, computation: 'weighted'}}))}/> Weighted Average</label>
+                        <label className="inline-flex items-center gap-2"><input type="radio" name="deanComp" checked={(academicConfig?.deanList?.computation||'weighted')==='simple'} onChange={()=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, computation: 'simple'}}))}/> Simple Average</label>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 text-xs text-slate-500">
+                      {(() => {
+                        const guide = getComputationFormulaGuide(academicConfig?.deanList?.computation || 'weighted');
+                        return (
+                          <div className="space-y-1">
+                            <div>{guide.weighted}</div>
+                            <div>{guide.simple}</div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {academicActiveTab === 1 && (
+                  <div>
+                    {/* Scholarship config - allow multiple entries; for simplicity provide single template here */}
+                    <div className="flex flex-col gap-2">
+                    
+                      <div>
+                        <label className="text-sm">GWA cutoff</label>
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          value={academicConfig?.scholarship?.gwa ?? ''} 
+                          onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, gwa: e.target.value}}))} 
+                          className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm">Major cutoff</label>
+                        <input type="number" step="0.01" value={academicConfig?.scholarship?.major ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, major: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
+                      </div>
+                      <div>
+                        <label className="text-sm">Minor cutoff</label>
+                        <input type="number" step="0.01" value={academicConfig?.scholarship?.minor ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, minor: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="text-sm">Minimum units</label>
+                      <input type="number" value={academicConfig?.scholarship?.minUnits ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, minUnits: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
+                    </div>
+                  
+                    <div className="mt-3">
+                      <label className="text-sm">Apply minimum units for</label>
+                      <select value={academicConfig?.scholarship?.applyMinUnitsFor || 'both'} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, applyMinUnitsFor: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow">
+                        <option value="regular">Regular students only</option>
+                        <option value="irregular">Irregular students only</option>
+                        <option value="both">Both</option>
+                      </select>
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="text-sm">Computation method</label>
+                      <div className="flex gap-3 mt-1">
+                        <label className="inline-flex items-center gap-2"><input type="radio" name="scholarComp" checked={(academicConfig?.scholarship?.computation||'weighted')==='weighted'} onChange={()=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, computation: 'weighted'}}))}/> Weighted Average</label>
+                        <label className="inline-flex items-center gap-2"><input type="radio" name="scholarComp" checked={(academicConfig?.scholarship?.computation||'weighted')==='simple'} onChange={()=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, computation: 'simple'}}))}/> Simple Average</label>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 text-xs text-slate-500">
+                      {(() => {
+                        const guide = getComputationFormulaGuide(academicConfig?.scholarship?.computation || 'weighted');
+                        return (
+                          <div className="space-y-1">
+                            <div>{guide.weighted}</div>
+                            <div>{guide.simple}</div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {academicActiveTab === 2 && (
+                  <div>
+                    {/* Units limits */}
+                    <div className="flex flex-col gap-2">
+                      <div>
+                        <label className="text-sm">Default Regular max units</label>
+                        <input 
+                          type="number" 
+                          value={academicConfig?.unitsLimits?.default?.regular || 18} 
+                          onChange={(e)=> setAcademicConfig(prev=> ({...prev, unitsLimits:{...prev.unitsLimits, default:{...prev.unitsLimits.default, regular: Number(e.target.value)}}}))} 
+                            className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                          />
+                      </div>
+                      <div>
+                        <label className="text-sm">Default Irregular max units</label>
+                        <input 
+                          type="number" 
+                          value={academicConfig?.unitsLimits?.default?.irregular || 15} 
+                          onChange={(e)=> setAcademicConfig(prev=> ({...prev, unitsLimits:{...prev.unitsLimits, default:{...prev.unitsLimits.default, irregular: Number(e.target.value)}}}))} 
+                          className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                        />
+                      </div>
+                     
+                    </div>
+                    <div className="mt-2 text-sm text-gray-500">Year level specific limits can be set in the advanced section (not implemented).</div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-8 flex justify-end gap-3">
+                <button 
+                  onClick={() => setAcademicModalOpen(false)} 
+                  className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={async () => { const res = await saveAcademicConfig(academicConfig||{}); if (res.success) { toast.success('Saved'); setAcademicModalOpen(false); } else { toast.error(res.error || 'Failed to save'); } }} 
+                  className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2629,6 +2992,14 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       );
     };
 
+    const getSubjectTypeInfo = (subject, fallbackCourse) => {
+      const isMajor = subject?.isMajor ?? fallbackCourse?.isMajor ?? false;
+
+      return isMajor
+        ? { label: 'Major', className: 'bg-purple-50 text-purple-700 border border-purple-200' }
+        : { label: 'Minor', className: 'bg-emerald-50 text-emerald-700 border border-emerald-200' };
+    };
+
     const scholarshipEligibility = calculateScholarshipEligibility(currentYear);
     const hasSummerInCurrentYear = studentCourses.some(
       (course) => Number(course.yearLevel) === currentYear && Number(course.semester) === 3
@@ -2636,6 +3007,24 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     const semestersForCurrentYear = hasSummerInCurrentYear ? [1, 2, 3] : [1, 2];
 
     if (selectedStudent.isIrregular) {
+      const gradedCourseCodesAll = Object.keys(studentGrades || {}).filter(code => studentGrades[code] !== undefined && studentGrades[code] !== '');
+      const gradedSubjectsAll = gradedCourseCodesAll.map((code) => {
+        const norm = (code || '').toString().trim().toUpperCase();
+        const course = allCourses.find(c => (c.courseCode || '').toString().trim().toUpperCase() === norm) ||
+          studentCourses.find(c => (c.courseCode || '').toString().trim().toUpperCase() === norm) || {};
+        return {
+          id: `graded-${norm}`,
+          courseCode: norm,
+          courseTitle: course?.courseTitle || '',
+          units: course?.units || '',
+          isMajor: course?.isMajor ?? false,
+          yearLevel: course?.yearLevel || Number(courseTab + 1),
+          prerequisites: course?.prerequisites || [],
+          enrolledSemester: course?.semester || 1,
+          enrolledSchoolYear: ''
+        };
+      });
+
       return (
         <div className="flex flex-col h-full">
          
@@ -2667,12 +3056,34 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 onChange={(e) => setSubjectGradeSearchTerm(e.target.value)}
               />
             </div>
-          </div>
+            </div>
 
-            {semestersForCurrentYear.map((semester) => {
+              {semestersForCurrentYear.map((semester) => {
+
             const semKey = `sem${semester}`;
-            const semSubjects = (irregularSubjects[semKey] || []).filter(s => Number(s.yearLevel || currentYear) === currentYear);
-            const filteredSemSubjects = semSubjects.filter((subject) => matchesSubjectGradeSearch(subject));
+            // existing irregular entries specifically for this semester + year
+            const existingForSem = (irregularSubjects[semKey] || []).filter(s => Number(s.yearLevel || currentYear) === currentYear && Number(s.enrolledSemester || s.semester || semester) === Number(semester));
+
+            // graded subjects that belong to this year and semester (originally graded there)
+            const gradedForSem = gradedSubjectsAll.filter(s => Number(s.yearLevel || currentYear) === currentYear && Number(s.enrolledSemester || s.semester || semester) === Number(semester));
+
+            // Merge but avoid duplicates (existing irregular entries take precedence)
+            const seen = new Set();
+            const mergedSubjects = [];
+            existingForSem.forEach(s => {
+              const key = `${(s.courseCode||'').toString().trim().toUpperCase()}::${Number(s.yearLevel||currentYear)}`;
+              seen.add(key);
+              mergedSubjects.push(s);
+            });
+            gradedForSem.forEach(s => {
+              const key = `${(s.courseCode||'').toString().trim().toUpperCase()}::${Number(s.yearLevel||currentYear)}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                mergedSubjects.push(s);
+              }
+            });
+
+            const filteredSemSubjects = mergedSubjects.filter((subject) => matchesSubjectGradeSearch(subject));
             return (
               <div key={semester}>
 
@@ -2707,17 +3118,18 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           <th className="px-4 py-2 text-left w-[8%]">Code</th>
           <th className="px-4 py-2 text-left w-[25%]">Title</th>
           <th className="px-4 py-2 text-left w-[8%]">Units</th>
+          <th className="px-4 py-2 text-left w-[10%]">Type</th>
           <th className="px-4 py-2 text-left w-[18%]">Prerequisites</th>
-          <th className="px-4 py-2 text-left w-[15%]">Enrolled Term</th>
+          <th className="px-4 py-2 text-left w-[15%]">Taken (Sem)</th>
           <th className="px-4 py-2 text-left w-[16%]">Grade</th>
           <th className="px-4 py-2 text-right w-[10%]">Action</th>
         </tr>
       </thead>
 
       <tbody>
-          {semSubjects.length === 0 ? (
+          {mergedSubjects.length === 0 ? (
             <tr>
-            <td colSpan={7} className="py-8 text-center text-gray-400">
+            <td colSpan={8} className="py-8 text-center text-gray-400">
               <div className="flex flex-col items-center gap-1">
                 <span className="text-sm">No subjects yet</span>
                 <span className="text-xs">
@@ -2728,7 +3140,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           </tr>
         ) : filteredSemSubjects.length === 0 ? (
           <tr>
-            <td colSpan={7} className="py-6 text-center text-gray-400">
+            <td colSpan={8} className="py-6 text-center text-gray-400">
               No matching subjects found
             </td>
           </tr>
@@ -2760,19 +3172,29 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   {subject.units}
                 </td>
 
+                <td className="px-4 py-2 w-[10%]">
+                  {(() => {
+                    const fallbackCourse = allCourses.find((course) =>
+                      (course.courseCode || '').toString().trim().toUpperCase() === (subject.courseCode || '').toString().trim().toUpperCase()
+                    );
+                    const typeInfo = getSubjectTypeInfo(subject, fallbackCourse);
+
+                    return (
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${typeInfo.className}`}>
+                        {typeInfo.label}
+                      </span>
+                    );
+                  })()}
+                </td>
+
                 <td className="px-4 py-2 text-gray-600 w-[18%]">
                   {prerequisites.length > 0 ? prerequisites.join(', ') : 'None'}
                 </td>
 
                 <td className="px-4 py-2 text-gray-600 w-[15%]">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-xs font-medium">
-                      {subject.enrolledSemester ? `${subject.enrolledSemester === 1 ? '1st' : subject.enrolledSemester === 2 ? '2nd' : 'Summer'} Sem` : 'N/A'}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      {subject.enrolledSchoolYear || 'N/A'}
-                    </span>
-                  </div>
+                  <span className="text-xs font-medium">
+                    {subject.enrolledSemester ? `${subject.enrolledSemester === 1 ? '1st' : subject.enrolledSemester === 2 ? '2nd' : 'Summer'} Sem` : 'N/A'}
+                  </span>
                 </td>
 
                 <td className="px-4 py-2 w-[16%]">
@@ -2964,6 +3386,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           <th className="px-4 py-2 w-[8%] text-center cursor-pointer" onClick={() => handleSort('units')}>
             Units {sortBy === 'units' && (sortOrder === 'asc' ? '↑' : '↓')}
         </th>
+        <th className="px-4 py-2 w-[10%] text-left">Type</th>
         <th className="px-4 py-2 w-[20%] text-left">Prerequisites</th>
         <th className="px-4 py-2 w-[10%] text-left">Grade</th>
       </tr>
@@ -3001,6 +3424,20 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
             <td className="px-4 py-2 text-center w-[8%]">
               {course.units}
             </td>
+            <td className="px-4 py-2 w-[10%]">
+              {(() => {
+                const fallbackCourse = allCourses.find((c) =>
+                  (c.courseCode || '').toString().trim().toUpperCase() ===
+                  (course.courseCode || '').toString().trim().toUpperCase()
+                );
+                const typeInfo = getSubjectTypeInfo(course, fallbackCourse);
+                return (
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${typeInfo.className}`}>
+                    {typeInfo.label}
+                  </span>
+                );
+              })()}
+            </td>
             <td className="px-4 py-2 w-[20%]">
               {course.prerequisites.length > 0 ? (
                 <div className="flex flex-wrap gap-1">
@@ -3029,11 +3466,20 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
             </td>
 
             <td className="px-4 py-2">
-              <select
-                className="border border-gray-300 rounded px-2 py-1 text-sm"
-                value={editingGrades[course.courseCode] || ''}
-                onChange={(e) => handleGradeChange(course.courseCode, e.target.value)}
-              >
+              {(() => {
+                const fallbackCourse = allCourses.find((c) => (c.courseCode || '').toString().trim().toUpperCase() === (course.courseCode || '').toString().trim().toUpperCase());
+                const prerequisites = Array.isArray(course.prerequisites) ? course.prerequisites : (Array.isArray(fallbackCourse?.prerequisites) ? fallbackCourse.prerequisites : []);
+                const prereqsMet = prerequisites.length === 0 || prerequisites.every(pr => isCourseCompleted(pr));
+                const disabled = !selectedStudent?.isIrregular && !prereqsMet;
+
+                return (
+                  <>
+                    <select
+                      className="border border-gray-300 rounded px-2 py-1 text-sm"
+                      value={editingGrades[course.courseCode] || ''}
+                      onChange={(e) => handleGradeChange(course.courseCode, e.target.value)}
+                      disabled={disabled}
+                    >
                 <option value="" disabled>
                   Select Grade
                 </option>
@@ -3049,7 +3495,13 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                      g === 'CRED' ? 'CRED (Credited)' : g}
                   </option>
                 ))}
-              </select>
+                    </select>
+                    {!prereqsMet && !selectedStudent?.isIrregular && (
+                      <div className="mt-1 text-xs text-amber-600">Prerequisites not yet graded</div>
+                    )}
+                  </>
+                );
+              })()}
 
               {studentGrades[course.courseCode] && (
                 <div className="mt-1 text-xs">
@@ -3074,7 +3526,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
       {semesterCourses.length === 0 && (
         <tr>
-          <td colSpan={5} className="text-center text-gray-500 py-4">
+          <td colSpan={6} className="text-center text-gray-500 py-4">
             {subjectGradeSearchTerm.trim()
               ? 'No matching subjects found'
               : `No courses in Year ${currentYear}, ${semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester`}
@@ -3139,10 +3591,10 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {editingDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setEditingDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
-            <div className="text-xl font-semibold mb-4">Update Student</div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow ">
+            <div className="text-xl font-medium px-8 py-4 border-b border-slate-300 text-slate-800">Update Student</div>
            
-            <div className="space-y-3">
+            <div className="space-y-2 px-8 py-4">
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Student Number</label>
                 <input
@@ -3252,18 +3704,6 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 )}
               </div>
 
-              
-              
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 accent-blue-600"
-                  checked={editingData.isIrregular}
-                  onChange={(e) => setEditingData({ ...editingData, isIrregular: e.target.checked, block: e.target.checked ? '' : editingData.block || '' })}
-                />
-                <label className="text-sm text-gray-700">Irregular student</label>
-              </div>
-
               <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
                 <div>
                   <div className="text-sm font-medium text-gray-700">Enrollment Status</div>
@@ -3286,9 +3726,23 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                     }`}
                   />
                 </button>
+
+                
               </div>
-            </div>
-            <div className="mt-8 flex justify-end gap-2">
+              
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-blue-600"
+                  checked={editingData.isIrregular}
+                  onChange={(e) => setEditingData({ ...editingData, isIrregular: e.target.checked, block: e.target.checked ? '' : editingData.block || '' })}
+                />
+                <label className="text-sm text-gray-700">Irregular student</label>
+              </div>
+
+              
+
+              <div className="mt-8 flex justify-end gap-2">
               <button
                 onClick={handleCancelEdit}
                 className="px-4 py-2 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
@@ -3303,6 +3757,9 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 Update
               </button>
             </div>
+
+            </div>
+            
           </div>
         </div>
       )}
@@ -3310,10 +3767,10 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {studentDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setStudentDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
-            <div className="text-xl font-semibold mb-4">{studentForm.isIrregular ? 'Add New Irregular Student' : 'Add New Student'}</div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow ">
+            <div className="text-xl font-medium text-slate-800 px-8 py-4 border-b border-slate-300">Add New Student</div>
            
-            <div className="space-y-3">
+            <div className="space-y-2 px-8 py-4">
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Student Number</label>
                 <input
@@ -3507,8 +3964,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 />
                 <label className="text-sm text-gray-700">Irregular student</label>
               </div>
-            </div>
-            <div className="mt-8 flex justify-end gap-2">
+              <div className="mt-8 flex justify-end gap-2">
               <button
                 onClick={() => setStudentDialogOpen(false)}
                 className="px-4 py-2 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
@@ -3523,6 +3979,8 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 Add 
               </button>
             </div>
+            </div>
+            
           </div>
         </div>
       )}
@@ -3846,6 +4304,15 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                             (subject.courseCode || '').toString().trim().toUpperCase() === (course.courseCode || '').toString().trim().toUpperCase() &&
                             Number(subject.yearLevel || (courseTab + 1)) === (courseTab + 1)
                         );
+                        const courseCodeNorm = (course.courseCode || '').toString().trim().toUpperCase();
+                        const alreadyGraded = studentGrades && Object.keys(studentGrades).some(k => (k || '').toString().trim().toUpperCase() === courseCodeNorm && studentGrades[k] !== undefined && studentGrades[k] !== '');
+                        const maxIrregularUnits = academicConfig?.unitsLimits?.default?.irregular ?? 15;
+                        const currentPickerUnits = (irregularSubjects[`sem${subjectPickerSemester}`] || []).reduce(
+                          (sum, subject) => sum + (parseFloat(subject.units) || 0),
+                          0
+                        );
+                        const exceedsUnitLimit = currentPickerUnits + (parseFloat(course.units) || 0) > maxIrregularUnits;
+
                         return (
                           <tr key={course.id} className="border-t border-gray-200">
                             <td className="px-2 py-2">{getCurriculumName(course.curriculumId) || 'Unknown Curriculum'}</td>
@@ -3864,9 +4331,17 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                               )}
                             </td>
                             <td className="px-2 py-2">
-                              {alreadyAdded ? (
-                                <span className="w-15  text-center inline-block cursor-not-allowed px-2 py-1 rounded text-xs bg-gray-100 text-gray-600 border border-gray-200">
+                              {alreadyGraded ? (
+                                <span title="Student already has a grade for this subject" className="w-15 text-center inline-block cursor-not-allowed px-2 py-1 rounded text-xs bg-gray-100 text-gray-600 border border-gray-200">
+                                  Graded
+                                </span>
+                              ) : alreadyAdded ? (
+                                <span className="w-15 text-center inline-block cursor-not-allowed px-2 py-1 rounded text-xs bg-gray-100 text-gray-600 border border-gray-200">
                                   Added
+                                </span>
+                              ) : exceedsUnitLimit ? (
+                                <span title="This subject would exceed the irregular unit limit" className="w-15 text-center inline-block cursor-not-allowed px-2 py-1 rounded text-xs bg-amber-100 text-amber-700 border border-amber-200">
+                                  Exceeds limit
                                 </span>
                               ) : (
                                 <button

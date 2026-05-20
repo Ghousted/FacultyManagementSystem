@@ -1,7 +1,7 @@
 import './App.css';
 import { Toaster } from 'react-hot-toast';
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { BadgePlus, BookMarked, FileSliders, Building2 } from 'lucide-react';
+import { BadgePlus, BookMarked, FileSliders, Building2, UserPlus } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
 import AuthContainer from './components/auth/AuthContainer';
 import PasswordReset from './components/auth/PasswordReset';
@@ -32,6 +32,7 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
   const [studentDetailOpen, setStudentDetailOpen] = useState(false);
   const [openedStudentName, setOpenedStudentName] = useState('');
     const [breadcrumbState, setBreadcrumbState] = useState({ mode: initialTab, selectedFolder: null, selectedStudent: null });
+  const { currentUser } = useAuth();
 
   useEffect(() => {
     setTab(initialTab);
@@ -215,14 +216,29 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
         </div>
 
         {tab === 'students' && !studentDetailOpen && (
-          <button
-            type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent('open-add-student'))}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-xl cursor-pointer bg-green-500 text-white hover:bg-green-600 transition"
-          >
-            <BadgePlus className="h-4 w-4" />
-            Add Student
-          </button>
+          <>
+           
+           <div className='flex items-center gap-2'>
+               <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent('open-academic-config'))}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-xl cursor-pointer bg-blue-500 text-white hover:bg-blue-600 transition"
+              >
+                <FileSliders className="h-4 w-4" />
+                Academic Eligibility
+              </button>
+         
+
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-add-student'))}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-xl cursor-pointer bg-green-500 text-white hover:bg-green-600 transition"
+            >
+              <UserPlus className="h-4 w-4" />
+              Add Student
+            </button>
+           </div>
+          </>
         )}
 
           {tab === 'other' && !otherDepartmentOpen && (
@@ -242,7 +258,7 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
               onClick={() => window.dispatchEvent(new CustomEvent('open-add-other-department-student'))}
               className="inline-flex items-center gap-2 rounded-xl cursor-pointer bg-green-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-600"
             >
-              <BadgePlus className="h-4 w-4" />
+              <UserPlus className="h-4 w-4" />
               Add Student
             </button>
           )}

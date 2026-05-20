@@ -476,7 +476,8 @@ const LEGACY_DEAN_LIST_CRITERIA_DOC = doc(db, 'settings', 'dean_list_criteria');
 const DEFAULT_DEAN_LIST_CRITERIA = {
   major: 1.7,
   minor: 2.0,
-  gwa: 1.7
+  gwa: 1.7,
+  minUnits: 15
 };
 
 const toValidNumber = (value, fallback) => {
@@ -497,12 +498,13 @@ export const getDeanListCriteria = async () => {
           major: toValidNumber(legacyData.major, DEFAULT_DEAN_LIST_CRITERIA.major),
           minor: toValidNumber(legacyData.minor, DEFAULT_DEAN_LIST_CRITERIA.minor),
           gwa: toValidNumber(legacyData.gwa, DEFAULT_DEAN_LIST_CRITERIA.gwa),
+          minUnits: toValidNumber(legacyData.minUnits, DEFAULT_DEAN_LIST_CRITERIA.minUnits),
           createdAt: legacyData.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
 
         await setDoc(DEAN_LIST_CRITERIA_DOC, migrated, { merge: true });
-        return { success: true, data: { major: migrated.major, minor: migrated.minor, gwa: migrated.gwa } };
+        return { success: true, data: { major: migrated.major, minor: migrated.minor, gwa: migrated.gwa, minUnits: migrated.minUnits } };
       }
     }
 
@@ -521,7 +523,8 @@ export const getDeanListCriteria = async () => {
       data: {
         major: toValidNumber(data.major, DEFAULT_DEAN_LIST_CRITERIA.major),
         minor: toValidNumber(data.minor, DEFAULT_DEAN_LIST_CRITERIA.minor),
-        gwa: toValidNumber(data.gwa, DEFAULT_DEAN_LIST_CRITERIA.gwa)
+        gwa: toValidNumber(data.gwa, DEFAULT_DEAN_LIST_CRITERIA.gwa),
+        minUnits: toValidNumber(data.minUnits, DEFAULT_DEAN_LIST_CRITERIA.minUnits)
       }
     };
   } catch (error) {
@@ -536,6 +539,7 @@ export const saveDeanListCriteria = async (criteria = {}) => {
       major: toValidNumber(criteria.major, DEFAULT_DEAN_LIST_CRITERIA.major),
       minor: toValidNumber(criteria.minor, DEFAULT_DEAN_LIST_CRITERIA.minor),
       gwa: toValidNumber(criteria.gwa, DEFAULT_DEAN_LIST_CRITERIA.gwa),
+      minUnits: toValidNumber(criteria.minUnits, DEFAULT_DEAN_LIST_CRITERIA.minUnits),
       updatedAt: new Date().toISOString()
     };
 
@@ -563,3 +567,56 @@ export const syncOfflineData = async () => {
   // This function is a placeholder for future offline functionality
   return { success: true, message: 'No offline storage implemented yet' };
 }; 
+
+// Academic configuration (dean list, scholarships, units limits)
+const ACADEMIC_CONFIG_DOC = doc(db, 'academic_config', 'settings');
+
+export const getAcademicConfig = async () => {
+  try {
+    const snap = await getDoc(ACADEMIC_CONFIG_DOC);
+    if (!snap.exists()) {
+      // default config
+      const defaultConfig = {
+        deanList: {
+          gwa: DEFAULT_DEAN_LIST_CRITERIA.gwa,
+          major: DEFAULT_DEAN_LIST_CRITERIA.major,
+          minor: DEFAULT_DEAN_LIST_CRITERIA.minor,
+          minUnits: DEFAULT_DEAN_LIST_CRITERIA.minUnits,
+          applyMinUnitsFor: 'both',
+          computation: 'weighted'
+        },
+        scholarships: [],
+        unitsLimits: {
+          default: { regular: 18, irregular: 15, overload: 21 },
+          byYear: {}
+        },
+        updatedAt: new Date().toISOString()
+      };
+      await setDoc(ACADEMIC_CONFIG_DOC, defaultConfig, { merge: true });
+      return { success: true, data: defaultConfig };
+    }
+    return { success: true, data: snap.data() };
+  } catch (error) {
+    console.error('Error getting academic config:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+export const saveAcademicConfig = async (config) => {
+  try {
+    const payload = { ...config, updatedAt: new Date().toISOString() };
+    await setDoc(ACADEMIC_CONFIG_DOC, payload, { merge: true });
+    await logSystemAction({
+      action: 'Updated Academic Configuration',
+      module: 'Administration',
+      entityType: 'academic_config',
+      entityId: 'settings',
+      description: 'Updated academic eligibility and units limit configuration',
+      details: payload
+    });
+    return { success: true, data: payload };
+  } catch (error) {
+    console.error('Error saving academic config:', error);
+    return { success: false, error: error.message };
+  }
+};

@@ -9,7 +9,7 @@ import { getActiveTerm } from '../models/facultyModels';
 const CurriculumCheckerMain = lazy(() => import('./curriculum-checker/CurriculumCheckerMain'));
 const PayablesMain = lazy(() => import('./payables-system/PayablesMain'));
 const ReportsMain = lazy(() => import('./reports/ReportsMain'));
-const ReportsModule = lazy(() => import('./reports/ReportsModule'));
+const ReportsModule = lazy(() => import('./reports/DeansListReport'));
 const FacultyMain = lazy(() => import('./faculty/FacultyMain'));
 
 const Dashboard = () => {

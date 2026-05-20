@@ -2,7 +2,7 @@ import { useEffect, useState, lazy, Suspense } from 'react';
 import { ArrowBigLeft, Medal, GraduationCap, Wallet, HandCoins } from 'lucide-react';
 import Breadcrumbs from '../common/Breadcrumbs';
 
-const ReportsModule = lazy(() => import('./ReportsModule'));
+const ReportsModule = lazy(() => import('./DeansListReport'));
 const ArchivedClasses = lazy(() => import('./ArchivedClasses'));
 const ModulePaymentsReport = lazy(() => import('./ModulePaymentsReport'));
 const CutBackReports = lazy(() => import('./CutBackReports'));
