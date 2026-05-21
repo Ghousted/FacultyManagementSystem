@@ -86,7 +86,7 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
 
   // Unified breadcrumb at top (receives state via `student-breadcrumb` events)
   const renderTopBreadcrumb = () => {
-    const { mode, selectedFolder, selectedStudent, selectedDepartment } = breadcrumbState || {};
+    const { mode, selectedFolder, selectedStudent, selectedDepartment, course, combo } = breadcrumbState || {};
     const activeMode = mode || (tab === 'enrollment' ? 'enrollment' : tab === 'other' ? 'other' : 'students');
 
     const mainLabel = activeMode === 'enrollment'
@@ -96,24 +96,43 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
         : 'Student Management';
     const crumbs = [{ label: mainLabel, onClick: null }];
 
-    if (selectedFolder) {
-      if (selectedFolder.isInactiveFolder) {
-        crumbs.push({ label: 'Archived Students', onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder } })) });
-      } else if (selectedFolder.isIrregular) {
-        crumbs.push({ label: 'Irregular students', onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder } })) });
-      } else {
-        const y = selectedFolder.year;
-        const block = selectedFolder.block;
-        const yearLabel = y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : y === 4 ? '4th' : `${y}th`;
-        let label = `${yearLabel} Year`;
-        if (block) label += ` Block ${block}`;
-        crumbs.push({ label, onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder } })) });
-      }
-    }
+    const openOtherDepartmentRoot = () => {
+      window.dispatchEvent(new CustomEvent('open-other-department-root'));
+    };
+
+    const openOtherDepartmentCourse = (courseName) => {
+      window.dispatchEvent(new CustomEvent('open-other-department-course', { detail: { course: courseName } }));
+    };
+
+    const openOtherDepartmentCombo = (courseName, yearValue, blockValue) => {
+      window.dispatchEvent(new CustomEvent('open-other-department-combo', {
+        detail: { course: courseName, year: yearValue, block: blockValue }
+      }));
+    };
 
     // show selected department when in Other mode
     if (activeMode === 'other' && selectedDepartment && (selectedDepartment.name || selectedDepartment)) {
-      crumbs.push({ label: selectedDepartment.name || selectedDepartment, onClick: null });
+      crumbs.push({ label: selectedDepartment.name || selectedDepartment, onClick: openOtherDepartmentRoot });
+    }
+
+    // show selected course + year/block as a single crumb when present
+    const folder = selectedFolder || (combo ? { year: combo.year, block: combo.block } : null);
+    if (activeMode === 'other' && (course || folder)) {
+      if (folder && (folder.isInactiveFolder || folder.isIrregular)) {
+        const label = folder.isInactiveFolder ? 'Archived Students' : 'Irregular students';
+        crumbs.push({ label, onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder: folder } })) });
+      } else if (course || folder) {
+        const y = Number(folder?.year);
+        const block = folder?.block;
+        const yearLabel = y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : y === 4 ? '4th' : `${folder?.year}th`;
+        const comboLabel = y
+          ? `${course || ''} ${yearLabel} Year${block ? ` ${block}` : ''}`.trim()
+          : `${course || ''}`.trim();
+        crumbs.push({
+          label: comboLabel || 'Other Department',
+          onClick: course && folder ? () => openOtherDepartmentCombo(course, folder.year, folder.block) : course ? () => openOtherDepartmentCourse(course) : openOtherDepartmentRoot
+        });
+      }
     }
 
     if (selectedStudent && selectedStudent.name) {

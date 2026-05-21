@@ -25,7 +25,7 @@ const Breadcrumbs = ({ items = [], className = 'mb-3' }) => {
 
         return (
           <span key={`${crumb.label}-${index}`} className="inline-flex items-center gap-1.5">
-            {crumb.onClick && !isActive ? (
+            {crumb.onClick ? (
               <button type="button" onClick={crumb.onClick} className={`${contentClass} cursor-pointer`}>
                 {crumb.label}
               </button>

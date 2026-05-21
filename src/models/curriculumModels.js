@@ -585,7 +585,24 @@ export const getAcademicConfig = async () => {
           applyMinUnitsFor: 'both',
           computation: 'weighted'
         },
-        scholarships: [],
+        scholarship: {
+          tier100: {
+            gwa: 1.5,
+            major: 1.5,
+            minor: 1.75,
+            minUnits: 0,
+            applyMinUnitsFor: 'both',
+            computation: 'weighted'
+          },
+          tier50: {
+            gwa: 1.75,
+            major: 1.75,
+            minor: 2.0,
+            minUnits: 0,
+            applyMinUnitsFor: 'both',
+            computation: 'weighted'
+          }
+        },
         unitsLimits: {
           default: { regular: 18, irregular: 15, overload: 21 },
           byYear: {}
@@ -595,7 +612,18 @@ export const getAcademicConfig = async () => {
       await setDoc(ACADEMIC_CONFIG_DOC, defaultConfig, { merge: true });
       return { success: true, data: defaultConfig };
     }
-    return { success: true, data: snap.data() };
+    const data = snap.data();
+    // Migrate legacy single-tier scholarship config to two-tier if needed
+    if (data.scholarship && !data.scholarship.tier100 && !data.scholarship.tier50) {
+      const legacyGwa = parseFloat(data.scholarship.gwa ?? 1.75);
+      const legacyMajor = parseFloat(data.scholarship.major ?? 1.75);
+      const legacyMinor = parseFloat(data.scholarship.minor ?? 2.0);
+      data.scholarship = {
+        tier100: { gwa: Math.min(legacyGwa, 1.5), major: Math.min(legacyMajor, 1.5), minor: Math.min(legacyMinor, 1.75), minUnits: data.scholarship.minUnits || 0, applyMinUnitsFor: data.scholarship.applyMinUnitsFor || 'both', computation: data.scholarship.computation || 'weighted' },
+        tier50: { gwa: legacyGwa, major: legacyMajor, minor: legacyMinor, minUnits: data.scholarship.minUnits || 0, applyMinUnitsFor: data.scholarship.applyMinUnitsFor || 'both', computation: data.scholarship.computation || 'weighted' }
+      };
+    }
+    return { success: true, data };
   } catch (error) {
     console.error('Error getting academic config:', error);
     return { success: false, error: error.message };

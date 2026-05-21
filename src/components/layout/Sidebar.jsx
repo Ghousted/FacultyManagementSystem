@@ -112,7 +112,7 @@ const Sidebar = ({ onExpandedChange }) => {
         type="button"
         onClick={() => handleNavigate(item.hash)}
         title={item.label}
-        className={`flex h-11 w-auto shrink-0 items-center gap-3 rounded-lg px-3 text-left text-sm font-medium transition md:w-full ${
+        className={`flex h-11 w-auto shrink-0 items-center gap-3 rounded-lg pl-4 pr-3 text-left text-sm font-medium transition md:w-full ${
           isActive
             ? 'bg-blue-50 text-blue-700'
             : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 cursor-pointer'
@@ -151,7 +151,7 @@ const Sidebar = ({ onExpandedChange }) => {
           <button
             type="button"
             onClick={handleSignOut}
-            className="flex cursor-pointer h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
+            className="flex cursor-pointer h-11 w-full items-center gap-3 rounded-lg pl-4 pr-3 text-left text-sm font-medium text-red-600 transition hover:bg-red-50"
             title="Log out"
           >
             <LogOut className="h-5 w-5 shrink-0" aria-hidden="true" />

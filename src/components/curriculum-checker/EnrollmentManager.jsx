@@ -727,6 +727,33 @@ const EnrollmentManager = ({ activeTerm }) => {
         <div className="">
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={refresh}
+                disabled={loading}
+                className="p-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
+                title="Refresh"
+                aria-label="Refresh"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+
+              <div className="relative min-w-0 flex-1 sm:w-72">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search students"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                      className="w-full border text-sm border-slate-200 bg-white rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                />
+              </div>
+
+            
+            </div>
+            
              
             <div className='flex items-center gap-2'>
                 <button
@@ -793,31 +820,7 @@ const EnrollmentManager = ({ activeTerm }) => {
             </div>
                         
 
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={refresh}
-                disabled={loading}
-                className="p-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
-                title="Refresh"
-                aria-label="Refresh"
-              >
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              </button>
-
-              <div className="relative min-w-0 flex-1 sm:w-72">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search students"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                      className="w-full border text-sm border-slate-200 bg-white rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-                />
-              </div>
-
             
-            </div>
           </div>
 
           <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
@@ -826,10 +829,10 @@ const EnrollmentManager = ({ activeTerm }) => {
 
               
 
-              <table className="w-full text-sm">
-                <thead className="text-sm bg-blue-500 text-white text-left">
+              <table className="w-full ">
+                <thead className="text-sm bg-blue-500 text-white text-left text-xs uppercase">
                   <tr>
-                    <th className="w-10 px-4 py-2 ">
+                    <th className="w-10 px-4 py-2 w-[5%]">
                       {selectMode ? (
                         <input
                           type="checkbox"
@@ -842,27 +845,27 @@ const EnrollmentManager = ({ activeTerm }) => {
                       )}
                     </th>
 
-                    <th className="px-4 py-2 ">
+                    <th className="px-4 py-2 w-[10%]">
                       Student No.
                     </th>
 
-                    <th className="px-4 py-2 ">
+                    <th className="px-4 py-2 w-[30%]">
                       <button
                         type="button"
                         onClick={() => handleSort('name')}
-                        className="inline-flex items-center cursor-pointer "
+                        className="inline-flex items-center uppercase cursor-pointer "
                       >
                         Student <SortIcon column="name" />
                       </button>
                     </th>
 
-                    <th className="px-4 py-2 ">Contact No.</th>
-                    <th className="px-4 py-2 ">Email</th>
-                    <th className="px-4 py-2 ">
+                    <th className="px-4 py-2 w-[15%]">Contact No.</th>
+                    <th className="px-4 py-2 w-[20%]">Email</th>
+                    <th className="px-4 py-2 w-[10%]">
                       <button
                         type="button"
                         onClick={() => handleSort('status')}
-                        className="inline-flex items-center cursor-pointer"
+                        className="inline-flex items-center uppercase cursor-pointer"
                       >
                         Status <SortIcon column="status" />
                       </button>
@@ -870,7 +873,7 @@ const EnrollmentManager = ({ activeTerm }) => {
 
                   
 
-                    <th className="px-4 py-2  text-left">Actions</th>
+                    <th className="px-4 py-2  text-left w-[5%]">Actions</th>
                   </tr>
                 </thead>
 
@@ -890,7 +893,7 @@ const EnrollmentManager = ({ activeTerm }) => {
                       const isEnrolledHere = student.enrollmentStatus === 'enrolled';
 
                       return (
-                        <tr key={student.id} className="border-t border-gray-100 hover:bg-gray-50">
+                        <tr key={student.id} className="border-t border-gray-100 text-sm hover:bg-gray-50">
                           <td className="px-4 py-2 ">
                             {selectMode ? (
                               <input
@@ -991,7 +994,7 @@ const EnrollmentManager = ({ activeTerm }) => {
 
       {modal.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[2px] bg-opacity-50">
-          <div className="rounded-2xl bg-white p-8 shadow-lg max-w-md w-full ">
+          <div className="rounded-xl bg-white p-8 shadow-lg max-w-md w-full ">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
               Confirm {modal.type === 'enroll' ? 'Enrollment' : 'Unenrollment'}
             </h3>

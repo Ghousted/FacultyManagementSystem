@@ -18,7 +18,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc, collection, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
 import OtherDepartmentManagement from './OtherDepartmentManagement';
-import { BadgePlus, Pencil, Folder, Trash, Search, ChevronUp, ChevronDown, ChevronsUpDown, RefreshCcw, ChevronLeft, Plus, Funnel, X, FolderArchive, MoreVertical, Square } from 'lucide-react';
+import { BadgePlus, Pencil, Folder, Trash, Search, ChevronUp, ChevronDown, User, ChevronsUpDown, RefreshCcw, ChevronLeft, Plus, Funnel, X, FolderArchive, MoreVertical, Square } from 'lucide-react';
 import { logSystemAction } from '../../utils/auditLogger';
 
 const SEMESTER_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
@@ -229,6 +229,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   const [academicActiveTab, setAcademicActiveTab] = useState(0);
   const [academicConfig, setAcademicConfig] = useState(null);
   const [academicLoading, setAcademicLoading] = useState(false);
+  const [scholarshipTierTab, setScholarshipTierTab] = useState(0); // 0 = 100%, 1 = 50%
 
   const loadAcademicConfig = async () => {
     setAcademicLoading(true);
@@ -597,6 +598,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       loadStudentGrades(selectedStudent.id);
       setIrregularSubjects({ sem1: [], sem2: [], sem3: [], ...(selectedStudent.irregularSubjects || {}) });
       setSubjectGradeSearchTerm('');
+      setGradesDirty(false);
     }
   }, [selectedStudent]);
 
@@ -1551,32 +1553,22 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     return true;
   };
 
-  // Calculate Scholarship eligibility for both semesters
-  const calculateScholarshipEligibility = (year) => {
-    if (!selectedStudent || !studentGrades || !academicConfig) return { eligible: false, percentage: 0 };
+  // Helper: check scholarship tier eligibility given a tier config and graded courses
+  const checkScholarshipTier = (tierConfig, graded, totalUnits) => {
+    if (!tierConfig) return false;
+    const computation = tierConfig.computation || academicConfig?.scholarship?.computation || 'weighted';
+    const gwaCutoff = parseFloat(tierConfig.gwa ?? 1.7);
+    const majorCutoff = parseFloat(tierConfig.major ?? 1.7);
+    const minorCutoff = parseFloat(tierConfig.minor ?? 2.0);
+    const minUnits = Number(tierConfig.minUnits || 0);
+    const applyMinFor = tierConfig.applyMinUnitsFor || 'both';
 
-    const config = academicConfig.scholarship || {};
-    const computation = config.computation || 'weighted';
-    const gwaCutoff = parseFloat(config.gwa ?? 1.7);
-    const majorCutoff = parseFloat(config.major ?? 1.7);
-    const minorCutoff = parseFloat(config.minor ?? 2.0);
-    const minUnits = Number(config.minUnits || 0);
-    const applyMinFor = config.applyMinUnitsFor || 'both';
-
-    const yearCourses = studentCourses.filter(course => course.yearLevel === year);
-    const graded = yearCourses.map(course => ({ course, grade: studentGrades[course.courseCode] }))
-      .filter(x => x.grade !== undefined && x.grade !== null && x.grade !== '' && x.grade !== 'INC' && x.grade !== 'CRED');
-
-    if (graded.length === 0) return { eligible: false, percentage: 0 };
-
-    const totalUnits = graded.reduce((s, g) => s + (Number(g.course.units) || 0), 0);
     if (minUnits > 0) {
-      if (applyMinFor === 'regular' && selectedStudent.isIrregular) return { eligible: false, percentage: 0 };
-      if (applyMinFor === 'irregular' && !selectedStudent.isIrregular) return { eligible: false, percentage: 0 };
-      if (totalUnits < minUnits) return { eligible: false, percentage: 0 };
+      if (applyMinFor === 'regular' && selectedStudent.isIrregular) return false;
+      if (applyMinFor === 'irregular' && !selectedStudent.isIrregular) return false;
+      if (totalUnits < minUnits) return false;
     }
 
-    // compute GWA
     let gwa = 0;
     if (computation === 'weighted') {
       const num = graded.reduce((s, g) => s + (parseFloat(g.grade) * (Number(g.course.units) || 0)), 0);
@@ -1587,104 +1579,96 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       gwa = sum / graded.length;
     }
 
-    if (isNaN(gwa)) return { eligible: false, percentage: 0 };
+    if (isNaN(gwa) || gwa > gwaCutoff) return false;
 
-    if (gwa > gwaCutoff) return { eligible: false, percentage: 0 };
+    const majorBad = graded.some(g => g.course.isMajor && parseFloat(g.grade) > majorCutoff);
+    const minorBad = graded.some(g => !g.course.isMajor && parseFloat(g.grade) > minorCutoff);
+    return !majorBad && !minorBad;
+  };
 
-    // Percentage logic: simple thresholds for demonstration
-    if (gwa <= 1.5) return { eligible: true, percentage: 100 };
-    if (gwa <= 1.7) return { eligible: true, percentage: 50 };
+  // Calculate Scholarship eligibility — returns { eligible, percentage } based on two tiers
+  const calculateScholarshipEligibility = (year) => {
+    if (!selectedStudent || !studentGrades || !academicConfig) return { eligible: false, percentage: 0 };
+
+    const yearCourses = studentCourses.filter(course => course.yearLevel === year);
+    const graded = yearCourses.map(course => ({ course, grade: studentGrades[course.courseCode] }))
+      .filter(x => x.grade !== undefined && x.grade !== null && x.grade !== '' && x.grade !== 'INC' && x.grade !== 'CRED');
+
+    if (graded.length === 0) return { eligible: false, percentage: 0 };
+
+    const totalUnits = graded.reduce((s, g) => s + (Number(g.course.units) || 0), 0);
+
+    // Check 100% tier first (higher standard), then 50%
+    const tier100Config = academicConfig?.scholarship?.tier100 || null;
+    const tier50Config = academicConfig?.scholarship?.tier50 || null;
+
+    if (tier100Config && checkScholarshipTier(tier100Config, graded, totalUnits)) {
+      return { eligible: true, percentage: 100 };
+    }
+    if (tier50Config && checkScholarshipTier(tier50Config, graded, totalUnits)) {
+      return { eligible: true, percentage: 50 };
+    }
     return { eligible: false, percentage: 0 };
   };
 
-  // Handle grade input change and automatically save grades
-  const handleGradeChange = async (courseCode, grade) => {
-    // Update the local state immediately for UI responsiveness
-    setEditingGrades(prev => ({
-      ...prev,
-      [courseCode]: grade
-    }));
-    
-    // Automatically update completion status based on grade
-    let isCompleted = false;
-    
-    if (grade && grade !== '') {
-      if (grade === '5.0') {
-        // Failed courses are not considered completed
-        isCompleted = false;
-      } else if (grade === 'INC') {
-        // Incomplete courses are not considered completed
-        isCompleted = false;
-      } else {
-        // All other grades (including CRED) are considered completed
-        isCompleted = true;
-      }
-      
-      // Save grades immediately to database
-      try {
-        const studentRef = doc(db, 'students', selectedStudent.id);
-        const updatedGrades = { ...editingGrades, [courseCode]: grade };
-        
-        await updateDoc(studentRef, {
-          grades: updatedGrades,
-          updatedAt: new Date()
-        });
-        await logSystemAction({
-          action: 'Updated Student Grade',
-          module: 'Curriculum Checker',
-          entityType: 'student',
-          entityId: selectedStudent.id,
-          description: `Updated grade for course ${courseCode} to ${grade}`,
-          details: { courseCode, grade }
-        });
-        
-        // Update local state to reflect saved data
-        setStudentGrades(updatedGrades);
-        setEditingGrades(updatedGrades);
-        
-        // Update completion status
-        await handleUpdateStudentCourse(courseCode, isCompleted);
-        
-        setSuccess('Grade saved successfully!');
-      } catch (error) {
-        setError('Failed to save grade: ' + error.message);
-        // Revert the local state if save failed
-        setEditingGrades(prev => ({
-          ...prev,
-          [courseCode]: studentGrades[courseCode] || ''
-        }));
-      }
-    } else {
-      // If grade is empty, remove it from the database
-      try {
-        const studentRef = doc(db, 'students', selectedStudent.id);
-        const updatedGrades = { ...editingGrades };
-        delete updatedGrades[courseCode];
-        
-        await updateDoc(studentRef, {
-          grades: updatedGrades,
-          updatedAt: new Date()
-        });
-        await logSystemAction({
-          action: 'Deleted Student Grade',
-          module: 'Curriculum Checker',
-          entityType: 'student',
-          entityId: selectedStudent.id,
-          description: `Deleted grade for course ${courseCode}`,
-          details: { courseCode }
-        });
-        
-        setStudentGrades(updatedGrades);
-        setEditingGrades(updatedGrades);
-        
-        // Update completion status
-        await handleUpdateStudentCourse(courseCode, false);
-        
-        setSuccess('Grade removed successfully!');
-      } catch (error) {
-        setError('Failed to remove grade: ' + error.message);
-      }
+  // Track whether there are unsaved grade changes
+  const [gradesDirty, setGradesDirty] = useState(false);
+  const [gradesSaving, setGradesSaving] = useState(false);
+
+  // Handle grade input change — only updates local state, does NOT save to DB
+  const handleGradeChange = (courseCode, grade) => {
+    setEditingGrades(prev => ({ ...prev, [courseCode]: grade }));
+    setGradesDirty(true);
+  };
+
+  // Save all pending grade changes to DB at once
+  const handleSaveAllGrades = async () => {
+    if (!selectedStudent || gradesSaving) return;
+    setGradesSaving(true);
+    try {
+      const studentRef = doc(db, 'students', selectedStudent.id);
+
+      // Build the final grades map — remove keys with empty value
+      const updatedGrades = { ...editingGrades };
+      Object.keys(updatedGrades).forEach(k => {
+        if (updatedGrades[k] === '' || updatedGrades[k] === undefined) {
+          delete updatedGrades[k];
+        }
+      });
+
+      await updateDoc(studentRef, { grades: updatedGrades, updatedAt: new Date() });
+
+      await logSystemAction({
+        action: 'Updated Student Grades',
+        module: 'Curriculum Checker',
+        entityType: 'student',
+        entityId: selectedStudent.id,
+        description: `Saved all grades for student ${selectedStudent.name || selectedStudent.id}`,
+        details: { grades: updatedGrades }
+      });
+
+      // Sync completion status for every graded course
+      const allCourseCodes = [
+        ...studentCourses.map(c => c.courseCode),
+        ...Object.keys(irregularSubjects.sem1 || {}).map(s => irregularSubjects.sem1[s]?.courseCode),
+        ...Object.keys(irregularSubjects.sem2 || {}).map(s => irregularSubjects.sem2[s]?.courseCode),
+      ].filter(Boolean);
+
+      const uniqueCodes = [...new Set([...Object.keys(updatedGrades), ...allCourseCodes])];
+      await Promise.all(uniqueCodes.map(code => {
+        const grade = updatedGrades[code];
+        const isCompleted = grade && grade !== '' && grade !== '5.0' && grade !== 'INC';
+        return handleUpdateStudentCourse(code, !!isCompleted);
+      }));
+
+      setStudentGrades(updatedGrades);
+      setEditingGrades(updatedGrades);
+      setGradesDirty(false);
+      toast.success('Grades saved successfully!');
+    } catch (error) {
+      toast.error('Failed to save grades: ' + error.message);
     }
+    setGradesSaving(false);
   };
 
 
@@ -1769,7 +1753,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {statusModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setStatusModalOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-6xl rounded-2xl border border-gray-300 bg-white shadow-lg h-[80vh] overflow-hidden">
+          <div className="relative z-10 w-full max-w-6xl rounded-xl border border-gray-300 bg-white shadow-lg h-[80vh] overflow-hidden">
             <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-6 py-4">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">{STATUS_CARD_META[statusModalType]?.label || 'Students'}</h3>
@@ -1874,13 +1858,13 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {academicModalOpen && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setAcademicModalOpen(false)} />
-          <div className="relative z-10 w-full max-w-md rounded-2xl border border-gray-300 bg-white shadow-lg overflow-hidden">
-            <div className="flex items-center justify-between px-8 py-4 border-b border-slate-300">
+          <div className="relative z-10 w-full max-w-md rounded-xl border border-gray-300 bg-white shadow-lg overflow-hidden flex flex-col" style={{height: '90vh', maxHeight: '680px'}}>
+            <div className="flex items-center justify-between px-8 py-4 border-b border-slate-300 shrink-0">
               <h3 className="text-xl font-medium text-slate-800">Academic Configuration</h3>
             </div>
 
-            <div className="px-6 py-4">
-              <div className="flex gap-2 justify-between w-full mb-4 items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+            <div className="px-6 py-4 flex flex-col flex-1 min-h-0">
+              <div className="flex gap-2 justify-between w-full mb-4 items-center rounded-xl border border-slate-200 bg-slate-100 p-1 shrink-0">
                 <button 
                   onClick={() => setAcademicActiveTab(0)} 
                   className={`flex-1 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
@@ -1892,7 +1876,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                       Dean's List 
                     </button>
                 <button 
-                  onClick={() => setAcademicActiveTab(1)} 
+                  onClick={() => { setAcademicActiveTab(1); setScholarshipTierTab(0); }} 
                   className={`flex-1 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
                     academicActiveTab===1
                       ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
@@ -1913,7 +1897,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 </button>
               </div>
 
-              <div className="space-y-2">
+              <div className="flex-1 overflow-y-auto min-h-0 space-y-2 pr-1">
                 {academicActiveTab === 0 && (
                   <div>
                     {/* Dean's List Config */}
@@ -1952,119 +1936,269 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                       </select>
                     </div>
 
-                    <div className="mt-3">
-                      <label className="text-sm">Computation method</label>
-                      <div className="flex gap-3 mt-1">
-                        <label className="inline-flex items-center gap-2"><input type="radio" name="deanComp" checked={(academicConfig?.deanList?.computation||'weighted')==='weighted'} onChange={()=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, computation: 'weighted'}}))}/> Weighted Average</label>
-                        <label className="inline-flex items-center gap-2"><input type="radio" name="deanComp" checked={(academicConfig?.deanList?.computation||'weighted')==='simple'} onChange={()=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, computation: 'simple'}}))}/> Simple Average</label>
-                      </div>
-                    </div>
+                <div className="mt-3 flex  text-sm items-center gap-4">
+  <label className="text-sm whitespace-nowrap">Computation method:</label>
 
-                    <div className="mt-2 text-xs text-slate-500">
-                      {(() => {
-                        const guide = getComputationFormulaGuide(academicConfig?.deanList?.computation || 'weighted');
-                        return (
-                          <div className="space-y-1">
-                            <div>{guide.weighted}</div>
-                            <div>{guide.simple}</div>
-                          </div>
-                        );
-                      })()}
+  <div className="flex items-center gap-3">
+    <label className="inline-flex items-center gap-2 cursor-pointer">
+      <input
+        type="radio"
+        name="deanComp"
+        checked={(academicConfig?.deanList?.computation || 'weighted') === 'weighted'}
+        onChange={() =>
+          setAcademicConfig(prev => ({
+            ...prev,
+            deanList: {
+              ...prev.deanList,
+              computation: 'weighted'
+            }
+          }))
+        }
+      />
+      Weighted 
+    </label>
+
+    <label className="inline-flex items-center gap-2 cursor-pointer">
+      <input
+        type="radio"
+        name="deanComp"
+        checked={(academicConfig?.deanList?.computation || 'weighted') === 'simple'}
+        onChange={() =>
+          setAcademicConfig(prev => ({
+            ...prev,
+            deanList: {
+              ...prev.deanList,
+              computation: 'simple'
+            }
+          }))
+        }
+      />
+      Simple 
+    </label>
+  </div>
+</div>
+
+                       <div className="mt-4 border-slate-300 p-4 rounded-lg border bg-slate-50 text-xs text-slate-600">
+                      Weighted: (sum of grade × units) / total units <br/> Simple: sum of grades / number of subjects
                     </div>
                   </div>
                 )}
 
                 {academicActiveTab === 1 && (
-                  <div>
-                    {/* Scholarship config - allow multiple entries; for simplicity provide single template here */}
+                  <div className="flex flex-col gap-0">
+
+                 
+
+                      {/* ── Divider ── */}
+                    <div className="flex items-center gap-3 mt-2 mb-4">
+                      <div className="flex-1 h-px bg-slate-200" />
+                      <span className="text-xs text-slate-400 font-medium tracking-wide uppercase">100% Scholarship</span>
+                      <div className="flex-1 h-px bg-slate-200" />
+                    </div>
+
+                    {/* ── 100% Scholarship ── */}
                     <div className="flex flex-col gap-2">
+                      
                     
-                      <div>
-                        <label className="text-sm">GWA cutoff</label>
-                        <input 
-                          type="number" 
-                          step="0.01" 
-                          value={academicConfig?.scholarship?.gwa ?? ''} 
-                          onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, gwa: e.target.value}}))} 
-                          className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-                        />
-                      </div>
-                      <div>
+                     <div className="flex items-center gap-2">
+                       <div>
                         <label className="text-sm">Major cutoff</label>
-                        <input type="number" step="0.01" value={academicConfig?.scholarship?.major ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, major: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
+                        <input type="number" step="0.01" value={academicConfig?.scholarship?.tier100?.major ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier100:{...(prev.scholarship?.tier100||{}), major: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
                       </div>
                       <div>
                         <label className="text-sm">Minor cutoff</label>
-                        <input type="number" step="0.01" value={academicConfig?.scholarship?.minor ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, minor: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
+                        <input type="number" step="0.01" value={academicConfig?.scholarship?.tier100?.minor ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier100:{...(prev.scholarship?.tier100||{}), minor: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
+                      </div>
+                      </div>
+                        <div>
+                        <label className="text-sm">GWA cutoff</label>
+                        <input type="number" step="0.01" value={academicConfig?.scholarship?.tier100?.gwa ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier100:{...(prev.scholarship?.tier100||{}), gwa: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
+                      </div>
+                      <div>
+                        <label className="text-sm">Minimum units</label>
+                        <input type="number" value={academicConfig?.scholarship?.tier100?.minUnits ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier100:{...(prev.scholarship?.tier100||{}), minUnits: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
+                      </div>
+                      <div>
+                        <label className="text-sm">Apply minimum units for</label>
+                        <select value={academicConfig?.scholarship?.tier100?.applyMinUnitsFor || 'both'} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier100:{...(prev.scholarship?.tier100||{}), applyMinUnitsFor: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow">
+                          <option value="regular">Regular students only</option>
+                          <option value="irregular">Irregular students only</option>
+                          <option value="both">Both</option>
+                        </select>
+                      </div>
+                     <div className="flex items-center gap-4">
+                        <label className="text-sm whitespace-nowrap">Computation method</label>
+
+                        <div className="flex items-center gap-3">
+                          <label className="inline-flex text-sm items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="scholar100Comp"
+                              checked={(academicConfig?.scholarship?.tier100?.computation || 'weighted') === 'weighted'}
+                              onChange={() =>
+                                setAcademicConfig(prev => ({
+                                  ...prev,
+                                  scholarship: {
+                                    ...prev.scholarship,
+                                    tier100: {
+                                      ...(prev.scholarship?.tier100 || {}),
+                                      computation: 'weighted'
+                                    }
+                                  }
+                                }))
+                              }
+                            />
+                            Weighted
+                          </label>
+
+                          <label className="inline-flex text-sm items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="scholar100Comp"
+                              checked={(academicConfig?.scholarship?.tier100?.computation || 'weighted') === 'simple'}
+                              onChange={() =>
+                                setAcademicConfig(prev => ({
+                                  ...prev,
+                                  scholarship: {
+                                    ...prev.scholarship,
+                                    tier100: {
+                                      ...(prev.scholarship?.tier100 || {}),
+                                      computation: 'simple'
+                                    }
+                                  }
+                                }))
+                              }
+                            />
+                            Simple
+                          </label>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="mt-3">
-                      <label className="text-sm">Minimum units</label>
-                      <input type="number" value={academicConfig?.scholarship?.minUnits ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, minUnits: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
-                    </div>
-                  
-                    <div className="mt-3">
-                      <label className="text-sm">Apply minimum units for</label>
-                      <select value={academicConfig?.scholarship?.applyMinUnitsFor || 'both'} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, applyMinUnitsFor: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow">
-                        <option value="regular">Regular students only</option>
-                        <option value="irregular">Irregular students only</option>
-                        <option value="both">Both</option>
-                      </select>
+                    {/* ── Divider ── */}
+                    <div className="flex items-center gap-3 mb-4 mt-6">
+                      <div className="flex-1 h-px bg-slate-200" />
+                      <span className="text-xs text-slate-400 font-medium tracking-wide uppercase">50% Scholarship</span>
+                      <div className="flex-1 h-px bg-slate-200" />
                     </div>
 
-                    <div className="mt-3">
-                      <label className="text-sm">Computation method</label>
-                      <div className="flex gap-3 mt-1">
-                        <label className="inline-flex items-center gap-2"><input type="radio" name="scholarComp" checked={(academicConfig?.scholarship?.computation||'weighted')==='weighted'} onChange={()=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, computation: 'weighted'}}))}/> Weighted Average</label>
-                        <label className="inline-flex items-center gap-2"><input type="radio" name="scholarComp" checked={(academicConfig?.scholarship?.computation||'weighted')==='simple'} onChange={()=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, computation: 'simple'}}))}/> Simple Average</label>
+                    {/* ── 50% Scholarship ── */}
+                    <div className="flex flex-col gap-2">
+                      
+                    
+                  <div className="flex items-center gap-2">
+                      <div>
+                        <label className="text-sm">Major cutoff</label>
+                        <input type="number" step="0.01" value={academicConfig?.scholarship?.tier50?.major ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier50:{...(prev.scholarship?.tier50||{}), major: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-500 transition-shadow" />
+                      </div>
+                      <div>
+                        <label className="text-sm">Minor cutoff</label>
+                        <input type="number" step="0.01" value={academicConfig?.scholarship?.tier50?.minor ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier50:{...(prev.scholarship?.tier50||{}), minor: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-500 transition-shadow" />
+                      </div>
+                      </div>
+                        <div>
+                        <label className="text-sm">GWA cutoff</label>
+                        <input type="number" step="0.01" value={academicConfig?.scholarship?.tier50?.gwa ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier50:{...(prev.scholarship?.tier50||{}), gwa: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-500 transition-shadow" />
+                      </div>
+                      <div>
+                        <label className="text-sm">Minimum units</label>
+                        <input type="number" value={academicConfig?.scholarship?.tier50?.minUnits ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier50:{...(prev.scholarship?.tier50||{}), minUnits: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-500 transition-shadow" />
+                      </div>
+                      <div>
+                        <label className="text-sm">Apply minimum units for</label>
+                        <select value={academicConfig?.scholarship?.tier50?.applyMinUnitsFor || 'both'} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier50:{...(prev.scholarship?.tier50||{}), applyMinUnitsFor: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-500 transition-shadow">
+                          <option value="regular">Regular students only</option>
+                          <option value="irregular">Irregular students only</option>
+                          <option value="both">Both</option>
+                        </select>
+                      </div>
+                     <div className="flex items-center gap-4">
+                      <label className="text-sm whitespace-nowrap">Computation method</label>
+
+                      <div className="flex items-center gap-3">
+                        <label className="inline-flex text-sm items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="scholar50Comp"
+                            checked={(academicConfig?.scholarship?.tier50?.computation || 'weighted') === 'weighted'}
+                            onChange={() =>
+                              setAcademicConfig(prev => ({
+                                ...prev,
+                                scholarship: {
+                                  ...prev.scholarship,
+                                  tier50: {
+                                    ...(prev.scholarship?.tier50 || {}),
+                                    computation: 'weighted'
+                                  }
+                                }
+                              }))
+                            }
+                          />
+                          Weighted
+                        </label>
+
+                        <label className="inline-flex text-sm items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="scholar50Comp"
+                            checked={(academicConfig?.scholarship?.tier50?.computation || 'weighted') === 'simple'}
+                            onChange={() =>
+                              setAcademicConfig(prev => ({
+                                ...prev,
+                                scholarship: {
+                                  ...prev.scholarship,
+                                  tier50: {
+                                    ...(prev.scholarship?.tier50 || {}),
+                                    computation: 'simple'
+                                  }
+                                }
+                              }))
+                            }
+                          />
+                          Simple
+                        </label>
                       </div>
                     </div>
-
-                    <div className="mt-2 text-xs text-slate-500">
-                      {(() => {
-                        const guide = getComputationFormulaGuide(academicConfig?.scholarship?.computation || 'weighted');
-                        return (
-                          <div className="space-y-1">
-                            <div>{guide.weighted}</div>
-                            <div>{guide.simple}</div>
-                          </div>
-                        );
-                      })()}
                     </div>
+
+                       <div className="mt-4 border-slate-300 p-4 rounded-lg border bg-slate-50 text-xs text-slate-600">
+                      Weighted: (sum of grade × units) / total units <br/> Simple: sum of grades / number of subjects
+                    </div>
+                    
                   </div>
                 )}
 
                 {academicActiveTab === 2 && (
                   <div>
                     {/* Units limits */}
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-6">
                       <div>
-                        <label className="text-sm">Default Regular max units</label>
+                        <label className="text-sm">Regular Students max units</label>
                         <input 
                           type="number" 
                           value={academicConfig?.unitsLimits?.default?.regular || 18} 
                           onChange={(e)=> setAcademicConfig(prev=> ({...prev, unitsLimits:{...prev.unitsLimits, default:{...prev.unitsLimits.default, regular: Number(e.target.value)}}}))} 
                             className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                           />
+                          <p className="mt-1 text-xs text-slate-500">This is the default max units for regular students. </p>
                       </div>
                       <div>
-                        <label className="text-sm">Default Irregular max units</label>
+                          <label className="text-sm">Default Irregular max units</label>
                         <input 
                           type="number" 
                           value={academicConfig?.unitsLimits?.default?.irregular || 15} 
                           onChange={(e)=> setAcademicConfig(prev=> ({...prev, unitsLimits:{...prev.unitsLimits, default:{...prev.unitsLimits.default, irregular: Number(e.target.value)}}}))} 
                           className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                         />
+                        <p className="mt-1 text-xs text-slate-500">This is the default max units for irregular students. </p>
                       </div>
                      
                     </div>
-                    <div className="mt-2 text-sm text-gray-500">Year level specific limits can be set in the advanced section (not implemented).</div>
                   </div>
                 )}
               </div>
 
-              <div className="mt-8 flex justify-end gap-3">
+              <div className="mt-4 pt-4 border-t border-slate-100 flex justify-end gap-3 shrink-0">
                 <button 
                   onClick={() => setAcademicModalOpen(false)} 
                   className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
@@ -2140,7 +2274,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           {alertOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center">
               <div className="absolute inset-0 bg-black/40" onClick={() => setAlertOpen(false)}></div>
-              <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-6">
+              <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-6">
                 <div className="text-lg font-semibold mb-2">Notice</div>
                 <div className="text-sm text-gray-700 whitespace-pre-wrap">{alertMessage}</div>
                 <div className="flex justify-end mt-4">
@@ -2158,7 +2292,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           {archiveSelectedModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center">
               <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setArchiveSelectedModalOpen(false)}></div>
-              <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+              <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
                 <div className="text-xl font-semibold mb-2">Archive  Students</div>
                 <p className=" text-gray-70 mb-4 text-justify">Choose an existing folder or create a new one to group the selected students.</p>
 
@@ -2219,7 +2353,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {multiEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setMultiEditOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
             <div className="text-lg mb-2 font-medium">
               {multiEditIsIrregular ? 'Update Year Level' : 'Update Year Level and Blocks'}
             </div>
@@ -2313,7 +2447,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {multiDeleteOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setMultiDeleteOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Confirm Delete</div>
             <div className="text-gray-700 mb-8">
               Are you sure you want to delete the selected students? This action cannot be undone.
@@ -2446,7 +2580,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
             ))}
           </div>
         ) : folders.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-12 text-center">
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white px-6 py-12 text-center">
             <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-blue-50 text-blue-600">
               <Folder className="h-6 w-6" />
             </div>
@@ -2545,21 +2679,6 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     });
   }
 
-  // Show empty state if folder is selected but has no students
-  if (selectedFolder && (folderStudents || []).length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-        <div className="w-16 h-16 flex items-center justify-center rounded-full bg-blue-50 mb-4">
-          <i className="bi bi-people text-2xl text-blue-600"></i>
-        </div>
-        <h2 className="text-lg font-semibold text-gray-800 mb-1">No students in this folder</h2>
-        <p className="text-sm text-gray-500 mb-6 max-w-xs">
-          Start adding students to this folder.
-        </p>
-      </div>
-    );
-  }
-
   // Show table with students from selected folder
   return (
             <>
@@ -2567,7 +2686,32 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
             {selectedFolder && (
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                 
-                {/* Left side */}
+                
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      loadStudents();
+                    }}
+                    disabled={loading}
+                    style={{ cursor: loading ? 'not-allowed' : 'pointer' }}
+                    className="p-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
+                    title="Reload"
+                    aria-label="Reload"
+                  >
+                    <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  </button>
+
+                  <div className="relative w-full sm:w-72">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input
+                      className="w-full border text-sm border-slate-200 bg-white rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                      placeholder="Search student name..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                </div>
                 
                 
                 <div className="flex items-center justify-end gap-2">
@@ -2665,33 +2809,6 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   </div>
                 </div>
 
-                {/* Right side */}
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      loadStudents();
-                    }}
-                    disabled={loading}
-                    style={{ cursor: loading ? 'not-allowed' : 'pointer' }}
-                    className="p-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
-                    title="Reload"
-                    aria-label="Reload"
-                  >
-                    <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                  </button>
-
-                  <div className="relative w-full sm:w-72">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                    <input
-                      className="w-full border text-sm border-slate-200 bg-white rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-                      placeholder="Search student name..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                  </div>
-                </div>
                 
               </div>
             )}
@@ -2700,7 +2817,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
               {/* Reactivate modal: choose year & block when re-activating an inactive student */}
               {reactivateModalOpen && reactivateTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-                  <div className="bg-white rounded-2xl p-8 max-w-md">
+                  <div className="bg-white rounded-xl p-8 max-w-md">
                     <h3 className="text-xl font-medium mb-4">Reactivate student</h3>
                     <div className="text-sm text-gray-800 mb-4">
                         Reactivating <strong>{reactivateTarget.name}</strong>. Choose new year level and block before reactivating.
@@ -2791,13 +2908,24 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 </div>
               )}
 
+              {selectedFolder && (folderStudents || []).length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 px-4 text-center rounded-xl border border-dashed border-gray-300">
+                <div className="w-14 h-14 flex items-center justify-center rounded-full bg-blue-50 mb-3">
+                  <User className="h-6 w-6 text-blue-400" />
+                </div>
+                <h2 className="text-base font-semibold text-gray-700 mb-1">No students found</h2>
+                <p className="text-sm text-gray-400 max-w-xs">
+                  {searchTerm.trim() ? `No results for "${searchTerm}"` : 'This folder is empty.'}
+                </p>
+              </div>
+              ) : (
               <div className="border border-slate-300 rounded-xl overflow-hidden">
 
             
            
               
-              <table className="min-w-full text-sm">
-                <thead className="bg-blue-500 text-white sticky top-0">
+              <table className="min-w-full ">
+                <thead className="bg-blue-500 text-xs uppercase text-white sticky top-0">
                   <tr>
                     <th className="px-4 py-2 w-[3%] text-left">
                       {selectMode ? (
@@ -2815,7 +2943,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                           }}
                         />
                       ) : (
-                        <span className="font-medium">No.</span>
+                        <span className="">No.</span>
                       )}
                     </th>
                     <th
@@ -2864,7 +2992,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                       <tr
                         id={`student-row-${student.id}`}
                         key={student.id}
-                        className="border-t border-gray-300 hover:bg-gray-50 cursor-pointer"
+                        className="border-t text-sm border-gray-300 hover:bg-gray-50 cursor-pointer"
                         onClick={() => handleSelectStudent(student)}
                       >
                         <td className="px-4 py-2 w-[3%]">
@@ -2952,6 +3080,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 </tbody>
               </table>
             </div>
+            )}
             </>
           );
         })()}
@@ -3102,7 +3231,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
                   <div
   key={semester}
-  className="mb-5 rounded-2xl overflow-hidden bg-white shadow-sm border border-gray-200"
+  className="mb-5 rounded-xl overflow-hidden bg-white shadow-sm border border-gray-200"
 >
 
   
@@ -3180,7 +3309,9 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                     const typeInfo = getSubjectTypeInfo(subject, fallbackCourse);
 
                     return (
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${typeInfo.className}`}>
+                      <span 
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                        typeInfo.className}`}>
                         {typeInfo.label}
                       </span>
                     );
@@ -3250,6 +3381,29 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
             );
           })
         )}
+
+        {mergedSubjects.length > 0 && (
+          <tr className={`border-t border-gray-200 transition-all ${gradesDirty ? 'bg-blue-50/40' : 'bg-gray-50/60'}`}>
+            <td colSpan={8} className="px-4 py-2.5 text-right">
+              <button
+                type="button"
+                onClick={handleSaveAllGrades}
+                disabled={!gradesDirty || gradesSaving}
+                className={`inline-flex items-center gap-2 px-5 py-1.5 rounded-lg text-sm font-medium transition cursor-pointer
+                  ${gradesDirty
+                    ? 'bg-blue-500 text-white hover:bg-blue-600'
+                    : 'bg-blue-500 text-white opacity-30 cursor-not-allowed pointer-events-none'
+                  } disabled:opacity-30`}
+              >
+                {gradesSaving ? (
+                  <>
+                    Saving…
+                  </>
+                ) : 'Save Grades'}
+              </button>
+            </td>
+          </tr>
+        )}
       </tbody>
     </table>
   </div>
@@ -3283,28 +3437,30 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
     {[
       { period: '1st semester', 
-        label: "Dean's lister", 
-        icon: 'calendar', 
+        label: "Dean's Lister", 
         eligible: calculateDeansListerEligibility(1, headerYear), 
         badge: calculateDeansListerEligibility(1, headerYear) 
-                ? { text: 'Eligible', cls: 'bg-green-50 text-green-500 border border-green-500', icon: 'check' } 
-                : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500 border border-gray-500', icon: 'minus' } 
+                ? { text: 'Eligible', cls: 'bg-green-50 text-green-600 border border-green-500' } 
+                : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500 border border-gray-300' } 
       },
       { period: '2nd semester', 
-        label: "Dean's lister", 
-        icon: 'calendar', 
+        label: "Dean's Lister", 
         eligible: calculateDeansListerEligibility(2, headerYear), 
         badge: calculateDeansListerEligibility(2, headerYear) 
-                ? { text: 'Eligible', cls: 'bg-green-50 text-green-500 border border-green-500', icon: 'check' } 
-                : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500 border border-gray-500', icon: 'minus' } 
-        },
+                ? { text: 'Eligible', cls: 'bg-green-50 text-green-600 border border-green-500' } 
+                : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500 border border-gray-300' } 
+      },
       { period: 'Scholarship', 
-        label: 'Eligibility', 
-        icon: 'award', 
-        eligible: headerScholarshipEligibility.eligible, 
-        badge: headerScholarshipEligibility.eligible 
-                ? { text: `${headerScholarshipEligibility.percentage}%`, cls: 'bg-blue-50 text-blue-800 border border-blue-500', icon: 'percentage' } 
-                : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500 border border-gray-500', icon: 'minus' } 
+        label: 'Scholarship',
+        eligible: headerScholarshipEligibility.eligible,
+        badge: headerScholarshipEligibility.eligible
+                ? { 
+                    text: `Eligible — ${headerScholarshipEligibility.percentage}%`, 
+                    cls: headerScholarshipEligibility.percentage === 100 
+                      ? 'bg-blue-50 text-blue-700 border border-blue-500' 
+                      : 'bg-emerald-50 text-emerald-700 border border-emerald-500' 
+                  }
+                : { text: 'Not eligible', cls: 'bg-gray-100 text-gray-500 border border-gray-300' } 
       },
     ].map((item) => (
       <div key={item.period} className="bg-gray-50  border border-gray-200 rounded-lg p-3.5 flex flex-col gap-2.5">
@@ -3374,17 +3530,17 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
               </div>
              <div className="border border-gray-300 rounded-lg overflow-hidden">
-  <table className="min-w-full text-sm">
-    <thead className="bg-blue-500 text-white">
+  <table className="min-w-full ">
+    <thead className="bg-blue-500 text-white text-xs uppercase">
       <tr>
         <th className="px-4 py-2 w-[12%] text-left cursor-pointer" onClick={() => handleSort('courseCode')}>
-           Subject Code {sortBy === 'courseCode' && (sortOrder === 'asc' ? <ChevronUp className="w-4 h-4 inline-flex mb-1" /> : <ChevronDown className="w-4 h-4 inline-flex mb-1" />)}
+          <span className="inline-flex items-center gap-1">Subject Code {sortBy === 'courseCode' ? (sortOrder === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />) : <ChevronsUpDown className="w-3.5 h-3.5 opacity-60" />}</span>
         </th>
         <th className="px-4 py-2 w-[35%] text-left cursor-pointer" onClick={() => handleSort('courseTitle')}>
-          Subject Title {sortBy === 'courseTitle' && (sortOrder === 'asc' ? '↑' : '↓')}
+          <span className="inline-flex items-center gap-1">Subject Title {sortBy === 'courseTitle' ? (sortOrder === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />) : <ChevronsUpDown className="w-3.5 h-3.5 opacity-60" />}</span>
         </th>
-          <th className="px-4 py-2 w-[8%] text-center cursor-pointer" onClick={() => handleSort('units')}>
-            Units {sortBy === 'units' && (sortOrder === 'asc' ? '↑' : '↓')}
+        <th className="px-4 py-2 w-[8%] text-center cursor-pointer" onClick={() => handleSort('units')}>
+          <span className="inline-flex items-center gap-1">Units {sortBy === 'units' ? (sortOrder === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />) : <ChevronsUpDown className="w-3.5 h-3.5 opacity-60" />}</span>
         </th>
         <th className="px-4 py-2 w-[10%] text-left">Type</th>
         <th className="px-4 py-2 w-[20%] text-left">Prerequisites</th>
@@ -3414,7 +3570,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
           }
         })
         .map((course) => (
-          <tr key={course.id} className="border-t border-gray-300 hover:bg-gray-50">
+          <tr key={course.id} className="border-t text-sm border-gray-300 hover:bg-gray-50">
             <td className="px-4 py-2 w-[12%]">
               <span className="font-semibold text-blue-700">{course.courseCode}</span>
             </td>
@@ -3432,7 +3588,11 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 );
                 const typeInfo = getSubjectTypeInfo(course, fallbackCourse);
                 return (
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${typeInfo.className}`}>
+                  <span 
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                      typeInfo.className
+                    }`}
+                  >
                     {typeInfo.label}
                   </span>
                 );
@@ -3461,7 +3621,9 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   )}
                 </div>
               ) : (
-                <span className="text-gray-500">None</span>
+                    <span className="px-2 py-0.5 rounded-full text-xs border bg-gray-50 border-gray-200 text-gray-700">
+                  None
+                  </span>
               )}
             </td>
 
@@ -3497,7 +3659,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                 ))}
                     </select>
                     {!prereqsMet && !selectedStudent?.isIrregular && (
-                      <div className="mt-1 text-xs text-amber-600">Prerequisites not yet graded</div>
+                      <div className="mt-1 text-xs text-red-600">Prerequisites not met yet</div>
                     )}
                   </>
                 );
@@ -3530,6 +3692,30 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
             {subjectGradeSearchTerm.trim()
               ? 'No matching subjects found'
               : `No courses in Year ${currentYear}, ${semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester`}
+          </td>
+        </tr>
+      )}
+
+      {semesterCourses.length > 0 && (
+        <tr className={`border-t border-gray-200 transition-all ${gradesDirty ? 'bg-blue-50/40' : 'bg-gray-50/60'}`}>
+          <td colSpan={6} className="px-4 py-2.5 text-right">
+            <button
+              type="button"
+              onClick={handleSaveAllGrades}
+              disabled={!gradesDirty || gradesSaving}
+              className={`inline-flex items-center gap-2 px-5 py-1.5 rounded-lg text-sm font-medium transition cursor-pointer
+                ${gradesDirty
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-blue-600 text-white opacity-30 cursor-not-allowed pointer-events-none'
+                } disabled:opacity-30`}
+            >
+              {gradesSaving ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                  Saving…
+                </>
+              ) : 'Save Grades'}
+            </button>
           </td>
         </tr>
       )}
@@ -3591,7 +3777,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {editingDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setEditingDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow ">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow ">
             <div className="text-xl font-medium px-8 py-4 border-b border-slate-300 text-slate-800">Update Student</div>
            
             <div className="space-y-2 px-8 py-4">
@@ -3767,7 +3953,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {studentDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setStudentDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow ">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow ">
             <div className="text-xl font-medium text-slate-800 px-8 py-4 border-b border-slate-300">Add New Student</div>
            
             <div className="space-y-2 px-8 py-4">
@@ -3974,7 +4160,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
               <button
                 onClick={handleAddStudent}
                 disabled={loading || !studentForm.name}
-                className="px-4 py-2 w-24 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 w-24 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 Add 
               </button>
@@ -3988,7 +4174,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {deleteDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setDeleteDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Confirm Delete</div>
             <div className="text-gray-700 mb-8 text-justify">
               Are you sure you want to delete student: <span className="font-semibold">{studentToDeleteName || 'this student'}</span>? 
@@ -4019,7 +4205,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {inactiveConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setInactiveConfirmOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Confirm Inactivate</div>
             <div className="text-gray-700 mb-8 text-justify">
               Are you sure you want to mark <span className="font-semibold">{studentToInactivate?.name || 'this student'}</span> as inactive? This will move the student to  Inactive folder.
@@ -4051,7 +4237,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {archiveConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setArchiveConfirmOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Confirm Archive</div>
             <div className="text-gray-700 text-justify mb-8">
               Are you sure you want to archive  student: <span className="font-semibold">{studentToArchive?.name}</span>? This will move the student to an archive folder.
@@ -4082,7 +4268,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {irregularDeleteDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setIrregularDeleteDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
             <div className="text-xl font-semibold mb-4">Remove Subject</div>
             <div className="text-gray-700 text-justify ">
               Are you sure you want to remove this subject to <span className='font-semibold'>{selectedStudent.name}</span>? This action cannot be undone.
@@ -4118,7 +4304,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {subjectPickerOpen && selectedStudent?.isIrregular && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setSubjectPickerOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-5xl border border-gray-300 bg-white rounded-2xl shadow p-4 md:p-6 max-h-[90vh] overflow-hidden">
+          <div className="relative z-10 w-full max-w-5xl border border-gray-300 bg-white rounded-xl shadow p-4 md:p-6 max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">Add Irregular Subject</h3>

@@ -16,7 +16,10 @@ import {
   RefreshCw,
   ChevronUp,
   ChevronDown,
-  ChevronsUpDown
+  ChevronsUpDown,
+  UserX,
+  UserPlus,
+  ClipboardEdit
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
@@ -536,16 +539,18 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
   );
 
   const modalTabs = useMemo(() => {
-    const blockTabs = availableBlocks.map(block => {
-      const count = students.filter(s => {
-        if (s.isIrregular) return false;
-        const b = s.block && String(s.block).trim() !== ''
-          ? String(s.block).trim().toUpperCase()
-          : 'A';
-        return b === block;
-      }).length;
-      return { value: block, label: `Block ${block}`, count };
-    });
+    const blockTabs = availableBlocks
+      .map(block => {
+        const count = students.filter(s => {
+          if (s.isIrregular) return false;
+          const b = s.block && String(s.block).trim() !== ''
+            ? String(s.block).trim().toUpperCase()
+            : 'A';
+          return b === block;
+        }).length;
+        return { value: block, label: `Block ${block}`, count };
+      })
+      .filter(tab => tab.count > 0); // only show blocks that have students
 
     if (irregularStudentsForSubject.length > 0) {
       blockTabs.push({
@@ -1406,7 +1411,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
             <div className="rounded-2xl border border-gray-200 bg-white">
             
               <div className="overflow-hidden rounded-2xl border border-gray-200">                <table className="w-full table-fixed text-sm">
-                  <thead className="bg-blue-600 text-left text-sm tracking-wide text-white">
+                  <thead className="bg-blue-600 text-left text-xs uppercase tracking-wide text-white">
                     <tr>
                       <th className="w-[25%] px-4 py-2">Student Name</th>
                       <th className="w-[15%] px-4 py-2">Course</th>
@@ -1450,7 +1455,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                           .join(', ');
 
                         return (
-                          <tr key={student.id} className="border-t border-gray-100 hover:bg-gray-50">
+                          <tr key={student.id} className="border-t border-gray-100 ">
                             <td className="px-4 py-3 text-gray-700">{student.name}</td>
                             <td className="px-4 py-3 text-gray-700">{student.course || student.irregularSubjects?.[0]?.courseCode || '—'}</td>
                             <td className="px-4 py-3 text-gray-700">{getYearLabel(student.yearLevel)} · Blk. {studentBlock}</td>
@@ -1460,13 +1465,23 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                 type="button"
                                 onClick={() => scheduleIrregularStudentAction(student, enrolledInCurrentTerm ? 'unenroll' : 'enroll')}
                                 disabled={enrollingStudentId === student.id}
-                                className={`rounded-lg px-4 py-2 w-24 text-xs transition ${
+                                title={enrolledInCurrentTerm ? 'Unassign student' : 'Assign student'}
+                className={`p-2 rounded-xl transition ${
                                   enrolledInCurrentTerm
-                                    ? 'border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:border-red-300'
-                                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer'
                                 } disabled:opacity-60 disabled:cursor-not-allowed`}
                               >
-                                {enrollingStudentId === student.id ? (enrolledInCurrentTerm ? 'Unassigning...' : 'Assigning...') : (enrolledInCurrentTerm ? 'Unassign' : 'Assign')}
+                                {enrollingStudentId === student.id ? (
+                                  <>
+                                    <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                                    {enrolledInCurrentTerm ? 'Removing…' : 'Adding…'}
+                                  </>
+                                ) : enrolledInCurrentTerm ? (
+                                  <><UserX className="w-3.5 h-3.5" /></>
+                                ) : (
+                                  <><UserPlus className="w-3.5 h-3.5" /> </>
+                                )}
                               </button>
                             </td>
                           </tr>
@@ -1503,7 +1518,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
 
           <th className="w-[15%] cursor-pointer select-none px-4 py-2"
             onClick={() => handleSort('yearLevel')}>
-            Year Level & Block <SortIcon column="yearLevel" />
+            Block/s <SortIcon column="yearLevel" />
           </th>
 
           <th className="w-[15%] cursor-pointer select-none px-4 py-2"
@@ -1580,7 +1595,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 </td>
 
                 <td className="px-4 py-2 text-gray-600">
-                  {getYearLabel(c.yearLevel)} Block{" "}
+                   Block: {" "}
                   {c.blocks?.length ? c.blocks.join(', ') : '-'}
                 </td>
 
@@ -1646,7 +1661,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                     </span>
                     {!studentsLoading && (
                       <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
-                        {students.length} student{students.length !== 1 ? 's' : ''} total
+                        {students.length} Student{students.length !== 1 ? 's' : ''} 
                       </span>
                     )}
                   </div>
@@ -1682,69 +1697,6 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 </div>
               )}
 
-              {!studentsLoading && activeBlockTab === IRREGULAR_MODAL_TAB && (
-                <div className="mt-4 rounded-2xl border border-dashed border-blue-200 bg-blue-50 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-blue-700">Manual irregular student entry</p>
-                      <p className="text-xs text-blue-600">Add a missing irregular student to this subject list for review.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsAddingIrregularStudent(prev => !prev)}
-                      className="rounded-full border border-blue-300 bg-white px-4 py-1.5 text-sm font-semibold text-blue-700 shadow-sm hover:bg-blue-50"
-                    >
-                      {isAddingIrregularStudent ? 'Cancel' : 'Add student'}
-                    </button>
-                  </div>
-
-                  {isAddingIrregularStudent && (
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <label className="space-y-2 text-sm">
-                        <span className="block text-gray-600">Student Name</span>
-                        <input
-                          type="text"
-                          value={manualIrregularName}
-                          onChange={(e) => setManualIrregularName(e.target.value)}
-                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                          placeholder="e.g. Juan Dela Cruz"
-                        />
-                      </label>
-                      <label className="space-y-2 text-sm">
-                        <span className="block text-gray-600">Student Number</span>
-                        <input
-                          type="text"
-                          value={manualIrregularNumber}
-                          onChange={(e) => setManualIrregularNumber(e.target.value)}
-                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                          placeholder="e.g. 202400123"
-                        />
-                      </label>
-                      <label className="space-y-2 text-sm">
-                        <span className="block text-gray-600">Block</span>
-                        <input
-                          type="text"
-                          value={manualIrregularBlock}
-                          onChange={(e) => setManualIrregularBlock(e.target.value)}
-                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                          placeholder="A"
-                        />
-                      </label>
-
-                      <div className="flex items-end justify-end sm:col-span-3">
-                        <button
-                          type="button"
-                          onClick={addManualIrregularStudent}
-                          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                        >
-                          Save irregular student
-                        </button>
-                      </div>
-                      {/* validation errors shown via toast notifications */}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
             {/* Modal body — per-block student table */}
@@ -1765,9 +1717,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 <table className="min-w-full text-sm rounded-2xl">
                   <thead className="sticky top-0 bg-blue-700 text-left text-sm tracking-wide text-white">
                     <tr>
-                      <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleStudentSort('studentNumber')}>
-                        School ID <StudentSortIcon column="studentNumber" />
-                      </th>
+                      
                       <th className="px-4 py-2 cursor-pointer select-none" onClick={() => handleStudentSort('name')}>
                         Name <StudentSortIcon column="name" />
                       </th>
@@ -1778,25 +1728,21 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                   </thead>
                   <tbody>
                     {sortedStudents.map((s, i) => {
-                      const block = s.block && String(s.block).trim() !== ''
-                        ? String(s.block).trim().toUpperCase()
-                        : 'A';
+                      const block = s.isIrregular
+                        ? null
+                        : s.block && String(s.block).trim() !== ''
+                          ? String(s.block).trim().toUpperCase()
+                          : 'A';
                       const courseLabel = getStudentCourseLabel(s, selectedSubject);
                       return (
                         <tr
                           key={s.id}
                           className="border-t border-gray-200 hover:bg-gray-50"
                         >
-                          <td className="px-4 py-2 text-sm text-gray-700">
-                            {s.studentNumber || <span className="text-gray-400">—</span>}
-                          </td>
+                         
                           <td className="px-4 py-2">
                             <p className="font-semibold text-gray-800">{s.name}</p>
-                            {s.isIrregular && (
-                              <span className="mt-0.5 inline-block rounded-full border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-700">
-                                Irregular
-                              </span>
-                            )}
+                           
                           </td>
                           <td className="px-4 py-2 text-gray-700">{courseLabel}</td>
                           <td className="px-4 py-2 text-gray-600">{getYearLabel(s.yearLevel)}</td>
@@ -1810,10 +1756,10 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
             </div>
 
             {/* Modal footer */}
-            <div className="flex justify-end border-t border-gray-200 px-6 py-3">
+            <div className="flex justify-end border-t border-gray-200 px-6 py-6">
               <button
                 onClick={closeStudentsModal}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className="rounded-lg border cursor-pointer border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
                 Close
               </button>
@@ -2073,28 +2019,27 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 <div className='flex items-center gap-4 justify-between'>
                 
                <div>
-  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
-                    {YEAR_TABS.map(year => {
-                      const isActive = pickerYearTab === year.value;
-                      const count = pickerYearCounts[year.value] || 0;
+ <div className="flex gap-2 w-fit items-center border-b border-slate-200">
+  {YEAR_TABS.map(year => {
+    const isActive = pickerYearTab === year.value;
+    const count = pickerYearCounts[year.value] || 0;
 
-                      return (
-                        <button
-                          key={year.value}
-                          type="button"
-                          onClick={() => setPickerYearTab(year.value)}
-              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
-                            isActive
-                               ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
-           
-                          }`}
-                        >
-                          {year.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+    return (
+      <button
+        key={year.value}
+        type="button"
+        onClick={() => setPickerYearTab(year.value)}
+        className={`relative px-4 py-2 text-sm font-medium transition-all ${
+          isActive
+            ? 'text-blue-600 border-b-2 border-blue-600'
+            : 'text-slate-600 hover:text-slate-900 border-b-2 border-transparent cursor-pointer'
+        }`}
+      >
+        {year.label}
+      </button>
+    );
+  })}
+</div>
                </div>
 
                    <div className="flex items-center gap-2 mb-4">
@@ -2133,116 +2078,166 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
               
                 </div>
                     
-                    
-
+                    <div className=' text-sm mb-2 text-slate-500'>
+  Please assign a block first before selecting a subject to assign to the professor.
+                    </div>
 
                 {/* ── Subject list as table ── */}
-                <div className="min-h-0 flex-1 rounded-xl border border-gray-200">
-                  {!pickerCurriculumId ? (
-                    <p className="p-8 text-center text-sm text-gray-500">Select a curriculum to view its subjects.</p>
-                  ) : pickerLoading ? (
-                    <p className="p-8 text-center text-sm text-gray-500">Loading subjects...</p>
-                  ) : sortedPickerCourses.length === 0 ? (
-                    <p className="p-8 text-center text-sm text-gray-500">
-                      {pickerSearch
-                        ? 'No subjects match your search for this year level.'
-                        : `No subjects found for ${YEAR_TABS.find(y => y.value === pickerYearTab)?.label}.`}
-                    </p>
-                  ) : (
-                    <table className="w-full text-sm">
-                      <thead className="rounded-t-xl bg-blue-500 text-white">
-                        <tr>
-                          <th className="w-[92px] px-4 py-2 font-semibold">Select</th>
-                          <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handlePickerSort('courseCode')}>
-                            Code <PickerSortIcon col="courseCode" />
-                          </th>
-                          <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handlePickerSort('courseTitle')}>
-                            Title <PickerSortIcon col="courseTitle" />
-                          </th>
-                          <th className="cursor-pointer select-none px-4 py-2 font-semibold" onClick={() => handlePickerSort('units')}>
-                            Units <PickerSortIcon col="units" />
-                          </th>
-                          <th className="px-4 py-2 font-semibold">
-                            Blocks
-                          </th>
-                          <th className="px-4 py-2 font-semibold text-right">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 bg-white">
-                        {sortedPickerCourses.map(course => {
-                          const assignedToThis = currentProfessorAssignedCourseIds.has(course.id);
-                          const availableBlocks = getBlocksForYear(course.yearLevel, false);
-                          const takenByOthers = getTakenBlocksForCourse(course.id);
-                          const freeBlocks = getFreeBlocksForCourse(course.id, availableBlocks);
-                          const noBlocksSelected = !assignedToThis && getPickerBlocksForCourse(course).length === 0;
-                          const assignedElsewhere = !assignedToThis && freeBlocks.length === 0;
-                          const isSaving = savingCourseIds.has(course.id);
-                          const tooltip = assignedElsewhere
-                            ? 'All blocks for this subject are already assigned to other professors'
-                            : assignedToThis
-                              ? 'Already assigned to this professor'
-                              : 'Select this subject';
-                          return (
-                            <tr
-                              key={course.id}
-                              className={`transition ${
-                                assignedElsewhere
-                                  ? 'opacity-60'
-                                  : assignedToThis
-                                    ? 'bg-green-50/70'
-                                    : 'hover:bg-green-50/50'
-                              }`}
-                            >
-                              <td className="px-4 py-2">
-                                <div className="inline-flex items-center gap-2" title={tooltip}>
-                                  <input
-                                    type="checkbox"
-                                    checked={assignedToThis}
-                                    disabled={assignedElsewhere || isSaving}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      toggleCcsAssignment(course, checked);
-                                    }}
-                                    aria-label={`Select ${course.courseCode}`}
-                                    className="h-4 w-4 cursor-pointer rounded border-gray-300 text-blue-600 accent-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed"
-                                  />
-                                 
-                                </div>
-                              </td>
-                              <td className="px-4 py-2 font-semibold text-gray-900 whitespace-nowrap">
-                                {course.courseCode}
-                              </td>
-                              <td className="px-4 py-2 text-gray-700">
-                                <div className="truncate max-w-[260px]" title={course.courseTitle}>
-                                  {course.courseTitle}
-                                </div>
-                              </td>
-                              <td className="px-4 py-2 text-gray-600 whitespace-nowrap">
-                                {Number(course.units) > 0 ? course.units : '—'}
-                              </td>
-                              <td className="px-4 py-2 text-gray-600 whitespace-nowrap">
-                                {getPickerBlocksForCourse(course).length > 0
-                                  ? getPickerBlocksForCourse(course).join(', ')
-                                  : 'None selected'}
-                              </td>
-                              <td className="px-4 py-2 text-right">
-                                <button
-                                  type="button"
-                                  onClick={() => openCcsBlockModal(course)}
-                                        className="px-4 py-2 w-20 text-xs cursor-pointer rounded-lg bg-green-500 text-white hover:bg-green-600 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
-                                >
-                                  {assignedToThis ? 'Update' : 'Assign'}
-                                </button>
-                              </td>
+                  <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-gray-200 bg-white">
+                    {!pickerCurriculumId ? (
+                      <p className="p-8 text-center text-sm text-gray-500">
+                        Select a curriculum to view its subjects.
+                      </p>
+                    ) : pickerLoading ? (
+                      <p className="p-8 text-center text-sm text-gray-500">
+                        Loading subjects...
+                      </p>
+                    ) : sortedPickerCourses.length === 0 ? (
+                      <p className="p-8 text-center text-sm text-gray-500">
+                        {pickerSearch
+                          ? 'No subjects match your search for this year level.'
+                          : `No subjects found for ${YEAR_TABS.find(y => y.value === pickerYearTab)?.label}.`}
+                      </p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full overflow-hidden rounded-xl text-sm">
+                          <thead className="bg-blue-500 text-left text-xs uppercase text-white">
+                            <tr>
+                              <th className="px-4 py-3  font-semibold first:rounded-tl-xl w-[10%]">
+                                Actions
+                              </th>
+                              <th className=" px-4 py-3 font-semibold w-[10%]">
+                                Select
+                              </th>
+                              <th
+                                className="cursor-pointer select-none px-4 py-3 font-semibold w-[20%]"
+                                onClick={() => handlePickerSort('courseCode')}
+                              >
+                                Code <PickerSortIcon col="courseCode" />
+                              </th>
+                              <th
+                                className="cursor-pointer select-none px-4 py-3 font-semibold w-[30%]"
+                                onClick={() => handlePickerSort('courseTitle')}
+                              >
+                                Title <PickerSortIcon col="courseTitle" />
+                              </th>
+                              <th
+                                className="cursor-pointer select-none px-4 py-3 font-semibold w-[10%]"
+                                onClick={() => handlePickerSort('units')}
+                              >
+                                Units <PickerSortIcon col="units" />
+                              </th>
+                              <th className="px-4 py-3 font-semibold first:rounded-tr-2xl w-[20%]">
+                                Blocks
+                              </th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
+                          </thead>
+
+                          <tbody className="divide-y divide-gray-100 bg-white">
+                            {sortedPickerCourses.map((course, index) => {
+                              const assignedToThis = currentProfessorAssignedCourseIds.has(course.id);
+                              const availableBlocks = getBlocksForYear(course.yearLevel, false);
+                              const takenByOthers = getTakenBlocksForCourse(course.id);
+                              const freeBlocks = getFreeBlocksForCourse(course.id, availableBlocks);
+                              const noBlocksSelected =
+                                !assignedToThis && getPickerBlocksForCourse(course).length === 0;
+                              const assignedElsewhere =
+                                !assignedToThis && freeBlocks.length === 0;
+                              const isSaving = savingCourseIds.has(course.id);
+
+                              const tooltip = assignedElsewhere
+                                ? 'All blocks for this subject are already assigned to other professors'
+                                : assignedToThis
+                                  ? 'Already assigned to this professor'
+                                  : 'Select this subject';
+
+                              return (
+                                <tr
+                                  key={course.id}
+                                  className={`transition ${
+                                    assignedElsewhere
+                                      ? 'opacity-60'
+                                      : assignedToThis
+                                        ? 'bg-green-50/70'
+                                        : 'hover:bg-green-50/50'
+                                  } ${
+                                    index === sortedPickerCourses.length - 1
+                                      ? '[&>td:first-child]:rounded-bl-2xl [&>td:last-child]:rounded-br-2xl'
+                                      : ''
+                                  }`}
+                                >
+                                  <td className="px-4 py-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => openCcsBlockModal(course)}
+                                      title={assignedToThis ? 'Update blocks' : 'Assign blocks'}
+                className={`p-2 rounded-xl transition ${
+                                        assignedToThis
+                                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer'
+                                      } disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500`}
+                                    >
+                                      {assignedToThis ? (
+                                        <>
+                                          <ClipboardEdit className="h-3.5 w-3.5" />
+                                        </>
+                                      ) : (
+                                        <>
+                                          <UserPlus className="h-3.5 w-3.5" />
+                                        </>
+                                      )}
+                                    </button>
+                                  </td>
+
+                                  <td className="px-4 py-3">
+                                    <div
+                                      className="inline-flex items-center gap-2"
+                                      title={tooltip}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={assignedToThis}
+                                        disabled={assignedElsewhere || isSaving}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          toggleCcsAssignment(course, checked);
+                                        }}
+                                        aria-label={`Select ${course.courseCode}`}
+                                        className="h-4 w-4 cursor-pointer rounded border-gray-300 text-blue-600 accent-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed"
+                                      />
+                                    </div>
+                                  </td>
+
+                                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-gray-900">
+                                    {course.courseCode}
+                                  </td>
+
+                                  <td className="px-4 py-3 text-gray-700">
+                                    <div
+                                      className="max-w-[260px] truncate"
+                                      title={course.courseTitle}
+                                    >
+                                      {course.courseTitle}
+                                    </div>
+                                  </td>
+
+                                  <td className="whitespace-nowrap px-4 py-3 text-gray-600">
+                                    {Number(course.units) > 0 ? course.units : '—'}
+                                  </td>
+
+                                  <td className="whitespace-nowrap px-4 py-3 text-gray-600">
+                                    {getPickerBlocksForCourse(course).length > 0
+                                      ? getPickerBlocksForCourse(course).join(', ')
+                                      : 'None selected'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -2448,7 +2443,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                       ) : (
                         <div className="overflow-hidden rounded-2xl border bg-white border-slate-200">
                           <table className="w-full text-sm">
-                            <thead className="sticky top-0 border-b border-slate-200 bg-blue-500 text-left text-xs uppercase tracking-wide text-white">
+                            <thead className="sticky text-xs uppercase top-0 border-b border-slate-200 bg-blue-500 text-left text-xs uppercase tracking-wide text-white">
                               <tr>
                                 <th className="w-[92px] px-4 py-2 font-semibold">Select</th>
                                 <th
@@ -2633,25 +2628,44 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
       )}
       {confirmUnassign && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <h6 className="mb-2 text-lg font-semibold text-gray-800">Unassign Subject</h6>
-            <p className="mb-5 text-sm text-gray-600">
-             Are you sure you want to unassign <span className="font-semibold text-gray-900">{confirmUnassign.courseCode}</span> from {confirmUnassign.professorName}?
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setConfirmUnassign(null)}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleUnassign}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
-              >
-                Unassign
-              </button>
-            </div>
+          <div className="w-full max-w-sm rounded-2xl bg-white  shadow-xl">
+            <div className='px-8 py-4 border-b border-slate-300'>
+              <h6 className="text-xl font-medium text-slate-800">Unassign Subject</h6>
+              </div>
+              <div className='px-8 py-4'>
+                <p className="mb-8 text-sm text-justify text-gray-600">
+                  Are you sure you want to unassign
+                  <span className="font-semibold text-gray-900 ml-1">{confirmUnassign.courseCode}</span>
+                  {confirmUnassign.courseTitle ? (
+                    <span className="font-semibold text-gray-700"> — {confirmUnassign.courseTitle}</span>
+                  ) : null}
+                  {' '}from this professor?
+                </p>
+
+                <div className="mb-6">
+                  <div className="font-semibold text-gray-900">{confirmUnassign.professorName}</div>
+                  {confirmUnassign.professorEmployeeId && (
+                    <div className="text-sm text-gray-600">{confirmUnassign.professorEmployeeId}</div>
+                  )}
+                  {confirmUnassign.professorEmail && (
+                    <div className="text-sm text-gray-600">{confirmUnassign.professorEmail}</div>
+                  )}
+                </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setConfirmUnassign(null)}
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUnassign}
+                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                >
+                  Unassign
+                </button>
+              </div>
+              </div>
           </div>
         </div>
       )}

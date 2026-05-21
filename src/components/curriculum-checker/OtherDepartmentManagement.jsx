@@ -28,7 +28,7 @@ const getYearLevelLabel = (year) => {
 };
 
 const DepartmentCardSkeleton = () => (
-  <div className="rounded-2xl border border-slate-200 bg-white p-4 animate-pulse">
+  <div className="rounded-xl border border-slate-200 bg-white p-4 animate-pulse">
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-start gap-4">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100" />
@@ -69,6 +69,9 @@ const OtherDepartmentManagement = () => {
   const [otherDeptSearch, setOtherDeptSearch] = useState('');
   const [otherStudentSearch, setOtherStudentSearch] = useState('');
   const [otherStudentYearTab, setOtherStudentYearTab] = useState(1);
+  const [openYearFolder, setOpenYearFolder] = useState(null);
+  const [openCourse, setOpenCourse] = useState(null);
+  const [openCombo, setOpenCombo] = useState(null);
   const [otherStudentCourseFilter, setOtherStudentCourseFilter] = useState('all');
   const [otherStudentBlockFilter, setOtherStudentBlockFilter] = useState('all');
   const [otherStudentSort, setOtherStudentSort] = useState({ key: 'name', direction: 'asc' });
@@ -181,6 +184,22 @@ const OtherDepartmentManagement = () => {
     );
   }, [selectedOtherDepartment]);
 
+  // Update breadcrumb when course or combo changes so UI can show full path
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent('student-breadcrumb', {
+        detail: {
+          mode: 'other',
+          selectedDepartment: selectedOtherDepartment
+            ? { name: selectedOtherDepartment.name || 'Unnamed department' }
+            : null,
+          course: openCourse || (openCombo && openCombo.course) || null,
+          combo: openCombo ? { year: openCombo.year, block: openCombo.block } : null
+        }
+      })
+    );
+  }, [selectedOtherDepartment, openCourse, openCombo]);
+
   useEffect(() => {
     if (!selectedOtherDeptId) return;
 
@@ -202,6 +221,48 @@ const OtherDepartmentManagement = () => {
     window.addEventListener('open-add-department', openCreateDepartmentModal);
     return () => window.removeEventListener('open-add-department', openCreateDepartmentModal);
   }, []);
+
+  useEffect(() => {
+    const handleOpenOtherDepartmentRoot = () => {
+      if (!selectedOtherDeptId) return;
+      setOpenCourse(null);
+      setOpenCombo(null);
+      setOtherStudentSearch('');
+      setSelectMode(false);
+      setSelectedIds([]);
+    };
+
+    const handleOpenOtherDepartmentCourse = (event) => {
+      const course = event.detail?.course;
+      if (!course) return;
+      setOpenCourse(course);
+      setOpenCombo(null);
+      setOtherStudentSearch('');
+      setSelectMode(false);
+      setSelectedIds([]);
+    };
+
+    const handleOpenOtherDepartmentCombo = (event) => {
+      const course = event.detail?.course;
+      const year = event.detail?.year;
+      const block = event.detail?.block;
+      if (!course || year === undefined || block === undefined) return;
+      setOpenCourse(course);
+      setOpenCombo({ course, year, block });
+      setOtherStudentSearch('');
+      setSelectMode(false);
+      setSelectedIds([]);
+    };
+
+    window.addEventListener('open-other-department-root', handleOpenOtherDepartmentRoot);
+    window.addEventListener('open-other-department-course', handleOpenOtherDepartmentCourse);
+    window.addEventListener('open-other-department-combo', handleOpenOtherDepartmentCombo);
+    return () => {
+      window.removeEventListener('open-other-department-root', handleOpenOtherDepartmentRoot);
+      window.removeEventListener('open-other-department-course', handleOpenOtherDepartmentCourse);
+      window.removeEventListener('open-other-department-combo', handleOpenOtherDepartmentCombo);
+    };
+  }, [selectedOtherDeptId]);
 
   useEffect(() => {
     const handleResetOtherDepartment = () => {
@@ -511,10 +572,18 @@ const OtherDepartmentManagement = () => {
       onClick={() => handleOtherStudentSort(key)}
       className="inline-flex items-center gap-1.5 font-semibold"
     >
-      {label}
+      {String(label).toUpperCase()}
       {renderSortIcon(key)}
     </button>
   );
+
+  // Determine which columns have data for the currently selected year/tab
+  const visibleStudentsForYear = openYearFolder
+    ? sortedOtherDeptStudents.filter(s => Number(s.yearLevel) === Number(openYearFolder))
+    : [];
+  const hasCourse = visibleStudentsForYear.some(s => (s.course || '').toString().trim() !== '');
+  const hasYear = visibleStudentsForYear.some(s => s.yearLevel !== undefined && s.yearLevel !== null && String(s.yearLevel).trim() !== '');
+  const hasBlock = visibleStudentsForYear.some(s => (s.block || '').toString().trim() !== '');
 
   return (
     <div>
@@ -522,7 +591,7 @@ const OtherDepartmentManagement = () => {
 
       {!selectedOtherDeptId ? (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {loading
               ? Array.from({ length: 8 }).map((_, index) => (
                   <DepartmentCardSkeleton key={`other-dept-skeleton-${index}`} />
@@ -530,7 +599,7 @@ const OtherDepartmentManagement = () => {
               : filteredOtherDepartments.map((department) => (
               <div
                 key={department.id}
-                className="group relative cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-blue-400 hover:shadow-sm"
+                className="group relative cursor-pointer rounded-xl border border-slate-200 bg-white p-4 transition hover:border-blue-400 hover:shadow-sm"
                 onClick={() => setSelectedOtherDeptId(department.id)}
               >
                 <div className="flex items-center justify-between gap-3">
@@ -589,7 +658,7 @@ const OtherDepartmentManagement = () => {
               </div>
             ))}
             {!loading && filteredOtherDepartments.length === 0 && (
-              <div className="col-span-full rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
+              <div className="col-span-full rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
                 No departments found. Use the Add Department button to create one.
               </div>
             )}
@@ -597,35 +666,57 @@ const OtherDepartmentManagement = () => {
         </>
       ) : (
         <div>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex w-full flex-1 items-center justify-between gap-3">
 
-            <div className="mb-4 flex w-fit items-center gap-4 border-b border-slate-200">
-              {[1, 2, 3, 4].map((year) => (
-                <button
-                  key={year}
-                  type="button"
-                  onClick={() => setOtherStudentYearTab(year)}
-                  className={`px-2 relative py-2 text-sm font-medium transition-colors
-                    border-b-2
-                    ${
-                      otherStudentYearTab === year
-                        ? 'border-blue-600 text-blue-600'
-                        : 'border-transparent text-slate-600 hover:text-blue-600 hover:border-blue-600 cursor-pointer'
-                    }`}
-                >
-                  {year === 1
-                    ? '1st Year'
-                    : year === 2
-                      ? '2nd Year'
-                      : year === 3
-                        ? '3rd Year'
-                        : '4th Year'}
-                </button>
-              ))}
+            {!openCourse && !openCombo && (
+            <div className="mb-4 flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+              {/* Combined Course · Year · Block tiles for the selected department */}
+              {Array.from(new Set((otherDeptStudents || []).map(s => {
+                const course = (s.course || '').toString().trim();
+                const year = s.yearLevel || '';
+                const block = (s.block || '—').toString().trim() || '—';
+                return `${course}::${year}::${block}`;
+              }).filter(Boolean)))
+                .sort((a, b) => {
+                  const [courseA, yearA, blockA] = a.split('::');
+                  const [courseB, yearB, blockB] = b.split('::');
+                  const courseCompare = courseA.localeCompare(courseB, undefined, { sensitivity: 'base', numeric: true });
+                  if (courseCompare !== 0) return courseCompare;
+                  const yearCompare = Number(yearA || 0) - Number(yearB || 0);
+                  if (yearCompare !== 0) return yearCompare;
+                  return String(blockA || '').localeCompare(String(blockB || ''), undefined, { sensitivity: 'base', numeric: true });
+                })
+                .map((key) => {
+                const [course, year, block] = key.split('::');
+                // (individual hiding kept for safety) hide the tile when it's opened
+                if (openCombo && openCombo.course === course && String(openCombo.year) === String(year) && String((openCombo.block || '—')) === String((block || '—'))) return null;
+                if (openCourse && openCourse === course) return null;
+                const studentsInCombo = (otherDeptStudents || []).filter(s => (s.course || '').toString().trim() === course && String(s.yearLevel) === String(year) && ((s.block || '—').toString().trim() === block));
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => { setOpenCombo({ course, year, block }); setOpenCourse(null); }}
+                  className="group relative cursor-pointer rounded-lg border border-gray-300 bg-white p-4 text-left transition  hover:border-blue-400 hover:shadow-md"
+                  >
+                    <div className="flex items-center gap-3">
+<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+<Folder className="h-5 w-5" />
+</div>                      <div>
+                        <div className="text-sm font-semibold text-slate-900">{`${course} ${getYearLevelLabel(year)} ${block}`}</div>
+                        <div className="text-xs text-slate-500">{studentsInCombo.length} student{studentsInCombo.length !== 1 ? 's' : ''}</div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
+            )}
 
-            <div className="mb-4 flex flex-wrap items-center  gap-2">
-              <div className="flex flex-wrap items-center gap-2">
+            {(openCourse || openCombo) && (
+           <div className="flex items-center justify-between gap-2 mb-4 flex-1">
+              {/* Left side */}
+              <div className="flex flex-wrap items-center gap-2 text-sm">
                 <button
                   type="button"
                   onClick={toggleSelectMode}
@@ -638,147 +729,234 @@ const OtherDepartmentManagement = () => {
                     }`}
                 >
                   <Square className="h-4 w-4" />
-                  Select
+                  {selectMode ? 'Selecting' : 'Select'}
                 </button>
 
                 {selectMode && selectedIds.length > 0 && (
+                <div className="inline-flex items-center gap-2 text-sm text-gray-700">
                   <button
                     type="button"
                     onClick={handleBulkDelete}
-className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gray-500"
+                    title="Delete selected students"
+                              className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
                   >
                     <Trash className="h-4 w-4" />
-                  
+                    
                   </button>
+                    <span className='text-xs'>{selectedIds.length} selected</span>
+                   </div>
                 )}
 
+            
+              </div>
+
+              {/* Right side */}  
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => loadOtherDeptStudents(selectedOtherDeptId)}
                   disabled={loading}
-className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
                   title="Refresh table data"
+                  className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
                 >
-                  <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
-              </div>
+              <div className="relative flex-1 w-80">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
-              <div className="relative  w-72">
-                <Search className="absolute w-4 h-4 left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
                   value={otherStudentSearch}
                   onChange={(event) => setOtherStudentSearch(event.target.value)}
                   placeholder="Search students..."
-className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                  className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                 />
               </div>
-
-              <div className="w-fit">
-                <select
-                      className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-                  value={otherStudentCourseFilter}
-                  onChange={(event) => setOtherStudentCourseFilter(event.target.value)}
-                >
-                  <option value="all">All courses</option>
-                  {otherStudentCourses.map((course) => (
-                    <option key={course} value={course}>{course}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="w-fit">
-                <select
-                      className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-                  value={otherStudentBlockFilter}
-                  onChange={(event) => setOtherStudentBlockFilter(event.target.value)}
-                >
-                  <option value="all">All blocks</option>
-                  {otherStudentBlocks.map((block) => (
-                    <option key={block} value={block}>Block {block}</option>
-                  ))}
-                </select>
               </div>
             </div>
+            )}
 
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white ">
-            <table className="min-w-full text-sm">
-              <thead className="bg-blue-500 text-left text-white">
-                <tr>
-                  <th className="px-4 py-3 w-[5%]">
-                    {selectMode ? (
-                      <input
-                        type="checkbox"
-                        className="h-3 w-3 rounded accent-gray-900"
-                        checked={sortedOtherDeptStudents.length > 0 && sortedOtherDeptStudents.every((student) => selectedIds.includes(student.id))}
-                        onChange={toggleSelectAllVisible}
-                      />
-                    ) : (
-                      <span className="font-medium">No.</span>
-                    )}
-                  </th>
-                  <th className="px-4 py-3 w-40%">{renderSortableHeader('name', 'Name')}</th>
-                  <th className="px-4 py-3 w-15%">{renderSortableHeader('course', 'Course')}</th>
-                  <th className="px-4 py-3 w-15%">{renderSortableHeader('yearLevel', 'Year')}</th>
-                  <th className="px-4 py-3 w-10%">{renderSortableHeader('block', 'Block')}</th>
-                  <th className="px-4 py-3 w-15%">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  Array.from({ length: 6 }).map((_, index) => (
-                    <OtherStudentRowSkeleton key={`other-dept-student-skeleton-${index}`} index={index} />
-                  ))
-                ) : sortedOtherDeptStudents.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-sm text-slate-500">
-                      No students found for this year level.
-                    </td>
-                  </tr>
-                ) : (
-                  sortedOtherDeptStudents.map((student, index) => (
-                    <tr key={student.id} className="border-t border-gray-200 hover:bg-slate-50">
-                      <td className="w-10 px-4 py-3">
-                        {selectMode ? (
-                          <input
-                            type="checkbox"
-                            className="h-3 w-3 rounded accent-gray-900"
-                            checked={selectedIds.includes(student.id)}
-                            onChange={() => toggleSelectStudent(student.id)}
-                          />
-                        ) : (
-                          <span className="text-sm text-gray-700">{index + 1}</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 w-40%">{student.name}</td>
-                      <td className="px-4 py-3 w-15%">{student.course}</td>
-                      <td className="px-4 py-3 w-15%">{getYearLevelLabel(student.yearLevel)}</td>
-                      <td className="px-4 py-3 w-15%">{student.block}</td>
-                      <td className="px-4 py-3 w-15%">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleEditOtherStudent(student)}
-                                  className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteOtherStudent(student.id)}
-                                  className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
-                          >
-                            <Trash className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          {/* Nested folder view: Course -> Year -> Block -> Students */}
+          <div className="space-y-3">
+            {/* Build nested structure */}
+            {loading ? (
+              <div className="p-8 text-center text-sm text-slate-500">Loading students...</div>
+            ) : (() => {
+              // If a specific Course·Year·Block combo is opened, show its students
+              if (openCombo) {
+                const comboStudents = (otherDeptStudents || []).filter(s => (s.course || '').toString().trim() === (openCombo.course || '').toString().trim() && String(s.yearLevel) === String(openCombo.year) && ((s.block || '—').toString().trim() === (openCombo.block || '—').toString().trim()));
+                const term = otherStudentSearch.trim().toLowerCase();
+                const comboStudentsFiltered = comboStudents.filter((student) => {
+                  return !term || (student.name || '').toLowerCase().includes(term) || (student.course || '').toLowerCase().includes(term) || String(student.yearLevel || '').toLowerCase().includes(term) || (student.block || '').toLowerCase().includes(term);
+                });
+                const comboStudentsSorted = [...comboStudentsFiltered].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                return (
+                  <div>
+                  
+                    <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+                      <table className="w-full text-sm">
+                        <thead className="bg-blue-500 text-white text-xs text-left uppercase">
+                          <tr>
+                            {selectMode ? (
+                              <th className="w-10 px-4 py-2">
+                                <input
+                                  type="checkbox"
+                                  aria-label={comboStudentsSorted.every((student) => selectedIds.includes(student.id)) ? 'Clear selection' : 'Select all'}
+                                  checked={comboStudentsSorted.length > 0 && comboStudentsSorted.every((student) => selectedIds.includes(student.id))}
+                                  onChange={(e) => {
+                                    if (e.target.checked) setSelectedIds(comboStudentsSorted.map((student) => student.id));
+                                    else setSelectedIds([]);
+                                  }}
+                                  className="h-4 w-4 text-white"
+                                />
+                              </th>
+                            ) : (
+                              <th className="w-12 px-4 py-2">No.</th>
+                            )}
+                            <th className="px-4 py-2">{renderSortableHeader('name', 'Name')}</th>
+                            <th className="px-4 py-2">{renderSortableHeader('course', 'Course')}</th>
+                            <th className="px-4 py-2">{renderSortableHeader('yearLevel', 'Year Level')}</th>
+                            <th className="px-4 py-2">{renderSortableHeader('block', 'Block')}</th>
+                            <th className="px-4 py-2 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {comboStudentsSorted.length === 0 ? (
+                            <tr><td colSpan={selectMode ? 6 : 6} className="px-4 py-6 text-center text-sm text-slate-500">No students found.</td></tr>
+                          ) : comboStudentsSorted.map((st, rowIndex) => (
+                            <tr key={st.id} className="border-t border-gray-100">
+                              {selectMode ? (
+                                <td className="px-4 py-2 align-middle">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedIds.includes(st.id)}
+                                    onChange={() => toggleSelectStudent(st.id)}
+                                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                  />
+                                </td>
+                              ) : (
+                                <td className="px-4 py-2 text-slate-500">{rowIndex + 1}</td>
+                              )}
+                              <td className="px-4 py-2">{st.name}</td>
+                              <td className="px-4 py-2">{st.course}</td>
+                              <td className="px-4 py-2">{getYearLevelLabel(st.yearLevel)}</td>
+                              <td className="px-4 py-2">{st.block || '—'}</td>
+                              <td className="px-4 py-2 text-right">
+                                <div className="flex items-center gap-2 justify-end">
+                                  <button onClick={() => handleEditOtherStudent(st)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Pencil className="w-4 h-4" /></button>
+                                  <button onClick={() => handleDeleteOtherStudent(st.id)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Trash className="w-4 h-4" /></button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              }
+
+              // when a course is open, show a flat ascending table of students for that course
+              if (openCourse) {
+                const studentsInCourse = (otherDeptStudents || []).filter(s => (s.course || '').toString().trim() === openCourse);
+                const filtered = studentsInCourse.filter(s => {
+                  const term = otherStudentSearch.trim().toLowerCase();
+                  return !term || (s.name || '').toLowerCase().includes(term) || (s.block || '').toLowerCase().includes(term) || (s.course || '').toLowerCase().includes(term) || String(s.yearLevel || '').toLowerCase().includes(term);
+                });
+                const courseStudents = [...filtered].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+                return (
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => setOpenCourse(null)} className="text-sm text-blue-600">← Back</button>
+                        <Folder className="h-5 w-5 text-blue-600" />
+                        <div className="text-sm font-semibold">{openCourse}</div>
+                      </div>
+                      <div className="relative w-80">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder={`Search students...`}
+                          value={otherStudentSearch}
+                          onChange={(e) => setOtherStudentSearch(e.target.value)}
+                          className="w-full rounded-lg border border-gray-300 py-2.5 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+                      <table className="w-full text-sm">
+                        <thead className="bg-blue-50 text-xs text-slate-500 text-left">
+                          <tr>
+                            {selectMode ? (
+                              <th className="w-10 px-4 py-2">
+                                <input
+                                  type="checkbox"
+                                  aria-label={courseStudents.every((student) => selectedIds.includes(student.id)) ? 'Clear selection' : 'Select all'}
+                                  checked={courseStudents.length > 0 && courseStudents.every((student) => selectedIds.includes(student.id))}
+                                  onChange={(e) => {
+                                    if (e.target.checked) setSelectedIds(courseStudents.map((student) => student.id));
+                                    else setSelectedIds([]);
+                                  }}
+                                  className="h-4 w-4 text-slate-500"
+                                />
+                              </th>
+                            ) : (
+                              <th className="w-12 px-4 py-2">#</th>
+                            )}
+                            <th className="px-4 py-2">{renderSortableHeader('name', 'Name')}</th>
+                            <th className="px-4 py-2">{renderSortableHeader('course', 'Course')}</th>
+                            <th className="px-4 py-2">{renderSortableHeader('yearLevel', 'Year Level')}</th>
+                            <th className="px-4 py-2">{renderSortableHeader('block', 'Block')}</th>
+                            <th className="px-4 py-2 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {courseStudents.length === 0 ? (
+                            <tr><td colSpan={selectMode ? 6 : 6} className="px-4 py-6 text-center text-sm text-slate-500">No students found.</td></tr>
+                          ) : courseStudents.map((st, rowIndex) => (
+                            <tr key={st.id} className="border-t border-gray-100">
+                              {selectMode ? (
+                                <td className="px-4 py-2 align-middle">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedIds.includes(st.id)}
+                                    onChange={() => toggleSelectStudent(st.id)}
+                                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                  />
+                                </td>
+                              ) : (
+                                <td className="px-4 py-2 text-slate-500">{rowIndex + 1}</td>
+                              )}
+                              <td className="px-4 py-2">{st.name}</td>
+                              <td className="px-4 py-2">{st.course}</td>
+                              <td className="px-4 py-2">{getYearLevelLabel(st.yearLevel)}</td>
+                              <td className="px-4 py-2">{st.block || '—'}</td>
+                              <td className="px-4 py-2 text-right">
+                                <div className="flex items-center gap-2 justify-end">
+                                  <button onClick={() => handleEditOtherStudent(st)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Pencil className="w-4 h-4" /></button>
+                                  <button onClick={() => handleDeleteOtherStudent(st.id)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Trash className="w-4 h-4" /></button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              }
+
+              const courses = Array.from(new Map((otherDeptStudents || []).map(s => [ (s.course || '—').toString().trim(), null])).keys());
+              if (courses.length === 0) {
+                return <div className="p-8 text-center text-sm text-slate-500">No students found for this department.</div>;
+              }
+
+             
+            })()}
           </div>
         </div>
       )}
@@ -786,10 +964,19 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
       {confirmDialog.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={closeConfirmDialog}></div>
-          <div className="relative z-10 w-full max-w-md rounded-2xl border border-gray-300 bg-white p-8 shadow-xl">
-            <div className="text-lg font-semibold text-slate-900">{confirmDialog.title}</div>
-            <p className="mt-2  text-slate-700">{confirmDialog.message}</p>
-            <div className="mt-8 flex justify-end gap-2">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow">
+            <div className="px-8 py-4 border-b border-slate-300">
+              <div className="text-lg font-semibold text-slate-900">{confirmDialog.title}</div>
+              {confirmDialog.subtitle && (
+                <p className="text-xs text-slate-500">{confirmDialog.subtitle}</p>
+              )}
+            </div>
+
+            <div className="px-8 py-4">
+              <p className=" text-slate-700">{confirmDialog.message}</p>
+            </div>
+
+            <div className="px-8 py-4 flex justify-end gap-2 border-t border-transparent">
               <button
                 type="button"
                 onClick={closeConfirmDialog}
@@ -800,7 +987,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
               <button
                 type="button"
                 onClick={confirmCurrentDialog}
-                className="px-4 py-1.5 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 {confirmDialog.confirmLabel}
               </button>
@@ -812,9 +999,9 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
       {departmentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setDepartmentModalOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
-            <div className="text-xl font-semibold mb-4">{editingDepartmentId ? 'Edit Department' : 'Add Department'}</div>
-            <form onSubmit={handleSaveDepartment} className="space-y-4">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow">
+            <div className="text-xl font-medium text-slate-800 border-b border-slate-300 px-8 py-4">{editingDepartmentId ? 'Edit Department' : 'Add Department'}</div>
+            <form onSubmit={handleSaveDepartment} className="space-y-2 px-8 py-4">
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Department Name</label>
                 <input
@@ -847,7 +1034,7 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                 <button
                   type="submit"
                   disabled={loading}
-                className="px-4 py-1.5 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   {editingDepartmentId ? 'Update' : 'Save'}
                 </button>
@@ -860,16 +1047,16 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
       {otherStudentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setOtherStudentModalOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-2xl shadow p-8">
-            <div className=" mb-4">
-              <h1 className='text-xl font-semibold mb-1'>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow ">
+            <div className="px-8 py-4 border-b border-slate-300 ">
+              <h1 className='text-xl font-semibold '>
                 {editingOtherStudentId ? 'Update Student' : 'Add Student'}
               </h1>
-              <p className="text-sm text-slate-500">
+              <p className="text-xs text-slate-500">
                 {selectedOtherDepartment?.name || 'Department'}
               </p>
             </div>
-            <form onSubmit={handleSaveOtherStudent} className="space-y-4">
+            <form onSubmit={handleSaveOtherStudent} className="space-y-2 px-8 py-4">
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Student Name</label>
                 <input
@@ -931,7 +1118,7 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                 <button
                   type="submit"
                   disabled={loading}
-                className="px-4 py-1.5 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   {editingOtherStudentId ? 'Update' : 'Add'}
                 </button>
