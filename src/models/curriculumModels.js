@@ -97,6 +97,96 @@ import {
 import { db } from '../firebase';
 import { logSystemAction } from '../utils/auditLogger';
 
+export const DEFAULT_DEAN_LIST_CRITERIA = {
+  major: 1.7,
+  minor: 2.0,
+  gwa: 1.7,
+  minUnits: 15,
+  applyMinUnitsFor: 'both',
+  computation: 'weighted'
+};
+
+const ACADEMIC_ELIGIBILITY_COLLECTION = 'academic_eligibility';
+const ACADEMIC_ELIGIBILITY_DOCS = {
+  deanList: doc(db, ACADEMIC_ELIGIBILITY_COLLECTION, 'deans_list'),
+  scholarship: doc(db, ACADEMIC_ELIGIBILITY_COLLECTION, 'scholarship'),
+  unitsLimit: doc(db, ACADEMIC_ELIGIBILITY_COLLECTION, 'units_limit')
+};
+
+export const normalizeDeanListCriteria = (criteria = {}) => {
+  const computation = ['weighted', 'simple'].includes(criteria.computation)
+    ? criteria.computation
+    : ['weighted', 'simple'].includes(criteria.gwaMethod)
+      ? criteria.gwaMethod
+      : DEFAULT_DEAN_LIST_CRITERIA.computation;
+
+  const applyMinUnitsFor = ['regular', 'irregular', 'both'].includes(criteria.applyMinUnitsFor)
+    ? criteria.applyMinUnitsFor
+    : DEFAULT_DEAN_LIST_CRITERIA.applyMinUnitsFor;
+
+  return {
+    major: toValidNumber(criteria.major, DEFAULT_DEAN_LIST_CRITERIA.major),
+    minor: toValidNumber(criteria.minor, DEFAULT_DEAN_LIST_CRITERIA.minor),
+    gwa: toValidNumber(criteria.gwa, DEFAULT_DEAN_LIST_CRITERIA.gwa),
+    minUnits: toValidNumber(criteria.minUnits, DEFAULT_DEAN_LIST_CRITERIA.minUnits),
+    applyMinUnitsFor,
+    computation,
+    gwaMethod: computation
+  };
+};
+
+export const evaluateDeanListEligibility = ({
+  entries = [],
+  criteria = {},
+  isIrregular = false
+} = {}) => {
+  const normalizedCriteria = normalizeDeanListCriteria(criteria);
+  const gradedEntries = entries
+    .map(entry => ({
+      grade: parseFloat(entry?.grade),
+      units: Number(entry?.units) || 0,
+      isMajor: !!entry?.isMajor
+    }))
+    .filter(entry => Number.isFinite(entry.grade));
+
+  if (gradedEntries.length === 0) {
+    return { eligible: false, gwa: null, totalUnits: 0, criteria: normalizedCriteria };
+  }
+
+  const totalUnits = gradedEntries.reduce((sum, entry) => sum + entry.units, 0);
+  const appliesToRegular = normalizedCriteria.applyMinUnitsFor === 'regular' || normalizedCriteria.applyMinUnitsFor === 'both';
+  const appliesToIrregular = normalizedCriteria.applyMinUnitsFor === 'irregular' || normalizedCriteria.applyMinUnitsFor === 'both';
+  const shouldCheckMinUnits = isIrregular ? appliesToIrregular : appliesToRegular;
+
+  if (normalizedCriteria.minUnits > 0 && shouldCheckMinUnits && totalUnits < normalizedCriteria.minUnits) {
+    return { eligible: false, gwa: null, totalUnits, criteria: normalizedCriteria };
+  }
+
+  let gwa = 0;
+  if (normalizedCriteria.computation === 'simple') {
+    const sum = gradedEntries.reduce((acc, entry) => acc + entry.grade, 0);
+    gwa = sum / gradedEntries.length;
+  } else {
+    const weightedSum = gradedEntries.reduce((acc, entry) => acc + (entry.grade * entry.units), 0);
+    const unitCount = gradedEntries.reduce((acc, entry) => acc + entry.units, 0) || gradedEntries.length;
+    gwa = unitCount === 0 ? 0 : weightedSum / unitCount;
+  }
+
+  if (!Number.isFinite(gwa) || gwa > normalizedCriteria.gwa) {
+    return { eligible: false, gwa: Number.isFinite(gwa) ? gwa : null, totalUnits, criteria: normalizedCriteria };
+  }
+
+  const majorBad = gradedEntries.some(entry => entry.isMajor && entry.grade > normalizedCriteria.major);
+  const minorBad = gradedEntries.some(entry => !entry.isMajor && entry.grade > normalizedCriteria.minor);
+
+  return {
+    eligible: !majorBad && !minorBad,
+    gwa,
+    totalUnits,
+    criteria: normalizedCriteria
+  };
+};
+
 // Curriculum Model
 export const createCurriculum = async (curriculumData) => {
   try {
@@ -471,15 +561,6 @@ export const getStudentCurriculumStatus = async (studentId) => {
   }
 };
 
-const DEAN_LIST_CRITERIA_DOC = doc(db, 'dean_list_criteria', 'default');
-const LEGACY_DEAN_LIST_CRITERIA_DOC = doc(db, 'settings', 'dean_list_criteria');
-const DEFAULT_DEAN_LIST_CRITERIA = {
-  major: 1.7,
-  minor: 2.0,
-  gwa: 1.7,
-  minUnits: 15
-};
-
 const toValidNumber = (value, fallback) => {
   const parsed = parseFloat(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -487,45 +568,21 @@ const toValidNumber = (value, fallback) => {
 
 export const getDeanListCriteria = async () => {
   try {
-    const criteriaDoc = await getDoc(DEAN_LIST_CRITERIA_DOC);
-
-    // Backward compatibility for older data location.
+    const criteriaDoc = await getDoc(ACADEMIC_ELIGIBILITY_DOCS.deanList);
     if (!criteriaDoc.exists()) {
-      const legacyDoc = await getDoc(LEGACY_DEAN_LIST_CRITERIA_DOC);
-      if (legacyDoc.exists()) {
-        const legacyData = legacyDoc.data() || {};
-        const migrated = {
-          major: toValidNumber(legacyData.major, DEFAULT_DEAN_LIST_CRITERIA.major),
-          minor: toValidNumber(legacyData.minor, DEFAULT_DEAN_LIST_CRITERIA.minor),
-          gwa: toValidNumber(legacyData.gwa, DEFAULT_DEAN_LIST_CRITERIA.gwa),
-          minUnits: toValidNumber(legacyData.minUnits, DEFAULT_DEAN_LIST_CRITERIA.minUnits),
-          createdAt: legacyData.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-
-        await setDoc(DEAN_LIST_CRITERIA_DOC, migrated, { merge: true });
-        return { success: true, data: { major: migrated.major, minor: migrated.minor, gwa: migrated.gwa, minUnits: migrated.minUnits } };
-      }
-    }
-
-    if (!criteriaDoc.exists()) {
-      await setDoc(DEAN_LIST_CRITERIA_DOC, {
-        ...DEFAULT_DEAN_LIST_CRITERIA,
+      const defaultCriteria = normalizeDeanListCriteria(DEFAULT_DEAN_LIST_CRITERIA);
+      await setDoc(ACADEMIC_ELIGIBILITY_DOCS.deanList, {
+        ...defaultCriteria,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       }, { merge: true });
-      return { success: true, data: DEFAULT_DEAN_LIST_CRITERIA };
+      return { success: true, data: defaultCriteria };
     }
 
     const data = criteriaDoc.data() || {};
     return {
       success: true,
-      data: {
-        major: toValidNumber(data.major, DEFAULT_DEAN_LIST_CRITERIA.major),
-        minor: toValidNumber(data.minor, DEFAULT_DEAN_LIST_CRITERIA.minor),
-        gwa: toValidNumber(data.gwa, DEFAULT_DEAN_LIST_CRITERIA.gwa),
-        minUnits: toValidNumber(data.minUnits, DEFAULT_DEAN_LIST_CRITERIA.minUnits)
-      }
+      data: normalizeDeanListCriteria(data)
     };
   } catch (error) {
     console.error('Error getting dean list criteria:', error);
@@ -533,19 +590,109 @@ export const getDeanListCriteria = async () => {
   }
 };
 
+const normalizeScholarshipTier = (tier = {}, fallback = {}) => ({
+  gwa: toValidNumber(tier.gwa, fallback.gwa ?? 1.75),
+  major: toValidNumber(tier.major, fallback.major ?? 1.75),
+  minor: toValidNumber(tier.minor, fallback.minor ?? 2.0),
+  minUnits: toValidNumber(tier.minUnits, fallback.minUnits ?? 0),
+  applyMinUnitsFor: ['regular', 'irregular', 'both'].includes(tier.applyMinUnitsFor) ? tier.applyMinUnitsFor : (fallback.applyMinUnitsFor || 'both'),
+  computation: ['weighted', 'simple'].includes(tier.computation) ? tier.computation : (fallback.computation || 'weighted')
+});
+
+const normalizeScholarshipConfig = (scholarship = {}) => {
+  const legacyRoot = scholarship || {};
+  const baseGwa = legacyRoot.gwa;
+  const baseMajor = legacyRoot.major;
+  const baseMinor = legacyRoot.minor;
+  const baseMinUnits = legacyRoot.minUnits;
+  const baseApplyMinUnitsFor = legacyRoot.applyMinUnitsFor;
+  const baseComputation = legacyRoot.computation;
+
+  const tier100Fallback = {
+    gwa: 1.5,
+    major: 1.5,
+    minor: 1.75,
+    minUnits: 0,
+    applyMinUnitsFor: 'both',
+    computation: 'weighted'
+  };
+  const tier50Fallback = {
+    gwa: 1.75,
+    major: 1.75,
+    minor: 2.0,
+    minUnits: 0,
+    applyMinUnitsFor: 'both',
+    computation: 'weighted'
+  };
+
+  const migratedFromLegacy = !legacyRoot.tier100 && !legacyRoot.tier50;
+  const tier100Source = migratedFromLegacy ? { gwa: Math.min(toValidNumber(baseGwa, 1.5), 1.5), major: Math.min(toValidNumber(baseMajor, 1.5), 1.5), minor: Math.min(toValidNumber(baseMinor, 1.75), 1.75), minUnits: baseMinUnits, applyMinUnitsFor: baseApplyMinUnitsFor, computation: baseComputation } : (legacyRoot.tier100 || {});
+  const tier50Source = migratedFromLegacy ? { gwa: toValidNumber(baseGwa, 1.75), major: toValidNumber(baseMajor, 1.75), minor: toValidNumber(baseMinor, 2.0), minUnits: baseMinUnits, applyMinUnitsFor: baseApplyMinUnitsFor, computation: baseComputation } : (legacyRoot.tier50 || {});
+
+  return {
+    tier100: normalizeScholarshipTier(tier100Source, tier100Fallback),
+    tier50: normalizeScholarshipTier(tier50Source, tier50Fallback)
+  };
+};
+
+const normalizeUnitsLimits = (unitsLimits = {}) => ({
+  default: {
+    regular: toValidNumber(unitsLimits?.default?.regular, 18),
+    irregular: toValidNumber(unitsLimits?.default?.irregular, 15),
+    overload: toValidNumber(unitsLimits?.default?.overload, 21)
+  },
+  byYear: unitsLimits?.byYear || {}
+});
+
+const buildAcademicEligibilityPayload = (config = {}) => ({
+  deanList: normalizeDeanListCriteria(config?.deanList || {}),
+  scholarship: normalizeScholarshipConfig(config?.scholarship || {}),
+  unitsLimits: normalizeUnitsLimits(config?.unitsLimits || {})
+});
+
+const readAcademicEligibilityStore = async () => {
+  const [deanListSnap, scholarshipSnap, unitsLimitSnap] = await Promise.all([
+    getDoc(ACADEMIC_ELIGIBILITY_DOCS.deanList),
+    getDoc(ACADEMIC_ELIGIBILITY_DOCS.scholarship),
+    getDoc(ACADEMIC_ELIGIBILITY_DOCS.unitsLimit)
+  ]);
+
+  if (deanListSnap.exists() || scholarshipSnap.exists() || unitsLimitSnap.exists()) {
+    return {
+      deanList: normalizeDeanListCriteria(deanListSnap.exists() ? deanListSnap.data() || {} : {}),
+      scholarship: normalizeScholarshipConfig(scholarshipSnap.exists() ? scholarshipSnap.data() || {} : {}),
+      unitsLimits: normalizeUnitsLimits(unitsLimitSnap.exists() ? unitsLimitSnap.data() || {} : {})
+    };
+  }
+
+  return null;
+};
+
+const writeAcademicEligibilityStore = async (payload) => {
+  const now = new Date().toISOString();
+  await setDoc(ACADEMIC_ELIGIBILITY_DOCS.deanList, { ...payload.deanList, updatedAt: now }, { merge: true });
+  await setDoc(ACADEMIC_ELIGIBILITY_DOCS.scholarship, { ...payload.scholarship, updatedAt: now }, { merge: true });
+  await setDoc(ACADEMIC_ELIGIBILITY_DOCS.unitsLimit, { ...payload.unitsLimits, updatedAt: now }, { merge: true });
+  return now;
+};
+
 export const saveDeanListCriteria = async (criteria = {}) => {
   try {
     const payload = {
-      major: toValidNumber(criteria.major, DEFAULT_DEAN_LIST_CRITERIA.major),
-      minor: toValidNumber(criteria.minor, DEFAULT_DEAN_LIST_CRITERIA.minor),
-      gwa: toValidNumber(criteria.gwa, DEFAULT_DEAN_LIST_CRITERIA.gwa),
-      minUnits: toValidNumber(criteria.minUnits, DEFAULT_DEAN_LIST_CRITERIA.minUnits),
+      ...normalizeDeanListCriteria(criteria),
       updatedAt: new Date().toISOString()
     };
 
-    await setDoc(DEAN_LIST_CRITERIA_DOC, payload, { merge: true });
-    // Keep legacy document updated for compatibility with existing dashboards/manual checks.
-    await setDoc(LEGACY_DEAN_LIST_CRITERIA_DOC, payload, { merge: true });
+    const existingStore = await getAcademicConfig();
+    if (existingStore.success) {
+      await writeAcademicEligibilityStore({
+        deanList: payload,
+        scholarship: existingStore.data.scholarship,
+        unitsLimits: existingStore.data.unitsLimits
+      });
+    } else {
+      await setDoc(ACADEMIC_ELIGIBILITY_DOCS.deanList, payload, { merge: true });
+    }
     await logSystemAction({
       action: 'Updated Dean List Criteria',
       module: 'Reports',
@@ -568,62 +715,18 @@ export const syncOfflineData = async () => {
   return { success: true, message: 'No offline storage implemented yet' };
 }; 
 
-// Academic configuration (dean list, scholarships, units limits)
-const ACADEMIC_CONFIG_DOC = doc(db, 'academic_config', 'settings');
+// Academic eligibility configuration (dean list, scholarships, units limits)
 
 export const getAcademicConfig = async () => {
   try {
-    const snap = await getDoc(ACADEMIC_CONFIG_DOC);
-    if (!snap.exists()) {
-      // default config
-      const defaultConfig = {
-        deanList: {
-          gwa: DEFAULT_DEAN_LIST_CRITERIA.gwa,
-          major: DEFAULT_DEAN_LIST_CRITERIA.major,
-          minor: DEFAULT_DEAN_LIST_CRITERIA.minor,
-          minUnits: DEFAULT_DEAN_LIST_CRITERIA.minUnits,
-          applyMinUnitsFor: 'both',
-          computation: 'weighted'
-        },
-        scholarship: {
-          tier100: {
-            gwa: 1.5,
-            major: 1.5,
-            minor: 1.75,
-            minUnits: 0,
-            applyMinUnitsFor: 'both',
-            computation: 'weighted'
-          },
-          tier50: {
-            gwa: 1.75,
-            major: 1.75,
-            minor: 2.0,
-            minUnits: 0,
-            applyMinUnitsFor: 'both',
-            computation: 'weighted'
-          }
-        },
-        unitsLimits: {
-          default: { regular: 18, irregular: 15, overload: 21 },
-          byYear: {}
-        },
-        updatedAt: new Date().toISOString()
-      };
-      await setDoc(ACADEMIC_CONFIG_DOC, defaultConfig, { merge: true });
-      return { success: true, data: defaultConfig };
+    const collectionData = await readAcademicEligibilityStore();
+    if (collectionData) {
+      return { success: true, data: collectionData };
     }
-    const data = snap.data();
-    // Migrate legacy single-tier scholarship config to two-tier if needed
-    if (data.scholarship && !data.scholarship.tier100 && !data.scholarship.tier50) {
-      const legacyGwa = parseFloat(data.scholarship.gwa ?? 1.75);
-      const legacyMajor = parseFloat(data.scholarship.major ?? 1.75);
-      const legacyMinor = parseFloat(data.scholarship.minor ?? 2.0);
-      data.scholarship = {
-        tier100: { gwa: Math.min(legacyGwa, 1.5), major: Math.min(legacyMajor, 1.5), minor: Math.min(legacyMinor, 1.75), minUnits: data.scholarship.minUnits || 0, applyMinUnitsFor: data.scholarship.applyMinUnitsFor || 'both', computation: data.scholarship.computation || 'weighted' },
-        tier50: { gwa: legacyGwa, major: legacyMajor, minor: legacyMinor, minUnits: data.scholarship.minUnits || 0, applyMinUnitsFor: data.scholarship.applyMinUnitsFor || 'both', computation: data.scholarship.computation || 'weighted' }
-      };
-    }
-    return { success: true, data };
+
+    const defaultConfig = buildAcademicEligibilityPayload({});
+    const createdAt = await writeAcademicEligibilityStore(defaultConfig);
+    return { success: true, data: { ...defaultConfig, updatedAt: createdAt } };
   } catch (error) {
     console.error('Error getting academic config:', error);
     return { success: false, error: error.message };
@@ -632,17 +735,18 @@ export const getAcademicConfig = async () => {
 
 export const saveAcademicConfig = async (config) => {
   try {
-    const payload = { ...config, updatedAt: new Date().toISOString() };
-    await setDoc(ACADEMIC_CONFIG_DOC, payload, { merge: true });
+    const payload = buildAcademicEligibilityPayload(config);
+    const updatedAt = await writeAcademicEligibilityStore(payload);
+    const nextPayload = { ...payload, updatedAt };
     await logSystemAction({
       action: 'Updated Academic Configuration',
       module: 'Administration',
       entityType: 'academic_config',
       entityId: 'settings',
       description: 'Updated academic eligibility and units limit configuration',
-      details: payload
+      details: nextPayload
     });
-    return { success: true, data: payload };
+    return { success: true, data: nextPayload };
   } catch (error) {
     console.error('Error saving academic config:', error);
     return { success: false, error: error.message };

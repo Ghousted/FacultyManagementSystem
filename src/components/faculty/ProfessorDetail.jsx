@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import {
   Plus,
   Trash2,
@@ -538,11 +538,59 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     [students]
   );
 
+  // Helper: get the joinedBlock for an irregular student for the currently selected subject.
+  // Uses the stored joinedBlock field. If missing and the professor only has one block
+  // assigned, falls back to that block. With multiple blocks, returns null (Irregular tab).
+  const getIrregularJoinedBlock = useCallback((student) => {
+    if (!student.isIrregular) return null;
+    const activeSem = Number(activeTerm?.semester) || 1;
+    const semKey = `sem${activeSem}`;
+    const targetCode = (selectedSubject?.courseCode || '').toString().trim().toUpperCase();
+    const items = ((student.irregularSubjects || {})[semKey]) || [];
+    const match = items.find(
+      item => (item.courseCode || '').toString().trim().toUpperCase() === targetCode
+    );
+    if (match?.joinedBlock) {
+      return String(match.joinedBlock).trim().toUpperCase();
+    }
+    // Fallback: if only one block is assigned, place the student there.
+    // If multiple blocks exist we can't guess, so return null (Irregular tab).
+    const assigned = (selectedSubject?.blocks || [])
+      .map(b => String(b).trim().toUpperCase())
+      .filter(Boolean);
+    if (assigned.length === 1) {
+      return assigned[0];
+    }
+    return null;
+  }, [activeTerm, selectedSubject]);
+
   const modalTabs = useMemo(() => {
+    const activeSem = Number(activeTerm?.semester) || 1;
+    const semKey = `sem${activeSem}`;
+    const targetCode = (selectedSubject?.courseCode || '').toString().trim().toUpperCase();
+    const assignedBlocks = (selectedSubject?.blocks || [])
+      .map(b => String(b).trim().toUpperCase())
+      .filter(Boolean);
+
+    // Resolve which block tab each irregular student belongs to
+    const resolveIrregularBlock = (s) => {
+      const items = ((s.irregularSubjects || {})[semKey]) || [];
+      const match = items.find(
+        item => (item.courseCode || '').toString().trim().toUpperCase() === targetCode
+      );
+      if (match?.joinedBlock) {
+        const jb = String(match.joinedBlock).trim().toUpperCase();
+        if (availableBlocks.includes(jb)) return jb;
+      }
+      // Fallback: single assigned block
+      if (assignedBlocks.length === 1) return assignedBlocks[0];
+      return null; // goes to Irregular tab
+    };
+
     const blockTabs = availableBlocks
       .map(block => {
         const count = students.filter(s => {
-          if (s.isIrregular) return false;
+          if (s.isIrregular) return resolveIrregularBlock(s) === block;
           const b = s.block && String(s.block).trim() !== ''
             ? String(s.block).trim().toUpperCase()
             : 'A';
@@ -550,18 +598,22 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
         }).length;
         return { value: block, label: `Block ${block}`, count };
       })
-      .filter(tab => tab.count > 0); // only show blocks that have students
+      .filter(tab => tab.count > 0);
 
-    if (irregularStudentsForSubject.length > 0) {
+    // "Irregular" tab: irregular students whose resolved block is null
+    const irregularsWithoutBlock = irregularStudentsForSubject.filter(
+      s => resolveIrregularBlock(s) === null
+    );
+    if (irregularsWithoutBlock.length > 0) {
       blockTabs.push({
         value: IRREGULAR_MODAL_TAB,
         label: 'Irregular',
-        count: irregularStudentsForSubject.length
+        count: irregularsWithoutBlock.length
       });
     }
 
     return blockTabs;
-  }, [availableBlocks, students, irregularStudentsForSubject.length]);
+  }, [availableBlocks, students, irregularStudentsForSubject, selectedSubject, activeTerm]);
 
   // Auto-select first student tab when tabs change; preserve current tab if it still exists
   useEffect(() => {
@@ -578,10 +630,31 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
   const filteredStudents = useMemo(() => {
     const q = studentSearch.trim().toLowerCase();
     const onIrregularTab = activeBlockTab === IRREGULAR_MODAL_TAB;
+    const activeSem = Number(activeTerm?.semester) || 1;
+    const semKey = `sem${activeSem}`;
+    const targetCode = (selectedSubject?.courseCode || '').toString().trim().toUpperCase();
+    const assignedBlocks = (selectedSubject?.blocks || [])
+      .map(b => String(b).trim().toUpperCase())
+      .filter(Boolean);
+
+    const resolveIrregularBlock = (s) => {
+      const items = ((s.irregularSubjects || {})[semKey]) || [];
+      const match = items.find(
+        item => (item.courseCode || '').toString().trim().toUpperCase() === targetCode
+      );
+      if (match?.joinedBlock) {
+        const jb = String(match.joinedBlock).trim().toUpperCase();
+        if (availableBlocks.includes(jb)) return jb;
+      }
+      if (assignedBlocks.length === 1) return assignedBlocks[0];
+      return null;
+    };
 
     return students.filter(s => {
       if (onIrregularTab) {
         if (!s.isIrregular) return false;
+        // Only show irregulars whose resolved block is null (can't be placed in a block tab)
+        if (resolveIrregularBlock(s) !== null) return false;
         if (!q) return true;
         return (
           (s.name || '').toLowerCase().includes(q) ||
@@ -589,13 +662,21 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
         );
       }
 
-      if (s.isIrregular) return false;
+      if (s.isIrregular) {
+        // Show irregular student in the block tab matching their resolved block
+        const resolvedBlock = resolveIrregularBlock(s);
+        if (!resolvedBlock || resolvedBlock !== activeBlockTab) return false;
+        if (!q) return true;
+        return (
+          (s.name || '').toLowerCase().includes(q) ||
+          (s.studentNumber || '').toLowerCase().includes(q)
+        );
+      }
 
-      // For regular tabs, filter by block
+      // Regular student: filter by their block field
       const block = s.block && String(s.block).trim() !== ''
         ? String(s.block).trim().toUpperCase()
         : 'A';
-      // If activeBlockTab is not set yet, show all students
       if (activeBlockTab && block !== activeBlockTab) return false;
       if (!q) return true;
       return (
@@ -603,7 +684,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
         (s.studentNumber || '').toLowerCase().includes(q)
       );
     });
-  }, [students, studentSearch, activeBlockTab]);
+  }, [students, studentSearch, activeBlockTab, availableBlocks, selectedSubject, activeTerm]);
 
   // Sort filtered students by name (default) or school ID
   const sortedStudents = useMemo(() => {
@@ -1445,9 +1526,14 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                       </tr>
                     ) : (
                       irregularStudents.map((student) => {
-                        const studentBlock = student.block && String(student.block).trim() !== ''
-                          ? String(student.block).trim().toUpperCase()
-                          : 'A';
+                        // For irregular students, derive the joined block from their matching subjects
+                        // (joinedBlock is stored per-subject when the student adds the subject)
+                        const joinedBlocks = [...new Set(
+                          (student.irregularSubjects || [])
+                            .map(item => item.joinedBlock ? String(item.joinedBlock).trim().toUpperCase() : null)
+                            .filter(Boolean)
+                        )].sort();
+                        const blockDisplay = joinedBlocks.length > 0 ? joinedBlocks.join(', ') : 'Irregular';
                         const enrolledInCurrentTerm = Number(student.enrolledTerm?.semester) === Number(activeTerm?.semester)
                           && student.enrolledTerm?.schoolYear === activeTerm?.schoolYear;
                         const irregularSubjectLabels = (student.irregularSubjects || [])
@@ -1458,7 +1544,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                           <tr key={student.id} className="border-t border-gray-100 ">
                             <td className="px-4 py-3 text-gray-700">{student.name}</td>
                             <td className="px-4 py-3 text-gray-700">{student.course || student.irregularSubjects?.[0]?.courseCode || '—'}</td>
-                            <td className="px-4 py-3 text-gray-700">{getYearLabel(student.yearLevel)} · Blk. {studentBlock}</td>
+                            <td className="px-4 py-3 text-gray-700">{getYearLabel(student.yearLevel)} · Blk. {blockDisplay}</td>
                             <td className="px-4 py-3 text-gray-700">{irregularSubjectLabels}</td>
                             <td className="px-4 py-3 text-right">
                               <button
@@ -1500,7 +1586,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     <table className="w-full table-fixed text-sm border-separate border-spacing-0">
 
       {/* HEADER */}
-      <thead className="bg-blue-600 text-left text-sm tracking-wide text-white">
+      <thead className="bg-blue-600 text-left text-xs uppercase tracking-wide text-white">
         <tr>
           <th className="w-[15%] cursor-pointer select-none p-4"
             onClick={() => handleSort('courseCode')}>
@@ -1509,7 +1595,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
 
           <th className="w-[30%] cursor-pointer select-none px-4 py-2"
             onClick={() => handleSort('courseTitle')}>
-            Subject Title <SortIcon column="courseTitle" />
+            Subject Description <SortIcon column="courseTitle" />
           </th>
 
           <th className="w-[15%] px-4 py-2">
@@ -1728,11 +1814,26 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                   </thead>
                   <tbody>
                     {sortedStudents.map((s, i) => {
-                      const block = s.isIrregular
-                        ? null
-                        : s.block && String(s.block).trim() !== ''
+                      let block;
+                      let displayYearLevel = s.yearLevel;
+                      if (s.isIrregular) {
+                        block = 'Irregular';
+                        // Show the year level of the class they joined, not their own standing
+                        const activeSem = Number(activeTerm?.semester) || 1;
+                        const semKey = `sem${activeSem}`;
+                        const targetCode = (selectedSubject?.courseCode || '').toString().trim().toUpperCase();
+                        const irregItems = ((s.irregularSubjects || {})[semKey]) || [];
+                        const matchedItem = irregItems.find(
+                          item => (item.courseCode || '').toString().trim().toUpperCase() === targetCode
+                        );
+                        if (matchedItem?.joinedYearLevel) {
+                          displayYearLevel = matchedItem.joinedYearLevel;
+                        }
+                      } else {
+                        block = s.block && String(s.block).trim() !== ''
                           ? String(s.block).trim().toUpperCase()
                           : 'A';
+                      }
                       const courseLabel = getStudentCourseLabel(s, selectedSubject);
                       return (
                         <tr
@@ -1745,7 +1846,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                            
                           </td>
                           <td className="px-4 py-2 text-gray-700">{courseLabel}</td>
-                          <td className="px-4 py-2 text-gray-600">{getYearLabel(s.yearLevel)}</td>
+                          <td className="px-4 py-2 text-gray-600">{getYearLabel(displayYearLevel)}</td>
                           <td className="px-4 py-2 text-gray-600">{block}</td>
                         </tr>
                       );

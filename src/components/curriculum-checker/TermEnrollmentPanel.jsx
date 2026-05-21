@@ -6,7 +6,7 @@ import EnrollmentManager from './EnrollmentManager';
 
 const SEMESTER_LABELS = { 1: '1st Semester', 2: '2nd Semester', 3: 'Summer' };
 
-const TermEnrollmentPanel = ({ headerOnly = false }) => {
+const TermEnrollmentPanel = ({ headerOnly = false, onBreadcrumbChange }) => {
   const [activeTerm, setActiveTerm] = useState({ semester: 1, schoolYear: '' });
   const [loadingTerm, setLoadingTerm] = useState(true);
   const [editingTerm, setEditingTerm] = useState(false);
@@ -243,7 +243,7 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
 
   return (
     <div>
-      <EnrollmentManager activeTerm={activeTerm} />
+      <EnrollmentManager activeTerm={activeTerm} onBreadcrumbChange={onBreadcrumbChange} />
     </div>
   );
 };

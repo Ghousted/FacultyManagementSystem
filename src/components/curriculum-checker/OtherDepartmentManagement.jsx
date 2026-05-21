@@ -715,43 +715,8 @@ const OtherDepartmentManagement = () => {
 
             {(openCourse || openCombo) && (
            <div className="flex items-center justify-between gap-2 mb-4 flex-1">
-              {/* Left side */}
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <button
-                  type="button"
-                  onClick={toggleSelectMode}
-                  title={selectMode ? 'Turn off selection' : 'Select students'}
-                  className={`inline-flex items-center gap-2 rounded-lg border border-gray-300 p-2 text-sm transition cursor-pointer
-                    ${
-                      selectMode
-                        ? 'bg-blue-50 text-blue-600 border-blue-300'
-                        : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
-                    }`}
-                >
-                  <Square className="h-4 w-4" />
-                  {selectMode ? 'Selecting' : 'Select'}
-                </button>
 
-                {selectMode && selectedIds.length > 0 && (
-                <div className="inline-flex items-center gap-2 text-sm text-gray-700">
-                  <button
-                    type="button"
-                    onClick={handleBulkDelete}
-                    title="Delete selected students"
-                              className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
-                  >
-                    <Trash className="h-4 w-4" />
-                    
-                  </button>
-                    <span className='text-xs'>{selectedIds.length} selected</span>
-                   </div>
-                )}
-
-            
-              </div>
-
-              {/* Right side */}  
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => loadOtherDeptStudents(selectedOtherDeptId)}
@@ -773,6 +738,46 @@ const OtherDepartmentManagement = () => {
                 />
               </div>
               </div>
+              
+              {/* Left side */}
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <button
+                  type="button"
+                  onClick={toggleSelectMode}
+                  title={selectMode ? 'Turn off selection' : 'Select students'}
+                  className={`inline-flex items-center gap-2 rounded-lg border border-gray-300 p-2 text-sm transition cursor-pointer
+                    ${
+                      selectMode
+                        ? 'bg-blue-50 text-blue-600 border-blue-300'
+                        : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+                    }`}
+                >
+                  <Square className="h-4 w-4" />
+                  {selectMode ? 'Selecting' : 'Select'}
+                </button>
+
+          
+                <div className="inline-flex items-center gap-2 text-sm text-gray-700">
+                  <button
+                    type="button"
+                    onClick={handleBulkDelete}
+                    disabled={selectedIds.length === 0}
+                    title={selectedIds.length === 0 ? 'Select students to delete' : 'Delete selected students'}
+                    className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-100"
+                  >
+                    <Trash className="h-4 w-4" />
+                  </button>
+                  <span className='text-xs'>
+                    {selectedIds.length > 0 ? `${selectedIds.length} selected` : 'None selected'}
+                  </span>
+                </div>
+               
+
+            
+              </div>
+
+              {/* Right side */}  
+              
             </div>
             )}
 
@@ -845,8 +850,18 @@ const OtherDepartmentManagement = () => {
                               <td className="px-4 py-2">{st.block || '—'}</td>
                               <td className="px-4 py-2 text-right">
                                 <div className="flex items-center gap-2 justify-end">
-                                  <button onClick={() => handleEditOtherStudent(st)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Pencil className="w-4 h-4" /></button>
-                                  <button onClick={() => handleDeleteOtherStudent(st.id)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Trash className="w-4 h-4" /></button>
+                                  <button 
+                                    onClick={() => handleEditOtherStudent(st)} 
+                              className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteOtherStudent(st.id)} 
+                              className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
+                                  >
+                                    <Trash className="w-4 h-4" />
+                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -937,8 +952,18 @@ const OtherDepartmentManagement = () => {
                               <td className="px-4 py-2">{st.block || '—'}</td>
                               <td className="px-4 py-2 text-right">
                                 <div className="flex items-center gap-2 justify-end">
-                                  <button onClick={() => handleEditOtherStudent(st)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Pencil className="w-4 h-4" /></button>
-                                  <button onClick={() => handleDeleteOtherStudent(st.id)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200"><Trash className="w-4 h-4" /></button>
+                                  <button 
+                                    onClick={() => handleEditOtherStudent(st)} 
+                              className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteOtherStudent(st.id)} 
+                              className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
+                                  >
+                                    <Trash className="w-4 h-4" />
+                                  </button>
                                 </div>
                               </td>
                             </tr>

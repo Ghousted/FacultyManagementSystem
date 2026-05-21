@@ -8,12 +8,16 @@ import Breadcrumbs from '../common/Breadcrumbs';
 
 const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId }) => {
   const [currentView, setCurrentView] = useState(initialView || 'main');
+  // Extra breadcrumb items appended by child views (e.g. folder name, student name)
+  const [extraCrumbs, setExtraCrumbs] = useState([]);
 
   const handleFeatureSelect = (feature) => {
+    setExtraCrumbs([]);
     setCurrentView(feature);
   };
 
   const handleBackToMain = () => {
+    setExtraCrumbs([]);
     setCurrentView('main');
   };
 
@@ -50,7 +54,26 @@ const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId
   }
 
   if (currentView === 'student-management') {
-    return <StudentManagement onBack={handleBackToMain} />;
+    return (
+      <>
+        <Breadcrumbs
+          items={[
+            { label: 'Curriculum Management System', onClick: handleBackToMain },
+            {
+              label: 'Student Management',
+              onClick: extraCrumbs.length > 0
+                ? () => {
+                    setExtraCrumbs([]);
+                    window.dispatchEvent(new CustomEvent('reset-student-management'));
+                  }
+                : null
+            },
+            ...extraCrumbs
+          ]}
+        />
+        <StudentManagement onBack={handleBackToMain} onBreadcrumbChange={setExtraCrumbs} />
+      </>
+    );
   }
 
   if (currentView === 'curriculum-checker') {
@@ -58,7 +81,26 @@ const CurriculumChecker = ({ onBackToDashboard, initialView, initialCurriculumId
   }
 
   if (currentView === 'enrollment-management') {
-    return <TermEnrollmentPanel onBack={handleBackToMain} />;
+    return (
+      <>
+        <Breadcrumbs
+          items={[
+            { label: 'Curriculum Management System', onClick: handleBackToMain },
+            {
+              label: 'Enrollment Management',
+              onClick: extraCrumbs.length > 0
+                ? () => {
+                    setExtraCrumbs([]);
+                    window.dispatchEvent(new CustomEvent('reset-enrollment-manager'));
+                  }
+                : null
+            },
+            ...extraCrumbs
+          ]}
+        />
+        <TermEnrollmentPanel onBack={handleBackToMain} onBreadcrumbChange={setExtraCrumbs} />
+      </>
+    );
   }
 
   return (

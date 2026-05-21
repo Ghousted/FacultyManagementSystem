@@ -19,7 +19,6 @@ import {
   setStudentNotEnrolled,
   bulkSetStudentEnrollment
 } from '../../models/facultyModels';
-
 // Filter students by status will be declared inside the component below
 
 const SEMESTER_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
@@ -113,7 +112,7 @@ const TableSkeleton = () => (
 );
 
 
-const EnrollmentManager = ({ activeTerm }) => {
+const EnrollmentManager = ({ activeTerm, onBreadcrumbChange }) => {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -243,8 +242,19 @@ const EnrollmentManager = ({ activeTerm }) => {
 
   const term = normalizeTerm(activeTerm);
 
-  // Emit breadcrumb info to top-level App so breadcrumb appears at page top
+  // Notify parent (CurriculumChecker) of the current breadcrumb trail so it can
+  // render the breadcrumb at the top of the page rather than inside this component.
   useEffect(() => {
+    if (onBreadcrumbChange) {
+      onBreadcrumbChange(
+        selectedFolder
+          ? [{ label: selectedFolder.isIrregular
+              ? `Irregular Block ${selectedFolder.block}`
+              : `${getYearLabel(selectedFolder.year)} Year Block ${selectedFolder.block}` }]
+          : []
+      );
+    }
+    // Also keep the legacy custom event for any other listeners
     try {
       window.dispatchEvent(
         new CustomEvent('student-breadcrumb', {
@@ -257,7 +267,7 @@ const EnrollmentManager = ({ activeTerm }) => {
     } catch {
       // noop
     }
-  }, [selectedFolder]);
+  }, [selectedFolder, onBreadcrumbChange]);
 
   // Listen for reset events from top-level breadcrumb/button
   useEffect(() => {
@@ -924,7 +934,9 @@ const EnrollmentManager = ({ activeTerm }) => {
                           </td>
 
                           <td className="px-4 py-2 ">
-                            <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${meta.pill}`}>
+                            <span
+                              className={`inline-flex min-w-22 justify-center items-center rounded-full border px-2 py-0.5 text-center text-xs font-medium ${meta.pill}`}
+                            >
                               {meta.label}
                             </span>
                           </td>

@@ -11,7 +11,9 @@ import {
   getAcademicConfig,
   saveAcademicConfig,
   getAllCourses,
-  archiveAndPromoteStudents
+  archiveAndPromoteStudents,
+  normalizeDeanListCriteria,
+  evaluateDeanListEligibility
 } from '../../models/curriculumModels';
 import { getActiveTerm } from '../../models/facultyModels';
 import { useAuth } from '../../contexts/AuthContext';
@@ -20,6 +22,7 @@ import { db } from '../../firebase';
 import OtherDepartmentManagement from './OtherDepartmentManagement';
 import { BadgePlus, Pencil, Folder, Trash, Search, ChevronUp, ChevronDown, User, ChevronsUpDown, RefreshCcw, ChevronLeft, Plus, Funnel, X, FolderArchive, MoreVertical, Square } from 'lucide-react';
 import { logSystemAction } from '../../utils/auditLogger';
+import { DeanListCriteriaFields } from '../common/DeanListCriteriaModal';
 
 const SEMESTER_LABELS = { 1: '1st Sem', 2: '2nd Sem', 3: 'Summer' };
 const STUDENT_MODAL_YEAR_TABS = [
@@ -102,7 +105,7 @@ const RowSkeleton = () => (
   </tr>
 );
 
-const StudentManagement = ({ onBack, initialSection = 'students' }) => {
+const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbChange }) => {
   const { currentUser } = useAuth();
   const [students, setStudents] = useState([]);
   const [curriculums, setCurriculums] = useState([]);
@@ -174,6 +177,13 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   const [subjectPickerSearch, setSubjectPickerSearch] = useState('');
   const [subjectPickerSortBy, setSubjectPickerSortBy] = useState('courseCode');
   const [subjectPickerSortOrder, setSubjectPickerSortOrder] = useState('asc');
+  const [subjectPickerJoinYearLevel, setSubjectPickerJoinYearLevel] = useState('');
+  const [subjectPickerJoinBlock, setSubjectPickerJoinBlock] = useState('');
+  // Join-class confirmation modal (shown after clicking Add on a subject)
+  const [joinClassModalOpen, setJoinClassModalOpen] = useState(false);
+  const [joinClassPendingCourse, setJoinClassPendingCourse] = useState(null);
+  const [joinClassYearLevel, setJoinClassYearLevel] = useState('');
+  const [joinClassBlock, setJoinClassBlock] = useState('');
   const [irregularDeleteDialogOpen, setIrregularDeleteDialogOpen] = useState(false);
   const [irregularSubjectToDelete, setIrregularSubjectToDelete] = useState(null);
 
@@ -234,7 +244,12 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   const loadAcademicConfig = async () => {
     setAcademicLoading(true);
     const res = await getAcademicConfig();
-    if (res?.success) setAcademicConfig(res.data);
+    if (res?.success) {
+      setAcademicConfig({
+        ...res.data,
+        deanList: normalizeDeanListCriteria(res.data?.deanList || {})
+      });
+    }
     else setAcademicConfig(null);
     setAcademicLoading(false);
   };
@@ -907,7 +922,6 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     setLoading(true);
     const result = await updateStudentCourse(selectedStudent.id, courseCode, isCompleted);
     if (result.success) {
-      toast.success('Course status updated!');
       
       // Update the local selectedStudent state immediately
       setSelectedStudent(prev => {
@@ -1267,6 +1281,33 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     return blocks && blocks.length > 0 ? blocks[0] : 'A';
   };
 
+  const getFolderLabel = (folder) => {
+    if (!folder) return '';
+    if (folder.isInactiveFolder) return 'Inactive Students';
+    if (folder.isIrregular) return 'Irregular Students';
+    const yearNum = Number(folder.year || 0);
+    return `${getYearLabel(yearNum)} Year Block ${folder.block || 'A'}`;
+  };
+
+  // Notify parent (CurriculumChecker) of the current breadcrumb trail so it can
+  // render the breadcrumb at the top of the page rather than inside this component.
+  useEffect(() => {
+    if (!onBreadcrumbChange) return;
+    if (selectedStudent) {
+      onBreadcrumbChange([
+        ...(selectedFolder
+          ? [{ label: getFolderLabel(selectedFolder), onClick: () => setSelectedStudent(null) }]
+          : []),
+        { label: selectedStudent.name || 'Student Detail' }
+      ]);
+    } else if (selectedFolder) {
+      onBreadcrumbChange([{ label: getFolderLabel(selectedFolder) }]);
+    } else {
+      onBreadcrumbChange([]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFolder, selectedStudent, onBreadcrumbChange]);
+
   const getIrregularSubjectCandidates = () => {
     let candidates = [...allCourses];
 
@@ -1355,7 +1396,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
            (hasGrade && !isFailed && !isIncomplete);
   };
 
-  const handleAddIrregularSubject = async (semester, course) => {
+  const handleAddIrregularSubject = async (semester, course, joinYearLevel, joinBlock) => {
     if (!selectedStudent) return;
     if (!course) {
       setError('Please select a subject to add');
@@ -1410,7 +1451,9 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       curriculumName: getCurriculumName(course.curriculumId) || 'Unknown Curriculum',
       yearLevel: targetYear,
       enrolledSemester: enrolledSemester,
-      enrolledSchoolYear: term.schoolYear
+      enrolledSchoolYear: term.schoolYear,
+      joinedYearLevel: joinYearLevel ? Number(joinYearLevel) : null,
+      joinedBlock: joinBlock || null
     };
 
     const next = {
@@ -1442,12 +1485,33 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   const openSubjectPicker = (semester) => {
     setSubjectPickerSemester(semester);
     setSubjectPickerCurriculumFilter('all');
-    setSubjectPickerYearFilter(String(courseTab + 1));
+    setSubjectPickerYearFilter('all');
     setSubjectPickerSemesterFilter('all');
     setSubjectPickerSearch('');
     setSubjectPickerSortBy('courseCode');
     setSubjectPickerSortOrder('asc');
+    setSubjectPickerJoinYearLevel('');
+    setSubjectPickerJoinBlock('');
     setSubjectPickerOpen(true);
+  };
+
+  // Called when user clicks "Add" on a subject row — opens the join-class modal
+  const handleRequestAddIrregularSubject = (course) => {
+    setJoinClassPendingCourse(course);
+    setJoinClassYearLevel('');
+    setJoinClassBlock('');
+    setJoinClassModalOpen(true);
+  };
+
+  // Called when user confirms the join-class modal
+  const handleConfirmJoinClass = async () => {
+    if (!joinClassPendingCourse) return;
+    const yearLevel = joinClassPendingCourse.yearLevel ? String(joinClassPendingCourse.yearLevel) : '';
+    await handleAddIrregularSubject(subjectPickerSemester, joinClassPendingCourse, yearLevel, joinClassBlock);
+    setJoinClassModalOpen(false);
+    setJoinClassPendingCourse(null);
+    setJoinClassYearLevel('');
+    setJoinClassBlock('');
   };
 
   const handleRemoveIrregularSubject = async (semester, subjectId) => {
@@ -1500,18 +1564,10 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   // Calculate Dean's Lister eligibility for a semester
   const calculateDeansListerEligibility = (semester, year) => {
     if (!selectedStudent || !studentGrades || !academicConfig) return false;
-
-    const config = academicConfig.deanList || {};
-    const computation = config.computation || 'weighted';
-    const gwaCutoff = parseFloat(config.gwa ?? 1.7);
-    const majorCutoff = parseFloat(config.major ?? 1.7);
-    const minorCutoff = parseFloat(config.minor ?? 2.0);
-    const minUnits = Number(config.minUnits || 0);
-    const applyMinFor = config.applyMinUnitsFor || 'both';
+    const config = normalizeDeanListCriteria(academicConfig.deanList || {});
 
     const semesterCourses = studentCourses.filter(course => course.yearLevel === year && course.semester === semester);
 
-    // collect graded courses for the semester with units and major flag
     const graded = semesterCourses.map(course => ({
       course,
       grade: studentGrades[course.courseCode]
@@ -1519,38 +1575,17 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
     if (graded.length === 0) return false;
 
-    // units total for minUnits check
-    const totalUnits = graded.reduce((s, g) => s + (Number(g.course.units) || 0), 0);
+    const evaluation = evaluateDeanListEligibility({
+      entries: graded.map(item => ({
+        grade: item.grade,
+        units: item.course.units,
+        isMajor: !!item.course.isMajor
+      })),
+      criteria: config,
+      isIrregular: !!selectedStudent.isIrregular
+    });
 
-    // Check min units applicability
-    if (minUnits > 0) {
-      if (applyMinFor === 'regular' && selectedStudent.isIrregular) return false;
-      if (applyMinFor === 'irregular' && !selectedStudent.isIrregular) return false;
-      if (totalUnits < minUnits) return false;
-    }
-
-    // compute GWA
-    let gwa = 0;
-    if (computation === 'weighted') {
-      const num = graded.reduce((s, g) => s + (parseFloat(g.grade) * (Number(g.course.units) || 0)), 0);
-      const denom = graded.reduce((s, g) => s + (Number(g.course.units) || 0), 0) || graded.length;
-      gwa = denom === 0 ? 0 : num / denom;
-    } else {
-      const sum = graded.reduce((s, g) => s + parseFloat(g.grade), 0);
-      gwa = sum / graded.length;
-    }
-
-    if (isNaN(gwa)) return false;
-
-    if (gwa > gwaCutoff) return false;
-
-    // major/minor checks: ensure no major grade exceeds majorCutoff and no minor exceeds minorCutoff
-    const majorBad = graded.some(g => g.course.isMajor && parseFloat(g.grade) > majorCutoff);
-    const minorBad = graded.some(g => !g.course.isMajor && parseFloat(g.grade) > minorCutoff);
-
-    if (majorBad || minorBad) return false;
-
-    return true;
+    return evaluation.eligible;
   };
 
   // Helper: check scholarship tier eligibility given a tier config and graded courses
@@ -1899,87 +1934,25 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
 
               <div className="flex-1 overflow-y-auto min-h-0 space-y-2 pr-1">
                 {academicActiveTab === 0 && (
-                  <div>
-                    {/* Dean's List Config */}
-                    <div className="flex flex-col gap-2">
-                    
-                      <div>
-                        <label className="text-sm">Major cutoff</label>
-                        <input type="number" step="0.01" value={academicConfig?.deanList?.major ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, major: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
-                      </div>
-                      <div>
-                        <label className="text-sm">Minor cutoff</label>
-                        <input type="number" step="0.01" value={academicConfig?.deanList?.minor ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, minor: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
-                      </div>
+                  <div className="flex flex-col gap-3">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                      Dean's List rules are shared with the reports module and are evaluated automatically in the student eligibility summary.
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="mb-4 flex items-center justify-between gap-3">
                         <div>
-                        <label className="text-sm">GWA cutoff</label>
-                        <input 
-                          type="number" 
-                          step="0.01" 
-                          value={academicConfig?.deanList?.gwa ?? ''} 
-                          onChange={(e)=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, gwa: e.target.value}}))} 
-                          className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-                        />
+                          <p className="text-sm font-medium text-slate-800">Dean's Lister criteria</p>
+                          <p className="text-xs text-slate-500">Same configuration used by the Dean's List Report module.</p>
+                        </div>
+                        <span className="rounded-full bg-blue-50 px-3 py-1 text-[11px] font-medium text-blue-700">Shared settings</span>
                       </div>
-                      <div>
-                        <label className="text-sm">Minimum units</label>
-                        <input type="number" value={academicConfig?.deanList?.minUnits ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, minUnits: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
-                      </div>
-                    </div>
-
-                    <div className="mt-3">
-                      <label className="text-sm">Apply minimum units for</label>
-                      <select value={academicConfig?.deanList?.applyMinUnitsFor || 'both'} onChange={(e)=> setAcademicConfig(prev=> ({...prev, deanList:{...prev.deanList, applyMinUnitsFor: e.target.value}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow">
-                        <option value="regular">Regular students only</option>
-                        <option value="irregular">Irregular students only</option>
-                        <option value="both">Both</option>
-                      </select>
-                    </div>
-
-                <div className="mt-3 flex  text-sm items-center gap-4">
-  <label className="text-sm whitespace-nowrap">Computation method:</label>
-
-  <div className="flex items-center gap-3">
-    <label className="inline-flex items-center gap-2 cursor-pointer">
-      <input
-        type="radio"
-        name="deanComp"
-        checked={(academicConfig?.deanList?.computation || 'weighted') === 'weighted'}
-        onChange={() =>
-          setAcademicConfig(prev => ({
-            ...prev,
-            deanList: {
-              ...prev.deanList,
-              computation: 'weighted'
-            }
-          }))
-        }
-      />
-      Weighted 
-    </label>
-
-    <label className="inline-flex items-center gap-2 cursor-pointer">
-      <input
-        type="radio"
-        name="deanComp"
-        checked={(academicConfig?.deanList?.computation || 'weighted') === 'simple'}
-        onChange={() =>
-          setAcademicConfig(prev => ({
-            ...prev,
-            deanList: {
-              ...prev.deanList,
-              computation: 'simple'
-            }
-          }))
-        }
-      />
-      Simple 
-    </label>
-  </div>
-</div>
-
-                       <div className="mt-4 border-slate-300 p-4 rounded-lg border bg-slate-50 text-xs text-slate-600">
-                      Weighted: (sum of grade × units) / total units <br/> Simple: sum of grades / number of subjects
+                      <DeanListCriteriaFields
+                        criteria={academicConfig?.deanList || {}}
+                        onChange={(nextCriteria) => setAcademicConfig(prev => ({
+                          ...prev,
+                          deanList: normalizeDeanListCriteria(nextCriteria)
+                        }))}
+                      />
                     </div>
                   </div>
                 )}
@@ -2682,7 +2655,6 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
   // Show table with students from selected folder
   return (
             <>
-
             {selectedFolder && (
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                 
@@ -3244,13 +3216,13 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
     <table className="min-w-full text-sm">
       <thead className="bg-blue-500 text-white">
         <tr>
-          <th className="px-4 py-2 text-left w-[8%]">Code</th>
+          <th className="px-4 py-2 text-left w-[10%]">Code</th>
           <th className="px-4 py-2 text-left w-[25%]">Title</th>
-          <th className="px-4 py-2 text-left w-[8%]">Units</th>
+          <th className="px-4 py-2 text-left w-[5%]">Units</th>
           <th className="px-4 py-2 text-left w-[10%]">Type</th>
-          <th className="px-4 py-2 text-left w-[18%]">Prerequisites</th>
-          <th className="px-4 py-2 text-left w-[15%]">Taken (Sem)</th>
-          <th className="px-4 py-2 text-left w-[16%]">Grade</th>
+          <th className="px-4 py-2 text-left w-[15%]">Prerequisites</th>
+          <th className="px-4 py-2 text-left w-[10%]">Taken (Sem)</th>
+          <th className="px-4 py-2 text-left w-[15%]">Grade</th>
           <th className="px-4 py-2 text-right w-[10%]">Action</th>
         </tr>
       </thead>
@@ -3258,7 +3230,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       <tbody>
           {mergedSubjects.length === 0 ? (
             <tr>
-            <td colSpan={8} className="py-8 text-center text-gray-400">
+            <td colSpan={7} className="py-8 text-center text-gray-400">
               <div className="flex flex-col items-center gap-1">
                 <span className="text-sm">No subjects yet</span>
                 <span className="text-xs">
@@ -3289,7 +3261,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                 } text-sm`}
               >
-                <td className="px-4 py-2 font-semibold text-blue-600 w-[8%]">
+                <td className="px-4 py-2 font-semibold text-blue-600 w-[10%]">
                   {subject.courseCode}
                 </td>
 
@@ -3297,7 +3269,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   {subject.courseTitle}
                 </td>
 
-                <td className="px-4 py-2 text-gray-600 w-[8%]">
+                <td className="px-4 py-2 text-gray-600 w-[5%]">
                   {subject.units}
                 </td>
 
@@ -3318,17 +3290,17 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   })()}
                 </td>
 
-                <td className="px-4 py-2 text-gray-600 w-[18%]">
+                <td className="px-4 py-2 text-gray-600 w-[15AS%]">
                   {prerequisites.length > 0 ? prerequisites.join(', ') : 'None'}
                 </td>
 
-                <td className="px-4 py-2 text-gray-600 w-[15%]">
+                <td className="px-4 py-2 text-gray-600 w-[10%]">
                   <span className="text-xs font-medium">
                     {subject.enrolledSemester ? `${subject.enrolledSemester === 1 ? '1st' : subject.enrolledSemester === 2 ? '2nd' : 'Summer'} Sem` : 'N/A'}
                   </span>
                 </td>
 
-                <td className="px-4 py-2 w-[16%]">
+                <td className="px-4 py-2 w-[15%]">
                   <select
                     className="w-full border border-gray-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none rounded-lg px-2 py-1 text-xs bg-white"
                     value={editingGrades[subject.courseCode] || ''}
@@ -4304,12 +4276,12 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
       {subjectPickerOpen && selectedStudent?.isIrregular && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setSubjectPickerOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-5xl border border-gray-300 bg-white rounded-xl shadow p-4 md:p-6 max-h-[90vh] overflow-hidden">
-            <div className="flex items-center justify-between mb-4">
+          <div className="relative z-10 w-full max-w-5xl  border border-gray-300 bg-white rounded-xl shadow p-4 md:p-6 h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">Add Irregular Subject</h3>
-               <p className="text-sm text-gray-600">
-                    Showing all subjects from all curriculums. Sort by curriculum, year level, or semester.
+                <p className="text-sm text-gray-600">
+                  Select the regular class this student will be joining, then pick a subject.
                 </p>
               </div>
               <button
@@ -4379,12 +4351,12 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
             </div>
 
             <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <div className="max-h-[55vh] overflow-auto">
+              <div className="max-h-[64vh] overflow-auto">
                 <table className="min-w-full text-sm">
-                  <thead className="bg-blue-500 text-white sticky top-0">
+                  <thead className="bg-blue-500 text-white sticky top-0 text-xs uppercase">
                     <tr>
                       <th
-                        className="px-2 py-2 text-left cursor-pointer select-none"
+                        className="px-2 py-2 text-left cursor-pointer select-none w-[15%]"
                         onClick={() => {
                           if (subjectPickerSortBy === 'curriculum') {
                             setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -4408,7 +4380,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                       
                     
                       <th
-                        className="px-2 py-2 text-left cursor-pointer select-none"
+                        className="px-2 py-2 text-left cursor-pointer select-none w-[15%]"
                         onClick={() => {
                           if (subjectPickerSortBy === 'courseCode') {
                             setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -4430,7 +4402,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                         </span>
                       </th>
                       <th
-                        className="px-2 py-2 text-left cursor-pointer select-none"
+                        className="px-2 py-2 text-left cursor-pointer select-none w-[40%]"
                         onClick={() => {
                           if (subjectPickerSortBy === 'courseTitle') {
                             setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -4441,7 +4413,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                         }}
                       >
                         <span className="inline-flex items-center gap-1">
-                          Description
+                          Subject Description
                           {subjectPickerSortBy === 'courseTitle' && subjectPickerSortOrder === 'asc' ? (
                             <ChevronUp className="w-3.5 h-3.5" />
                           ) : subjectPickerSortBy === 'courseTitle' ? (
@@ -4452,7 +4424,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                         </span>
                       </th>
                       <th
-                        className="px-2 py-2 text-left cursor-pointer select-none"
+                        className="px-2 py-2 text-left cursor-pointer select-none w-[10%]"
                         onClick={() => {
                           if (subjectPickerSortBy === 'units') {
                             setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -4473,8 +4445,8 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                           )}
                         </span>
                       </th>
-                      <th className="px-2 py-2 text-left">Major</th>
-                      <th className="px-2 py-2 text-left">Action</th>
+                      <th className="px-2 py-2 text-left w-[10%]">Major</th>
+                      <th className="px-2 py-2 text-left w-[10%]">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4532,7 +4504,7 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                               ) : (
                                 <button
                                   type="button"
-                                  onClick={() => handleAddIrregularSubject(subjectPickerSemester, course)}
+                                  onClick={() => handleRequestAddIrregularSubject(course)}
                                   className="w-15 text-center px-2 py-1 rounded text-xs bg-green-500 text-white hover:bg-green-600 cursor-pointer"
                                 >
                                   Add
@@ -4546,6 +4518,83 @@ const StudentManagement = ({ onBack, initialSection = 'students' }) => {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Join Class Modal — shown after clicking Add on a subject */}
+      {joinClassModalOpen && joinClassPendingCourse && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setJoinClassModalOpen(false)} />
+          <div className="relative z-10 w-full max-w-md bg-white rounded-xl shadow-xl border border-gray-200 p-6">
+            {/* Header */}
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Select Class to Join</h3>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Choose which block this student will join for{' '}
+                  <span className="font-semibold text-blue-700">{joinClassPendingCourse.courseCode}</span>.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setJoinClassModalOpen(false)}
+                className="p-1 rounded-full bg-gray-50 hover:bg-gray-100 text-gray-500 hover:text-red-600 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Subject info pill */}
+            <div className="mb-5 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+              <span className="font-semibold">{joinClassPendingCourse.courseCode}</span>
+              {' — '}{joinClassPendingCourse.courseTitle}
+              {joinClassPendingCourse.units ? ` · ${joinClassPendingCourse.units} units` : ''}
+              {joinClassPendingCourse.yearLevel ? (
+                <span className="ml-2 text-blue-600 font-medium">
+                  · {joinClassPendingCourse.yearLevel === 1 || joinClassPendingCourse.yearLevel === '1' ? '1st' : joinClassPendingCourse.yearLevel === 2 || joinClassPendingCourse.yearLevel === '2' ? '2nd' : joinClassPendingCourse.yearLevel === 3 || joinClassPendingCourse.yearLevel === '3' ? '3rd' : '4th'} Year
+                </span>
+              ) : null}
+            </div>
+
+            {/* Block only */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Block</label>
+              <select
+                value={joinClassBlock}
+                onChange={(e) => setJoinClassBlock(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              >
+                <option value="">— Select Block —</option>
+                {getBlocksForYear(Number(joinClassPendingCourse.yearLevel), false).map((block) => (
+                  <option key={block} value={block}>Block {block}</option>
+                ))}
+              </select>
+              {joinClassBlock && (
+                <p className="mt-1.5 text-xs text-blue-700 font-medium">
+                  Joining: {joinClassPendingCourse.yearLevel === 1 || joinClassPendingCourse.yearLevel === '1' ? '1st' : joinClassPendingCourse.yearLevel === 2 || joinClassPendingCourse.yearLevel === '2' ? '2nd' : joinClassPendingCourse.yearLevel === 3 || joinClassPendingCourse.yearLevel === '3' ? '3rd' : '4th'} Year — Block {joinClassBlock}
+                </p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setJoinClassModalOpen(false)}
+                className="px-4 py-2 rounded-lg text-sm border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmJoinClass}
+                disabled={!joinClassBlock}
+                className="px-4 py-2 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                Confirm & Add
+              </button>
             </div>
           </div>
         </div>

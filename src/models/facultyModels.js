@@ -396,10 +396,18 @@ export const getStudentsForCourse = async (course, activeTerm) => {
         return items.some(item => {
           const matchesCourse = (item.courseCode || '').toString().trim().toUpperCase() === targetCode;
           if (!matchesCourse) return false;
-          // Also verify the school year matches the active term for precise filtering
+          // Verify the school year matches the active term — only filter if BOTH sides are non-empty
           const itemSchoolYear = (item.enrolledSchoolYear || '').toString().trim();
           const termSchoolYear = (term.schoolYear || '').toString().trim();
           if (itemSchoolYear && termSchoolYear && itemSchoolYear !== termSchoolYear) return false;
+          // Also check joinedBlock is in allowedBlocks when blocks are specified
+          if (allowedBlocks.length > 0) {
+            const joinedBlock = item.joinedBlock
+              ? String(item.joinedBlock).trim().toUpperCase()
+              : null;
+            // Include if joinedBlock matches an allowed block, OR if no joinedBlock is set
+            if (joinedBlock && !allowedBlocks.includes(joinedBlock)) return false;
+          }
           return true;
         });
       }

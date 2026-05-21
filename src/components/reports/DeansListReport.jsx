@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { exportDeanListToExcel } from '../../utils/excelExport';
-import { getStudents, getCoursesByCurriculum, getDeanListCriteria, saveDeanListCriteria } from '../../models/curriculumModels';
+import { getStudents, getCoursesByCurriculum, getDeanListCriteria, saveDeanListCriteria, normalizeDeanListCriteria, evaluateDeanListEligibility } from '../../models/curriculumModels';
 import { Settings2, Download, CalendarCheck, X, ChevronDown, ChevronUp, ChevronsUpDown, ArrowBigLeft } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import Breadcrumbs from '../common/Breadcrumbs';
+import DeanListCriteriaModal from '../common/DeanListCriteriaModal';
 
 const yearTabs = [
   { label: '1st Year', value: 1 },
@@ -20,124 +21,6 @@ const irregularSemTabs = [
   { label: '1st Sem', value: 1 },
   { label: '2nd Sem', value: 2 },
 ];
-
-const gwaComputationMethods = [
-  { label: 'Weighted (Grade/Units)', value: 'weighted' },
-  { label: 'Simple Average (Subjects)', value: 'simple' }
-];
-
-const CriteriaModal = ({ isOpen, onClose, criteria, onSave, isSaving }) => {
-  const [localCriteria, setLocalCriteria] = useState({ ...criteria });
-
-  useEffect(() => {
-    setLocalCriteria({ ...criteria });
-  }, [criteria]);
-
-  const handleSave = async () => {
-    const result = await onSave(localCriteria);
-    if (result?.success) {
-      onClose();
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
-      <div className="bg-white  rounded-2xl shadow-2xl w-96 max-w-full transform transition-transform duration-200 scale-100 sm:scale-105">
-        <div className='px-8 py-4 border-b border-slate-300'>
-          <h3 className="text-xl font-medium text-slate-800 ">Configure Dean's List Criteria</h3>
-        </div>
-
-        <div className="space-y-5 px-8 py-4">
-          <div>
-            <label className="block text-xs  text-gray-700 mb-1">Major Grade Cutoff</label>
-            <input
-              type="number"
-              step="0.01"
-              value={localCriteria.major}
-              onChange={e => setLocalCriteria(c => ({ ...c, major: parseFloat(e.target.value) }))}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs  text-gray-700 mb-1">Minor Grade Cutoff</label>
-            <input
-              type="number"
-              step="0.01"
-              value={localCriteria.minor}
-              onChange={e => setLocalCriteria(c => ({ ...c, minor: parseFloat(e.target.value) }))}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs  text-gray-700 mb-1">GWA Cutoff</label>
-            <input
-              type="number"
-              step="0.01"
-              value={localCriteria.gwa}
-              onChange={e => setLocalCriteria(c => ({ ...c, gwa: parseFloat(e.target.value) }))}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs  text-gray-700 mb-1">Minimum Units (Irregulars)</label>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={localCriteria.minUnits}
-              onChange={e => setLocalCriteria(c => ({ ...c, minUnits: parseInt(e.target.value, 10) || 0 }))}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
-            />
-            <p className="text-[11px] text-gray-500 mt-1">Minimum units required for irregular students to be considered for dean's list</p>
-          </div>
-
-          <div>
-            <label className="block text-xs  text-gray-700 mb-1">GWA Computation Method</label>
-            <select
-              value={localCriteria.gwaMethod || 'weighted'}
-              onChange={e => setLocalCriteria(c => ({ ...c, gwaMethod: e.target.value }))}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
-            >
-              {gwaComputationMethods.map(method => (
-                <option key={method.value} value={method.value}>
-                  {method.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-[11px] text-gray-500 mt-1">
-              Weighted: (sum of grade × units) / total units | Simple: sum of grades / number of subjects
-            </p>
-          </div>
-
-           <div className="flex justify-end gap-2 mt-8">
-          <button
-            onClick={onClose}
-            disabled={isSaving}
-            className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
-          >
-            {isSaving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
-
-        </div>
-
-       
-      </div>
-    </div>
-  );
-};
 
 const StudentDetailsModal = ({ isOpen, onClose, student }) => {
   if (!isOpen || !student) return null;
@@ -289,11 +172,7 @@ const LoadingModal = ({ isOpen }) => {
 const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
   const { role } = useAuth();
   const [criteria, setCriteria] = useState({
-    major: 1.7,
-    minor: 2.0,
-    gwa: 1.7,
-    minUnits: 15,
-    gwaMethod: 'weighted'
+    ...normalizeDeanListCriteria()
   });
   const [criteriaSaving, setCriteriaSaving] = useState(false);
   const [tabYear, setTabYear] = useState(0);
@@ -316,33 +195,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
   const loadMoreRef = useRef();
   const toastTimeoutRef = useRef(null);
 
-  const normalizeCriteria = useCallback((nextCriteria = {}) => ({
-    major: Number.isFinite(parseFloat(nextCriteria.major)) ? parseFloat(nextCriteria.major) : 1.7,
-    minor: Number.isFinite(parseFloat(nextCriteria.minor)) ? parseFloat(nextCriteria.minor) : 2.0,
-    gwa: Number.isFinite(parseFloat(nextCriteria.gwa)) ? parseFloat(nextCriteria.gwa) : 1.7,
-    minUnits: Number.isFinite(parseInt(nextCriteria.minUnits, 10)) ? parseInt(nextCriteria.minUnits, 10) : 15,
-    gwaMethod: ['weighted', 'simple'].includes(nextCriteria.gwaMethod) ? nextCriteria.gwaMethod : 'weighted'
-  }), []);
-
-  const calculateGWA = useCallback((gradeDetails, method = 'weighted') => {
-    if (gradeDetails.length === 0) return null;
-    
-    if (method === 'simple') {
-      // Simple average: sum of grades / number of subjects
-      const sum = gradeDetails.reduce((acc, g) => acc + g.grade, 0);
-      return sum / gradeDetails.length;
-    } else {
-      // Weighted: sum of (grade × units) / total units
-      let totalUnits = 0;
-      let weightedSum = 0;
-      for (const g of gradeDetails) {
-        const units = g.units || 1;
-        totalUnits += units;
-        weightedSum += g.grade * units;
-      }
-      return totalUnits > 0 ? weightedSum / totalUnits : null;
-    }
-  }, []);
+  const normalizeCriteria = useCallback((nextCriteria = {}) => normalizeDeanListCriteria(nextCriteria), []);
 
   const getCurrentScrollTop = useCallback(() => {
     const rootElement = document.getElementById('root');
@@ -455,9 +308,6 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
       const deanCandidates = [];
       for (const student of filtered) {
         let gradeDetails = [];
-        let totalUnits = 0;
-        let weightedSum = 0;
-        let eligible = true;
 
         if (yearVal === 'irregular') {
           // Handle irregular students using irregularSubjects
@@ -479,8 +329,6 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
               isMajor: course.isMajor || false,
               units
             });
-            if (course.isMajor && grade > criteria.major) eligible = false;
-            if (!course.isMajor && grade > criteria.minor) eligible = false;
           }
         } else {
           // Handle regular students using curriculum
@@ -500,26 +348,21 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
               isMajor: course.isMajor || false,
               units
             });
-            if (course.isMajor && grade > criteria.major) eligible = false;
-            if (!course.isMajor && grade > criteria.minor) eligible = false;
           }
         }
 
-        // Calculate GWA using selected method
-        const gwa = calculateGWA(gradeDetails, criteria.gwaMethod);
-        if (gwa === null || gwa > criteria.gwa) eligible = false;
-        
-        // Calculate total units for irregular min units check
-        const totalUnitsValue = gradeDetails.reduce((sum, g) => sum + (g.units || 0), 0);
-        
-        // Check minimum units for irregulars
-        if (yearVal === 'irregular' && totalUnitsValue < criteria.minUnits) eligible = false;
-        if (eligible && gradeDetails.length > 0) {
+        const evaluation = evaluateDeanListEligibility({
+          entries: gradeDetails,
+          criteria,
+          isIrregular: yearVal === 'irregular'
+        });
+
+        if (evaluation.eligible && gradeDetails.length > 0) {
           deanCandidates.push({
             id: student.id,
             studentNumber: student.studentNumber || '',
             name: student.name,
-            gwa: gwa ? gwa.toFixed(3) : '',
+            gwa: evaluation.gwa ? evaluation.gwa.toFixed(3) : '',
             grades: gradeDetails
           });
         }
@@ -529,7 +372,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
       setVisibleRows(4);
     };
     fetchDeanList();
-  }, [selectedYear, selectedSem, criteria, calculateGWA]);
+  }, [selectedYear, selectedSem, criteria]);
 
   const lastRowRef = useCallback(node => {
     if (loading) return;
@@ -566,9 +409,6 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
 
         for (const student of filtered) {
           let gradeDetails = [];
-          let totalUnits = 0;
-          let weightedSum = 0;
-          let eligible = true;
 
           if (yearVal === 'irregular') {
             // Handle irregular students using irregularSubjects
@@ -591,8 +431,6 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
                 units: units || 3,
                 isMajor: course.isMajor || false
               });
-              if (course.isMajor && grade > criteria.major) eligible = false;
-              if (!course.isMajor && grade > criteria.minor) eligible = false;
             }
           } else {
             // Handle regular students using curriculum
@@ -613,26 +451,21 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
                 units: units || 3,
                 isMajor: course.isMajor || false
               });
-              if (course.isMajor && grade > criteria.major) eligible = false;
-              if (!course.isMajor && grade > criteria.minor) eligible = false;
             }
           }
 
-          // Calculate GWA using selected method
-          const gwa = calculateGWA(gradeDetails, criteria.gwaMethod);
-          if (gwa === null || gwa > criteria.gwa) eligible = false;
-          
-          // Calculate total units for irregular min units check
-          const totalUnitsValue = gradeDetails.reduce((sum, g) => sum + (g.units || 0), 0);
-          
-          // Check minimum units for irregulars
-          if (yearVal === 'irregular' && totalUnitsValue < criteria.minUnits) eligible = false;
-          if (eligible && gradeDetails.length > 0) {
+          const evaluation = evaluateDeanListEligibility({
+            entries: gradeDetails,
+            criteria,
+            isIrregular: yearVal === 'irregular'
+          });
+
+          if (evaluation.eligible && gradeDetails.length > 0) {
             allCandidates.push({
               id: student.id,
               studentNumber: student.studentNumber || '',
               name: student.name,
-              gwa: gwa ? gwa.toFixed(3) : '',
+              gwa: evaluation.gwa ? evaluation.gwa.toFixed(3) : '',
               grades: gradeDetails,
               yearLevel: yearVal
             });
@@ -924,7 +757,7 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
     </div>
   )}
 </div>
-      <CriteriaModal
+      <DeanListCriteriaModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         criteria={criteria}

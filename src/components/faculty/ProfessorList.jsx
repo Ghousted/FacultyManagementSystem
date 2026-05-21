@@ -207,7 +207,7 @@ const ProfessorList = ({ onSelectProfessor }) => {
         
         <div className="overflow-x-auto bg-white border border-gray-300 rounded-xl ">
           <table className="w-full table-fixed text-sm">
-            <thead className="bg-blue-500 text-left text-white text-sm tracking-wide">
+            <thead className="bg-blue-500 text-left text-white text-xs uppercase tracking-wide">
               <tr>
                 <th
                   className="px-4 py-3 cursor-pointer select-none w-[15%]"

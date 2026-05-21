@@ -551,7 +551,7 @@ const Dashboard = () => {
               </div>
               <div>
                 <h4 className="text-lg font-semibold text-gray-900">Latest Enrollees</h4>
-                <p className="text-sm text-gray-500">Newest 5 students enrolled in {getTermLabel(adminStats.activeTerm)}.</p>
+                <p className="text-xs uppercase text-gray-500"> {getTermLabel(adminStats.activeTerm)}</p>
               </div>
             </div>
 
