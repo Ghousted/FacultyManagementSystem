@@ -27,6 +27,25 @@ const getYearLevelLabel = (year) => {
   return year ? `${year} Year` : '';
 };
 
+const getStudentTermKey = (student) => {
+  const term = student?.createdTerm || {};
+  if (!term.semester || !term.schoolYear) return 'legacy::';
+  return `${Number(term.semester)}::${term.schoolYear}`;
+};
+
+const getTermLabelFromKey = (termKey) => {
+  if (!termKey || termKey.startsWith('legacy')) {
+    return 'Earlier Records (No Term)';
+  }
+  const [semester, schoolYear] = termKey.split('::');
+  return `${SEMESTER_LABELS[Number(semester)] || `Sem ${semester}`} · S.Y. ${formatSchoolYear(schoolYear)}`;
+};
+
+const getActiveTermLabel = (term) => {
+  if (!term?.semester || !term?.schoolYear) return '';
+  return `${SEMESTER_LABELS[Number(term.semester)] || `Sem ${term.semester}`} · S.Y. ${formatSchoolYear(term.schoolYear)}`;
+};
+
 const DepartmentCardSkeleton = () => (
   <div className="rounded-xl border border-slate-200 bg-white p-4 animate-pulse">
     <div className="flex items-center justify-between gap-3">
@@ -424,7 +443,13 @@ const OtherDepartmentManagement = () => {
       } else {
         await addDoc(collection(db, 'otherDept-Students'), {
           ...payload,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          createdTerm: activeTerm?.semester && activeTerm?.schoolYear
+            ? {
+                semester: Number(activeTerm.semester),
+                schoolYear: activeTerm.schoolYear
+              }
+            : null
         });
         toast.success('Student added.');
       }
@@ -669,47 +694,91 @@ const OtherDepartmentManagement = () => {
           <div className="flex w-full flex-1 items-center justify-between gap-3">
 
             {!openCourse && !openCombo && (
-            <div className="mb-4 flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-              {/* Combined Course · Year · Block tiles for the selected department */}
-              {Array.from(new Set((otherDeptStudents || []).map(s => {
-                const course = (s.course || '').toString().trim();
-                const year = s.yearLevel || '';
-                const block = (s.block || '—').toString().trim() || '—';
-                return `${course}::${year}::${block}`;
-              }).filter(Boolean)))
-                .sort((a, b) => {
-                  const [courseA, yearA, blockA] = a.split('::');
-                  const [courseB, yearB, blockB] = b.split('::');
-                  const courseCompare = courseA.localeCompare(courseB, undefined, { sensitivity: 'base', numeric: true });
-                  if (courseCompare !== 0) return courseCompare;
-                  const yearCompare = Number(yearA || 0) - Number(yearB || 0);
+            <div className="mb-4 flex-1 space-y-6">
+           
+              {(() => {
+                const comboMap = new Map();
+                (otherDeptStudents || []).forEach((student) => {
+                  const course = (student.course || '').toString().trim();
+                  const year = student.yearLevel || '';
+                  const block = (student.block || '—').toString().trim() || '—';
+                  const termKey = getStudentTermKey(student);
+                  const comboKey = `${termKey}::${course}::${year}::${block}`;
+                  if (!comboMap.has(comboKey)) {
+                    comboMap.set(comboKey, { termKey, course, year, block, students: [] });
+                  }
+                  comboMap.get(comboKey).students.push(student);
+                });
+
+                const termGroups = new Map();
+                Array.from(comboMap.values()).forEach((combo) => {
+                  if (!termGroups.has(combo.termKey)) {
+                    termGroups.set(combo.termKey, []);
+                  }
+                  termGroups.get(combo.termKey).push(combo);
+                });
+
+                const sortedTermKeys = Array.from(termGroups.keys()).sort((a, b) => {
+                  if (a.startsWith('legacy')) return 1;
+                  if (b.startsWith('legacy')) return -1;
+                  const [semA, syA] = a.split('::');
+                  const [semB, syB] = b.split('::');
+                  const yearCompare = String(syB).localeCompare(String(syA));
                   if (yearCompare !== 0) return yearCompare;
-                  return String(blockA || '').localeCompare(String(blockB || ''), undefined, { sensitivity: 'base', numeric: true });
-                })
-                .map((key) => {
-                const [course, year, block] = key.split('::');
-                // (individual hiding kept for safety) hide the tile when it's opened
-                if (openCombo && openCombo.course === course && String(openCombo.year) === String(year) && String((openCombo.block || '—')) === String((block || '—'))) return null;
-                if (openCourse && openCourse === course) return null;
-                const studentsInCombo = (otherDeptStudents || []).filter(s => (s.course || '').toString().trim() === course && String(s.yearLevel) === String(year) && ((s.block || '—').toString().trim() === block));
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => { setOpenCombo({ course, year, block }); setOpenCourse(null); }}
-                  className="group relative cursor-pointer rounded-lg border border-gray-300 bg-white p-4 text-left transition  hover:border-blue-400 hover:shadow-md"
-                  >
-                    <div className="flex items-center gap-3">
-<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-<Folder className="h-5 w-5" />
-</div>                      <div>
-                        <div className="text-sm font-semibold text-slate-900">{`${course} ${getYearLevelLabel(year)} ${block}`}</div>
-                        <div className="text-xs text-slate-500">{studentsInCombo.length} student{studentsInCombo.length !== 1 ? 's' : ''}</div>
-                      </div>
+                  return Number(semB) - Number(semA);
+                });
+
+                if (sortedTermKeys.length === 0) {
+                  return (
+                    <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
+                      No students found for this department.
                     </div>
-                  </button>
-                );
-              })}
+                  );
+                }
+
+                return sortedTermKeys.map((termKey) => {
+                  const combos = termGroups.get(termKey).sort((a, b) => {
+                    const courseCompare = (a.course || '').localeCompare(b.course || '', undefined, { sensitivity: 'base', numeric: true });
+                    if (courseCompare !== 0) return courseCompare;
+                    const yearCompare = Number(a.year || 0) - Number(b.year || 0);
+                    if (yearCompare !== 0) return yearCompare;
+                    return String(a.block || '').localeCompare(String(b.block || ''), undefined, { sensitivity: 'base', numeric: true });
+                  });
+
+                  return (
+                    <section key={termKey}>
+                      <div className="mb-3 flex items-center gap-3">
+                        <h3 className="text-sm font-semibold text-slate-800">{getTermLabelFromKey(termKey)}</h3>
+                        <div className="h-px flex-1 bg-slate-200" />
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        {combos.map((combo) => {
+                          const { course, year, block, students } = combo;
+                          const key = `${termKey}::${course}::${year}::${block}`;
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => { setOpenCombo({ course, year, block }); setOpenCourse(null); }}
+                              className="group relative cursor-pointer rounded-lg border border-gray-300 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-md"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                                  <Folder className="h-5 w-5" />
+                                </div>
+                                <div>
+                                  <div className="text-sm font-semibold text-slate-900">{`${course} ${getYearLevelLabel(year)} ${block}`}</div>
+                                  <div className="text-xs text-slate-500">{students.length} student{students.length !== 1 ? 's' : ''}</div>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  );
+                });
+              })()}
             </div>
             )}
 

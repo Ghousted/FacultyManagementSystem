@@ -639,6 +639,7 @@ const normalizeUnitsLimits = (unitsLimits = {}) => ({
   default: {
     regular: toValidNumber(unitsLimits?.default?.regular, 18),
     irregular: toValidNumber(unitsLimits?.default?.irregular, 15),
+    irregularScope: unitsLimits?.default?.irregularScope === 'year' ? 'year' : 'semester',
     overload: toValidNumber(unitsLimits?.default?.overload, 21)
   },
   byYear: unitsLimits?.byYear || {}

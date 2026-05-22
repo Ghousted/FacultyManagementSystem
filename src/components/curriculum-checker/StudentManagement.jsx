@@ -20,7 +20,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc, deleteDoc, getDoc, collection, getDocs, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
 import OtherDepartmentManagement from './OtherDepartmentManagement';
-import { BadgePlus, Pencil, Folder, Trash, Search, ChevronUp, ChevronDown, User, ChevronsUpDown, RefreshCcw, ChevronLeft, Plus, Funnel, X, FolderArchive, MoreVertical, Square } from 'lucide-react';
+import { BadgePlus, Pencil, Folder, Trash, Search, ChevronUp, ChevronDown, User, ChevronsUpDown, RefreshCcw, ChevronLeft, Plus, Funnel, X, FolderArchive, MoreVertical, Square, Calendar, GraduationCap, AlertCircle, CheckCircle2, Lock, Layers, BookOpen, Info, Link2 } from 'lucide-react';
 import { logSystemAction } from '../../utils/auditLogger';
 import { DeanListCriteriaFields } from '../common/DeanListCriteriaModal';
 
@@ -171,14 +171,16 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
   const [irregularSubjects, setIrregularSubjects] = useState({ sem1: [], sem2: [], sem3: [] });
   const [subjectPickerOpen, setSubjectPickerOpen] = useState(false);
   const [subjectPickerSemester, setSubjectPickerSemester] = useState(1);
-  const [subjectPickerCurriculumFilter, setSubjectPickerCurriculumFilter] = useState('all');
+  const [subjectPickerCurriculumFilter, setSubjectPickerCurriculumFilter] = useState('');
   const [subjectPickerYearFilter, setSubjectPickerYearFilter] = useState('all');
   const [subjectPickerSemesterFilter, setSubjectPickerSemesterFilter] = useState('all');
+  const [irregularAddTermMode, setIrregularAddTermMode] = useState('current');
   const [subjectPickerSearch, setSubjectPickerSearch] = useState('');
   const [subjectPickerSortBy, setSubjectPickerSortBy] = useState('courseCode');
   const [subjectPickerSortOrder, setSubjectPickerSortOrder] = useState('asc');
   const [subjectPickerJoinYearLevel, setSubjectPickerJoinYearLevel] = useState('');
   const [subjectPickerJoinBlock, setSubjectPickerJoinBlock] = useState('');
+  const [subjectPickerStatusFilter, setSubjectPickerStatusFilter] = useState('all');
   // Join-class confirmation modal (shown after clicking Add on a subject)
   const [joinClassModalOpen, setJoinClassModalOpen] = useState(false);
   const [joinClassPendingCourse, setJoinClassPendingCourse] = useState(null);
@@ -1259,6 +1261,14 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   };
 
+  const isStudentEnrolledInActiveTerm = (student) => {
+    if (!term.semester || !term.schoolYear) return false;
+    return (
+      Number(student?.enrolledTerm?.semester) === Number(term.semester) &&
+      (student?.enrolledTerm?.schoolYear || '') === (term.schoolYear || '')
+    );
+  };
+
   const getBlocksForYear = (year, isIrregular = false) => {
     if (isIrregular) return [];
 
@@ -1274,6 +1284,76 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
     return blocks;
   };
 
+  const getBlocksForYearInActiveTerm = (year) => {
+    if (!term.semester || !term.schoolYear) {
+      return getBlocksForYear(year, false);
+    }
+
+    const set = new Set();
+    students.forEach((s) => {
+      if (s.isIrregular || Number(s.yearLevel) !== Number(year)) return;
+      if (!isStudentEnrolledInActiveTerm(s)) return;
+      const block = s?.block && String(s.block).trim() !== '' ? String(s.block).trim().toUpperCase() : 'A';
+      set.add(block);
+    });
+    const blocks = Array.from(set).sort((a, b) => a.localeCompare(b));
+    return blocks.length > 0 ? blocks : getBlocksForYear(year, false);
+  };
+
+  const getIrregularSemesterDisplayRows = (currentYear, semester) => {
+    const semKey = `sem${semester}`;
+    const existingForSem = (irregularSubjects[semKey] || []).filter(
+      (subject) =>
+        Number(subject.yearLevel || currentYear) === currentYear &&
+        Number(subject.enrolledSemester || subject.semester || semester) === Number(semester)
+    );
+
+    const gradedCourseCodes = Object.keys(studentGrades || {}).filter(
+      (code) => studentGrades[code] !== undefined && studentGrades[code] !== ''
+    );
+    const gradedForSem = gradedCourseCodes.map((code) => {
+      const norm = (code || '').toString().trim().toUpperCase();
+      const course =
+        allCourses.find((c) => (c.courseCode || '').toString().trim().toUpperCase() === norm) ||
+        studentCourses.find((c) => (c.courseCode || '').toString().trim().toUpperCase() === norm) ||
+        {};
+      return {
+        id: `graded-${norm}`,
+        courseCode: norm,
+        courseTitle: course?.courseTitle || '',
+        units: course?.units || '',
+        isMajor: course?.isMajor ?? false,
+        yearLevel: course?.yearLevel || currentYear,
+        prerequisites: course?.prerequisites || [],
+        enrolledSemester: course?.semester || semester,
+        enrolledSchoolYear: ''
+      };
+    }).filter(
+      (subject) =>
+        Number(subject.yearLevel || currentYear) === currentYear &&
+        Number(subject.enrolledSemester || semester) === Number(semester)
+    );
+
+    const seen = new Set();
+    const mergedSubjects = [];
+
+    existingForSem.forEach((subject) => {
+      const key = `${(subject.courseCode || '').toString().trim().toUpperCase()}::${Number(subject.yearLevel || currentYear)}`;
+      seen.add(key);
+      mergedSubjects.push(subject);
+    });
+
+    gradedForSem.forEach((subject) => {
+      const key = `${(subject.courseCode || '').toString().trim().toUpperCase()}::${Number(subject.yearLevel || currentYear)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        mergedSubjects.push(subject);
+      }
+    });
+
+    return mergedSubjects;
+  };
+
   const getFirstBlockForYear = (year, isIrregular = false) => {
     if (isIrregular) return '';
 
@@ -1287,6 +1367,53 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
     if (folder.isIrregular) return 'Irregular Students';
     const yearNum = Number(folder.year || 0);
     return `${getYearLabel(yearNum)} Year Block ${folder.block || 'A'}`;
+  };
+
+  const getIrregularTakenTermDisplay = (subject) => {
+    const activeSem = Number(term.semester);
+    const activeSy = (term.schoolYear || '').toString().trim();
+    const semLabel = (sem) =>
+      sem === 1 ? '1st' : sem === 2 ? '2nd' : sem === 3 ? 'Summer' : `Sem ${sem}`;
+
+    if (subject.termMode === 'current') {
+      return {
+        label: 'Current Term',
+        detail: activeSem && activeSy
+          ? `${SEMESTER_LABELS[activeSem] || semLabel(activeSem)} · S.Y. ${activeSy}`
+          : 'Active term not set',
+        tone: 'current'
+      };
+    }
+
+    if (subject.termMode === 'previous') {
+      return {
+        label: 'Previous Term',
+        detail: '',
+        tone: 'previous'
+      };
+    }
+
+    const enrolledSem = Number(subject.enrolledSemester);
+    const enrolledSy = (subject.enrolledSchoolYear || '').toString().trim();
+    const matchesActiveTerm =
+      activeSem &&
+      activeSy &&
+      enrolledSem === activeSem &&
+      enrolledSy === activeSy;
+
+    if (matchesActiveTerm) {
+      return {
+        label: 'Current Term',
+        detail: `${SEMESTER_LABELS[activeSem] || semLabel(activeSem)} · S.Y. ${activeSy}`,
+        tone: 'current'
+      };
+    }
+
+    return {
+      label: 'Previous Term',
+      detail: '',
+      tone: 'previous'
+    };
   };
 
   // Notify parent (CurriculumChecker) of the current breadcrumb trail so it can
@@ -1308,37 +1435,68 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFolder, selectedStudent, onBreadcrumbChange]);
 
-  const getIrregularSubjectCandidates = () => {
-    let candidates = [...allCourses];
+  const getEquivalentCoursesForCourse = (course, { otherCurriculaOnly = false } = {}) => {
+    const equivId = (course?.equivalentSubjectId || '').toString().trim();
+    if (!equivId) return [];
 
-    if (subjectPickerCurriculumFilter !== 'all') {
-      candidates = candidates.filter((course) => course.curriculumId === subjectPickerCurriculumFilter);
+    return allCourses.filter((candidate) => {
+      if (!candidate.equivalentSubjectId || candidate.equivalentSubjectId !== equivId) return false;
+      if (candidate.id === course.id) return false;
+      if (otherCurriculaOnly && candidate.curriculumId === course.curriculumId) return false;
+      return true;
+    });
+  };
+
+  const getEquivalentCoursesFromOtherCurricula = (course) =>
+    getEquivalentCoursesForCourse(course, { otherCurriculaOnly: true });
+
+  const courseMatchesIrregularPickerSearch = (course, query) => {
+    const curriculumName = getCurriculumName(course.curriculumId).toLowerCase();
+    const classification = course.isMajor ? 'major' : 'available';
+    const equivalentSearchText = getEquivalentCoursesForCourse(course)
+      .map(
+        (eq) =>
+          `${eq.courseCode} ${eq.courseTitle} ${getCurriculumName(eq.curriculumId)}`
+      )
+      .join(' ')
+      .toLowerCase();
+
+    return (
+      (course.courseCode || '').toString().toLowerCase().includes(query) ||
+      (course.courseTitle || '').toString().toLowerCase().includes(query) ||
+      String(course.units ?? '').toLowerCase().includes(query) ||
+      String(course.yearLevel ?? '').toLowerCase().includes(query) ||
+      String(course.semester ?? '').toLowerCase().includes(query) ||
+      curriculumName.includes(query) ||
+      classification.includes(query) ||
+      getCoursePrerequisites(course).join(' ').toLowerCase().includes(query) ||
+      equivalentSearchText.includes(query)
+    );
+  };
+
+  const passesIrregularPickerFilters = (course) => {
+    if (subjectPickerCurriculumFilter && course.curriculumId !== subjectPickerCurriculumFilter) {
+      return false;
     }
 
-    if (subjectPickerYearFilter !== 'all') {
-      candidates = candidates.filter((course) => Number(course.yearLevel) === Number(subjectPickerYearFilter));
+    if (subjectPickerYearFilter !== 'all' && Number(course.yearLevel) !== Number(subjectPickerYearFilter)) {
+      return false;
     }
 
-    if (subjectPickerSemesterFilter !== 'all') {
-      candidates = candidates.filter((course) => Number(course.semester) === Number(subjectPickerSemesterFilter));
+    if (subjectPickerSemesterFilter !== 'all' && Number(course.semester) !== Number(subjectPickerSemesterFilter)) {
+      return false;
     }
 
     const query = subjectPickerSearch.trim().toLowerCase();
-    if (query) {
-      candidates = candidates.filter((course) => {
-        const curriculumName = getCurriculumName(course.curriculumId).toLowerCase();
-        const classification = course.isMajor ? 'major' : 'available';
-        return (
-          (course.courseCode || '').toString().toLowerCase().includes(query) ||
-          (course.courseTitle || '').toString().toLowerCase().includes(query) ||
-          String(course.units ?? '').toLowerCase().includes(query) ||
-          String(course.yearLevel ?? '').toLowerCase().includes(query) ||
-          String(course.semester ?? '').toLowerCase().includes(query) ||
-          curriculumName.includes(query) ||
-          classification.includes(query)
-        );
-      });
+    if (query && !courseMatchesIrregularPickerSearch(course, query)) {
+      return false;
     }
+
+    return true;
+  };
+
+  const getIrregularSubjectCandidates = () => {
+    const candidates = allCourses.filter((course) => passesIrregularPickerFilters(course));
 
     return candidates.sort((a, b) => {
       let aValue = '';
@@ -1386,20 +1544,152 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
     });
   };
 
-  const isCourseCompleted = (courseCode) => {
-    // Check if course is marked as completed OR if it has a grade (except failed/incomplete)
-    const hasGrade = studentGrades[courseCode] && studentGrades[courseCode] !== '';
-    const isFailed = studentGrades[courseCode] === '5.0';
-    const isIncomplete = studentGrades[courseCode] === 'INC';
-    
-    return selectedStudent?.completedCourses?.includes(courseCode) || 
-           (hasGrade && !isFailed && !isIncomplete);
+  const normalizeCourseCode = (code) => (code || '').toString().trim().toUpperCase();
+
+  const getCoursePrerequisites = (course) => {
+    if (Array.isArray(course?.prerequisites) && course.prerequisites.length > 0) {
+      return course.prerequisites;
+    }
+
+    const norm = normalizeCourseCode(course?.courseCode);
+    if (!norm) return [];
+
+    const match =
+      allCourses.find(
+        (c) =>
+          normalizeCourseCode(c.courseCode) === norm &&
+          course?.curriculumId &&
+          c.curriculumId === course.curriculumId
+      ) ||
+      allCourses.find((c) => normalizeCourseCode(c.courseCode) === norm);
+
+    return Array.isArray(match?.prerequisites) ? match.prerequisites : [];
   };
 
-  const handleAddIrregularSubject = async (semester, course, joinYearLevel, joinBlock) => {
+  const getPrerequisiteCourseTitle = (courseCode) => {
+    const norm = normalizeCourseCode(courseCode);
+    const match = allCourses.find((c) => normalizeCourseCode(c.courseCode) === norm);
+    return (match?.courseTitle || '').toString().trim();
+  };
+
+  const getPrerequisiteStatusLabel = (status) => {
+    if (status === 'failed') return 'Failed';
+    if (status === 'incomplete') return 'Incomplete';
+    if (status === 'completed') return 'Passed';
+    return 'Not completed';
+  };
+
+  const getGradeForCourseCode = (courseCode) => {
+    const norm = normalizeCourseCode(courseCode);
+    if (!norm || !studentGrades) return '';
+
+    if (studentGrades[courseCode] !== undefined && studentGrades[courseCode] !== '') {
+      return studentGrades[courseCode];
+    }
+
+    const matchedKey = Object.keys(studentGrades).find(
+      (key) => normalizeCourseCode(key) === norm
+    );
+    return matchedKey ? (studentGrades[matchedKey] ?? '') : '';
+  };
+
+  const getPrerequisiteFulfillment = (courseCode) => {
+    const norm = normalizeCourseCode(courseCode);
+    const grade = getGradeForCourseCode(courseCode);
+    const inCompletedList = (selectedStudent?.completedCourses || []).some(
+      (completedCode) => normalizeCourseCode(completedCode) === norm
+    );
+
+    if (grade === '5.0') {
+      return { courseCode: norm || courseCode, status: 'failed' };
+    }
+    if (grade === 'INC') {
+      return { courseCode: norm || courseCode, status: 'incomplete' };
+    }
+    if (inCompletedList || (grade && grade !== '')) {
+      return { courseCode: norm || courseCode, status: 'completed' };
+    }
+
+    return { courseCode: norm || courseCode, status: 'missing' };
+  };
+
+  const getUnmetPrerequisites = (prerequisites = []) => {
+    const list = Array.isArray(prerequisites) ? prerequisites : [];
+    return list
+      .map((prerequisiteCode) => {
+        const fulfillment = getPrerequisiteFulfillment(prerequisiteCode);
+        return fulfillment.status === 'completed' ? null : fulfillment;
+      })
+      .filter(Boolean);
+  };
+
+  const formatUnmetPrerequisitesMessage = (unmet = []) => {
+    if (unmet.length === 0) return '';
+
+    const parts = unmet.map(({ courseCode, status }) => {
+      if (status === 'failed') return `${courseCode} (failed)`;
+      if (status === 'incomplete') return `${courseCode} (incomplete)`;
+      return `${courseCode} (not yet completed or passed)`;
+    });
+
+    return `Cannot add subject. Complete these prerequisite subjects first: ${parts.join(', ')}.`;
+  };
+
+  const isCourseCompleted = (courseCode) =>
+    getPrerequisiteFulfillment(courseCode).status === 'completed';
+
+  const getIrregularUnitsLimit = () =>
+    academicConfig?.unitsLimits?.default?.irregular ?? 15;
+
+  const getIrregularUnitsScope = () =>
+    academicConfig?.unitsLimits?.default?.irregularScope === 'year' ? 'year' : 'semester';
+
+  const getIrregularUnitsScopeLabel = () =>
+    getIrregularUnitsScope() === 'year' ? 'per year' : 'per semester';
+
+  const sumIrregularSubjectUnits = (subjects = []) =>
+    subjects.reduce((sum, subject) => sum + (parseFloat(subject.units) || 0), 0);
+
+  const getIrregularUnitsUsed = ({ yearLevel, semester }) => {
+    const year = Number(yearLevel);
+    if (!year) return 0;
+
+    if (getIrregularUnitsScope() === 'year') {
+      return ['sem1', 'sem2', 'sem3'].reduce((total, semKey) => {
+        const matched = (irregularSubjects[semKey] || []).filter(
+          (subject) => Number(subject.yearLevel) === year
+        );
+        return total + sumIrregularSubjectUnits(matched);
+      }, 0);
+    }
+
+    const semKey = `sem${semester}`;
+    const matched = (irregularSubjects[semKey] || []).filter(
+      (subject) => Number(subject.yearLevel) === year
+    );
+    return sumIrregularSubjectUnits(matched);
+  };
+
+  const getIrregularUnitsLimitContextLabel = ({ yearLevel, semester }) => {
+    const yearLabel = getYearLabel(Number(yearLevel));
+    if (getIrregularUnitsScope() === 'year') {
+      return `${yearLabel} year`;
+    }
+    const semLabel =
+      Number(semester) === 1 ? '1st' : Number(semester) === 2 ? '2nd' : Number(semester) === 3 ? 'Summer' : `Sem ${semester}`;
+    return `${yearLabel} year, ${semLabel} semester`;
+  };
+
+  const handleAddIrregularSubject = async (semester, course, joinYearLevel, joinBlock, addTermMode = 'previous') => {
     if (!selectedStudent) return;
     if (!course) {
       setError('Please select a subject to add');
+      return;
+    }
+
+    const isCurrentTerm = addTermMode === 'current';
+    if (isCurrentTerm && (!term.semester || !term.schoolYear)) {
+      setError('Active term is not configured. Set the current term in Admin Panel settings first.');
       return;
     }
 
@@ -1413,9 +1703,18 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
       }
     }
 
-    const enrolledSemester = Number(semester) || 1;
+    const resolveSubjectPickerTargetYear = (courseForYear) => {
+      if (subjectPickerYearFilter !== 'all') {
+        return Number(subjectPickerYearFilter);
+      }
+      return Number(courseForYear?.yearLevel) || courseTab + 1;
+    };
+
+    const targetYear = resolveSubjectPickerTargetYear(course);
+    const enrolledSemester = isCurrentTerm
+      ? Number(term.semester) || Number(semester) || 1
+      : Number(semester) || 1;
     const semKey = `sem${enrolledSemester}`;
-    const targetYear = courseTab + 1;
     const duplicate = (irregularSubjects[semKey] || []).some(
       (subject) =>
         (subject.courseCode || '').toString().trim().toUpperCase() === (course.courseCode || '').toString().trim().toUpperCase() &&
@@ -1427,15 +1726,22 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
       return;
     }
 
-    const maxIrregularUnits = academicConfig?.unitsLimits?.default?.irregular ?? 15;
-    const currentUnits = (irregularSubjects[semKey] || []).reduce(
-      (sum, subject) => sum + (parseFloat(subject.units) || 0),
-      0
-    );
+    const prerequisites = getCoursePrerequisites(course);
+    const unmetPrerequisites = getUnmetPrerequisites(prerequisites);
+    if (unmetPrerequisites.length > 0) {
+      setError(formatUnmetPrerequisitesMessage(unmetPrerequisites));
+      return;
+    }
+
+    const maxIrregularUnits = getIrregularUnitsLimit();
+    const currentUnits = getIrregularUnitsUsed({
+      yearLevel: targetYear,
+      semester: enrolledSemester
+    });
     const courseUnits = parseFloat(course.units) || 0;
     if (currentUnits + courseUnits > maxIrregularUnits) {
       setError(
-        `Cannot add ${course.courseCode}: this would exceed the irregular unit limit of ${maxIrregularUnits} units.`
+        `Cannot add ${course.courseCode}: this would exceed the irregular unit limit of ${maxIrregularUnits} units ${getIrregularUnitsScopeLabel()} (${getIrregularUnitsLimitContextLabel({ yearLevel: targetYear, semester: enrolledSemester })}).`
       );
       return;
     }
@@ -1446,14 +1752,15 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
       courseTitle: (course.courseTitle || '').toString().trim(),
       units: parseFloat(course.units) || 0,
       isMajor: !!course.isMajor,
-      prerequisites: Array.isArray(course.prerequisites) ? course.prerequisites : [],
+      prerequisites: getCoursePrerequisites(course),
       curriculumId: course.curriculumId || null,
       curriculumName: getCurriculumName(course.curriculumId) || 'Unknown Curriculum',
       yearLevel: targetYear,
       enrolledSemester: enrolledSemester,
-      enrolledSchoolYear: term.schoolYear,
-      joinedYearLevel: joinYearLevel ? Number(joinYearLevel) : null,
-      joinedBlock: joinBlock || null
+      enrolledSchoolYear: isCurrentTerm ? (term.schoolYear || '') : '',
+      termMode: addTermMode,
+      joinedYearLevel: isCurrentTerm && joinYearLevel ? Number(joinYearLevel) : null,
+      joinedBlock: isCurrentTerm && joinBlock ? joinBlock : null
     };
 
     const next = {
@@ -1477,6 +1784,9 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
       });
       setSelectedStudent(prev => (prev ? { ...prev, irregularSubjects: next } : prev));
       setSuccess('Subject added to irregular semester load');
+      setJoinClassModalOpen(false);
+      setJoinClassPendingCourse(null);
+      setJoinClassBlock('');
     } catch (err) {
       setError('Failed to add subject: ' + err.message);
     }
@@ -1484,19 +1794,149 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
 
   const openSubjectPicker = (semester) => {
     setSubjectPickerSemester(semester);
-    setSubjectPickerCurriculumFilter('all');
-    setSubjectPickerYearFilter('all');
-    setSubjectPickerSemesterFilter('all');
+    const studentCurriculumId = selectedStudent?.curriculumId || '';
+    const defaultCurriculumId = curriculums.some((c) => c.id === studentCurriculumId)
+      ? studentCurriculumId
+      : (curriculums[0]?.id || '');
+    setSubjectPickerCurriculumFilter(defaultCurriculumId);
+    setSubjectPickerYearFilter(String(courseTab + 1));
+    setSubjectPickerSemesterFilter(String(semester));
+    // semester filter defaults to the section opened; user can broaden to "all"
     setSubjectPickerSearch('');
     setSubjectPickerSortBy('courseCode');
     setSubjectPickerSortOrder('asc');
     setSubjectPickerJoinYearLevel('');
     setSubjectPickerJoinBlock('');
+    setIrregularAddTermMode('previous');
+    setSubjectPickerStatusFilter('all');
     setSubjectPickerOpen(true);
   };
 
-  // Called when user clicks "Add" on a subject row — opens the join-class modal
-  const handleRequestAddIrregularSubject = (course) => {
+  const resolveIrregularPickerRowState = useCallback((course) => {
+    const semKey = `sem${subjectPickerSemester}`;
+    const pickerTargetYear =
+      subjectPickerYearFilter !== 'all'
+        ? Number(subjectPickerYearFilter)
+        : Number(course.yearLevel) || courseTab + 1;
+    const courseCodeNorm = (course.courseCode || '').toString().trim().toUpperCase();
+    const alreadyAdded = (irregularSubjects[semKey] || []).some(
+      (subject) =>
+        (subject.courseCode || '').toString().trim().toUpperCase() === courseCodeNorm &&
+        Number(subject.yearLevel || pickerTargetYear) === pickerTargetYear
+    );
+    const alreadyGraded = studentGrades && Object.keys(studentGrades).some(
+      (key) =>
+        (key || '').toString().trim().toUpperCase() === courseCodeNorm &&
+        studentGrades[key] !== undefined &&
+        studentGrades[key] !== ''
+    );
+    const maxIrregularUnits = getIrregularUnitsLimit();
+    const currentPickerUnits = getIrregularUnitsUsed({
+      yearLevel: pickerTargetYear,
+      semester: subjectPickerSemester
+    });
+    const exceedsUnitLimit = currentPickerUnits + (parseFloat(course.units) || 0) > maxIrregularUnits;
+    const prerequisites = getCoursePrerequisites(course);
+    const unmetPrerequisites = getUnmetPrerequisites(prerequisites);
+    const prerequisitesNotMet = unmetPrerequisites.length > 0;
+    const canAdd = !alreadyGraded && !alreadyAdded && !exceedsUnitLimit && !prerequisitesNotMet;
+
+    let status = 'addable';
+    if (alreadyGraded) status = 'graded';
+    else if (alreadyAdded) status = 'added';
+    else if (prerequisitesNotMet) status = 'blocked';
+    else if (exceedsUnitLimit) status = 'limit';
+
+    return {
+      alreadyGraded,
+      alreadyAdded,
+      exceedsUnitLimit,
+      prerequisitesNotMet,
+      unmetPrerequisites,
+      prerequisiteValidationMessage: formatUnmetPrerequisitesMessage(unmetPrerequisites),
+      canAdd,
+      status,
+      currentPickerUnits,
+      maxIrregularUnits
+    };
+  }, [
+    subjectPickerSemester,
+    subjectPickerYearFilter,
+    courseTab,
+    irregularSubjects,
+    studentGrades,
+    academicConfig,
+    allCourses,
+    getUnmetPrerequisites,
+    formatUnmetPrerequisitesMessage
+  ]);
+
+  const irregularSubjectPickerRows = useMemo(
+    () =>
+      getIrregularSubjectCandidates().map((course) => ({
+        course,
+        rowState: resolveIrregularPickerRowState(course)
+      })),
+    [
+      subjectPickerCurriculumFilter,
+      subjectPickerYearFilter,
+      subjectPickerSemesterFilter,
+      subjectPickerSearch,
+      subjectPickerSortBy,
+      subjectPickerSortOrder,
+      allCourses,
+      curriculums,
+      selectedStudent,
+      resolveIrregularPickerRowState
+    ]
+  );
+
+  const filteredIrregularSubjectPickerRows = useMemo(() => {
+    if (subjectPickerStatusFilter === 'addable') {
+      return irregularSubjectPickerRows.filter(({ rowState }) => rowState.canAdd);
+    }
+    if (subjectPickerStatusFilter === 'blocked') {
+      return irregularSubjectPickerRows.filter(
+        ({ rowState }) => rowState.status === 'blocked' || rowState.status === 'limit'
+      );
+    }
+    return irregularSubjectPickerRows;
+  }, [irregularSubjectPickerRows, subjectPickerStatusFilter]);
+
+  const irregularSubjectPickerStats = useMemo(() => {
+    const total = irregularSubjectPickerRows.length;
+    const addable = irregularSubjectPickerRows.filter(({ rowState }) => rowState.canAdd).length;
+    const blocked = irregularSubjectPickerRows.filter(({ rowState }) => rowState.status === 'blocked').length;
+    const added = irregularSubjectPickerRows.filter(({ rowState }) => rowState.status === 'added').length;
+    const unitsUsed = getIrregularUnitsUsed({
+      yearLevel: courseTab + 1,
+      semester: subjectPickerSemester
+    });
+    const unitsLimit = getIrregularUnitsLimit();
+    const unitsScopeLabel = getIrregularUnitsScopeLabel();
+    const withEquivalentsInOther = irregularSubjectPickerRows.filter(
+      ({ course }) => getEquivalentCoursesFromOtherCurricula(course).length > 0
+    ).length;
+
+    return {
+      total,
+      addable,
+      blocked,
+      added,
+      unitsUsed,
+      unitsLimit,
+      unitsScopeLabel,
+      withEquivalentsInOther
+    };
+  }, [irregularSubjectPickerRows, subjectPickerSemester, courseTab, irregularSubjects, academicConfig]);
+
+  // Called when user clicks "Add" on a subject row
+  const handleRequestAddIrregularSubject = async (course) => {
+    if (irregularAddTermMode === 'previous') {
+      await handleAddIrregularSubject(subjectPickerSemester, course, null, null, 'previous');
+      return;
+    }
+
     setJoinClassPendingCourse(course);
     setJoinClassYearLevel('');
     setJoinClassBlock('');
@@ -1507,7 +1947,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
   const handleConfirmJoinClass = async () => {
     if (!joinClassPendingCourse) return;
     const yearLevel = joinClassPendingCourse.yearLevel ? String(joinClassPendingCourse.yearLevel) : '';
-    await handleAddIrregularSubject(subjectPickerSemester, joinClassPendingCourse, yearLevel, joinClassBlock);
+    await handleAddIrregularSubject(subjectPickerSemester, joinClassPendingCourse, yearLevel, joinClassBlock, 'current');
     setJoinClassModalOpen(false);
     setJoinClassPendingCourse(null);
     setJoinClassYearLevel('');
@@ -2163,9 +2603,35 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                           onChange={(e)=> setAcademicConfig(prev=> ({...prev, unitsLimits:{...prev.unitsLimits, default:{...prev.unitsLimits.default, irregular: Number(e.target.value)}}}))} 
                           className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                         />
-                        <p className="mt-1 text-xs text-slate-500">This is the default max units for irregular students. </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Maximum units irregular students may take within the selected scope below.
+                        </p>
                       </div>
-                     
+                      <div>
+                        <label className="text-sm">Irregular unit limit applies</label>
+                        <select
+                          value={academicConfig?.unitsLimits?.default?.irregularScope || 'semester'}
+                          onChange={(e) =>
+                            setAcademicConfig((prev) => ({
+                              ...prev,
+                              unitsLimits: {
+                                ...prev.unitsLimits,
+                                default: {
+                                  ...prev.unitsLimits.default,
+                                  irregularScope: e.target.value
+                                }
+                              }
+                            }))
+                          }
+                          className="w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                        >
+                          <option value="semester">Per semester (within each year level)</option>
+                          <option value="year">Per year (all semesters in that year combined)</option>
+                        </select>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Per semester counts units only in the same year and semester. Per year counts all semesters in that year level together.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2342,15 +2808,22 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
             <div className={`flex flex-col gap-3 ${!multiEditIsIrregular ? 'sm:flex-row' : ''}`}>
               <div className={multiEditIsIrregular ? 'w-full' : 'sm:w-2/3'}>
                 <label className="block text-sm text-gray-600 mb-1">Year Level</label>
-                <select
-                      className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-                  value={multiEditYear}
-                  onChange={(e) => setMultiEditYear(parseInt(e.target.value, 10))}
-                >
-                  {[1,2,3,4].map(y => (
-                    <option key={y} value={y}>{y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : '4th'} Year</option>
+                <div className="inline-flex w-full rounded-lg border border-slate-200 bg-slate-100 p-1">
+                  {[1, 2, 3, 4].map((y) => (
+                    <button
+                      key={y}
+                      type="button"
+                      onClick={() => setMultiEditYear(y)}
+                      className={`flex-1 rounded-md px-2 py-2 text-sm font-medium transition ${
+                        Number(multiEditYear) === y
+                          ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : '4th'} Year
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
 
            
@@ -3108,24 +3581,6 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
     const semestersForCurrentYear = hasSummerInCurrentYear ? [1, 2, 3] : [1, 2];
 
     if (selectedStudent.isIrregular) {
-      const gradedCourseCodesAll = Object.keys(studentGrades || {}).filter(code => studentGrades[code] !== undefined && studentGrades[code] !== '');
-      const gradedSubjectsAll = gradedCourseCodesAll.map((code) => {
-        const norm = (code || '').toString().trim().toUpperCase();
-        const course = allCourses.find(c => (c.courseCode || '').toString().trim().toUpperCase() === norm) ||
-          studentCourses.find(c => (c.courseCode || '').toString().trim().toUpperCase() === norm) || {};
-        return {
-          id: `graded-${norm}`,
-          courseCode: norm,
-          courseTitle: course?.courseTitle || '',
-          units: course?.units || '',
-          isMajor: course?.isMajor ?? false,
-          yearLevel: course?.yearLevel || Number(courseTab + 1),
-          prerequisites: course?.prerequisites || [],
-          enrolledSemester: course?.semester || 1,
-          enrolledSchoolYear: ''
-        };
-      });
-
       return (
         <div className="flex flex-col h-full">
          
@@ -3161,35 +3616,28 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
 
               {semestersForCurrentYear.map((semester) => {
 
-            const semKey = `sem${semester}`;
-            // existing irregular entries specifically for this semester + year
-            const existingForSem = (irregularSubjects[semKey] || []).filter(s => Number(s.yearLevel || currentYear) === currentYear && Number(s.enrolledSemester || s.semester || semester) === Number(semester));
-
-            // graded subjects that belong to this year and semester (originally graded there)
-            const gradedForSem = gradedSubjectsAll.filter(s => Number(s.yearLevel || currentYear) === currentYear && Number(s.enrolledSemester || s.semester || semester) === Number(semester));
-
-            // Merge but avoid duplicates (existing irregular entries take precedence)
-            const seen = new Set();
-            const mergedSubjects = [];
-            existingForSem.forEach(s => {
-              const key = `${(s.courseCode||'').toString().trim().toUpperCase()}::${Number(s.yearLevel||currentYear)}`;
-              seen.add(key);
-              mergedSubjects.push(s);
-            });
-            gradedForSem.forEach(s => {
-              const key = `${(s.courseCode||'').toString().trim().toUpperCase()}::${Number(s.yearLevel||currentYear)}`;
-              if (!seen.has(key)) {
-                seen.add(key);
-                mergedSubjects.push(s);
-              }
-            });
-
+            const mergedSubjects = getIrregularSemesterDisplayRows(currentYear, semester);
             const filteredSemSubjects = mergedSubjects.filter((subject) => matchesSubjectGradeSearch(subject));
+            const semesterUnitsUsed = getIrregularUnitsUsed({ yearLevel: currentYear, semester });
+            const semesterUnitsLimit = getIrregularUnitsLimit();
+            const unitsAtLimit = semesterUnitsUsed >= semesterUnitsLimit;
+
             return (
               <div key={semester}>
 
               <div className='flex items-center justify-between gap-4 mb-4 '>
-                <span className="font-medium text-gray-700">{semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-gray-700">{semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester</span>
+                  <span
+                    className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                      unitsAtLimit
+                        ? 'border-amber-200 bg-amber-50 text-amber-700'
+                        : 'border-slate-200 bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {semesterUnitsUsed}/{semesterUnitsLimit} units {getIrregularUnitsScopeLabel()}
+                  </span>
+                </div>
 
                  <button
       type="button"
@@ -3221,7 +3669,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
           <th className="px-4 py-2 text-left w-[5%]">Units</th>
           <th className="px-4 py-2 text-left w-[10%]">Type</th>
           <th className="px-4 py-2 text-left w-[15%]">Prerequisites</th>
-          <th className="px-4 py-2 text-left w-[10%]">Taken (Sem)</th>
+          <th className="px-4 py-2 text-left w-[12%]">Term Taken</th>
           <th className="px-4 py-2 text-left w-[15%]">Grade</th>
           <th className="px-4 py-2 text-right w-[10%]">Action</th>
         </tr>
@@ -3230,7 +3678,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
       <tbody>
           {mergedSubjects.length === 0 ? (
             <tr>
-            <td colSpan={7} className="py-8 text-center text-gray-400">
+            <td colSpan={8} className="py-8 text-center text-gray-400">
               <div className="flex flex-col items-center gap-1">
                 <span className="text-sm">No subjects yet</span>
                 <span className="text-xs">
@@ -3290,14 +3738,30 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                   })()}
                 </td>
 
-                <td className="px-4 py-2 text-gray-600 w-[15AS%]">
+                <td className="px-4 py-2 text-gray-600 w-[15%]">
                   {prerequisites.length > 0 ? prerequisites.join(', ') : 'None'}
                 </td>
 
-                <td className="px-4 py-2 text-gray-600 w-[10%]">
-                  <span className="text-xs font-medium">
-                    {subject.enrolledSemester ? `${subject.enrolledSemester === 1 ? '1st' : subject.enrolledSemester === 2 ? '2nd' : 'Summer'} Sem` : 'N/A'}
-                  </span>
+                <td className="px-4 py-2 text-gray-600 w-[12%]">
+                  {(() => {
+                    const takenTerm = getIrregularTakenTermDisplay(subject);
+                    return (
+                      <div className="flex flex-col gap-0.5">
+                        <span
+                          className={`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                            takenTerm.tone === 'current'
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'bg-slate-100 text-slate-700 border border-slate-200'
+                          }`}
+                        >
+                          {takenTerm.label}
+                        </span>
+                        {takenTerm.detail ? (
+                          <span className="text-[11px] text-gray-500">{takenTerm.detail}</span>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                 </td>
 
                 <td className="px-4 py-2 w-[15%]">
@@ -3342,12 +3806,14 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                 </td>
 
                 <td className="px-4 py-2 text-end w-[10%]">
-                  <button
-                    onClick={() => promptRemoveIrregularSubject(semester, subject)}
-                    className="p-1 rounded-full cursor-pointer bg-gray-50 text-gray-600 hover:bg-gray-100 transition"
-                  >
-                    <Trash className="w-4 h-4" />
-                  </button>
+                  {!String(subject.id || '').startsWith('graded-') && (
+                    <button
+                      onClick={() => promptRemoveIrregularSubject(semester, subject)}
+                      className="p-1 rounded-full cursor-pointer bg-gray-50 text-gray-600 hover:bg-gray-100 transition"
+                    >
+                      <Trash className="w-4 h-4" />
+                    </button>
+                  )}
                 </td>
               </tr>
             );
@@ -3815,17 +4281,22 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
               <div className='flex items-center gap-4'>
                 <div className={editingData.isIrregular ? 'w-full' : 'w-2/3'}>
                 <label className="block text-sm text-gray-600 mb-1">Year Level</label>
-                <select
-                  className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-                  value={editingData.yearLevel}
-                  onChange={(e) => setEditingData({ ...editingData, yearLevel: parseInt(e.target.value, 10) })}
-                >
+                <div className="inline-flex w-full rounded-lg border border-slate-200 bg-slate-100 p-1">
                   {[1, 2, 3, 4].map((year) => (
-                    <option key={year} value={year}>
+                    <button
+                      key={year}
+                      type="button"
+                      onClick={() => setEditingData({ ...editingData, yearLevel: year })}
+                      className={`flex-1 rounded-md px-2 py-2 text-sm font-medium transition ${
+                        Number(editingData.yearLevel) === year
+                          ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
                       {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
-                    </option>
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
 
               {!editingData.isIrregular && (
@@ -4013,34 +4484,25 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
              <div className='flex items-center gap-4'>
                <div className={studentForm.isIrregular ? 'w-full' : 'w-2/3'}>
   <label className="block text-sm text-gray-600 mb-1">Year Level</label>
-  <select
-    className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-    value={studentForm.yearLevel || ""}
-    required
-    onChange={(e) => {
-      setStudentForm({
-        ...studentForm,
-        yearLevel: e.target.value ? parseInt(e.target.value, 10) : ""
-      });
-      setStudentFormYearError('');
-    }}
-  >
-    <option value="" disabled>
-      Select Year Level
-    </option>
-
+  <div className="inline-flex w-full rounded-lg border border-slate-200 bg-slate-100 p-1">
     {[1, 2, 3, 4].map((year) => (
-      <option key={year} value={year}>
-        {year === 1
-          ? "1st Year"
-          : year === 2
-          ? "2nd Year"
-          : year === 3
-          ? "3rd Year"
-          : "4th Year"}
-      </option>
+      <button
+        key={year}
+        type="button"
+        onClick={() => {
+          setStudentForm({ ...studentForm, yearLevel: year });
+          setStudentFormYearError('');
+        }}
+        className={`flex-1 rounded-md px-2 py-2 text-sm font-medium transition ${
+          Number(studentForm.yearLevel) === year
+            ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
+            : 'text-slate-600 hover:text-slate-900'
+        }`}
+      >
+        {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
+      </button>
     ))}
-  </select>
+  </div>
   {studentFormYearError && <div className="text-sm text-red-600 mt-2">{studentFormYearError}</div>}
 </div>
 
@@ -4273,255 +4735,464 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
         </div>
       )}
 
-      {subjectPickerOpen && selectedStudent?.isIrregular && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setSubjectPickerOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-5xl  border border-gray-300 bg-white rounded-xl shadow p-4 md:p-6 h-[80vh] overflow-hidden">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800">Add Irregular Subject</h3>
-                <p className="text-sm text-gray-600">
-                  Select the regular class this student will be joining, then pick a subject.
+      {subjectPickerOpen && selectedStudent?.isIrregular && (() => {
+        const targetYearLabel = getYearLabel(courseTab + 1);
+        const targetSemLabel = subjectPickerSemester === 1 ? '1st' : subjectPickerSemester === 2 ? '2nd' : 'Summer';
+        const unitsProgress = irregularSubjectPickerStats.unitsLimit > 0
+          ? Math.min(100, (irregularSubjectPickerStats.unitsUsed / irregularSubjectPickerStats.unitsLimit) * 100)
+          : 0;
+
+        const renderEquivalentOtherCurricula = (course) => {
+          const equivalents = getEquivalentCoursesFromOtherCurricula(course);
+          if (equivalents.length === 0) {
+            return <span className="text-xs text-slate-400">—</span>;
+          }
+
+          return (
+            <div className="flex flex-col gap-1.5">
+              {equivalents.map((equivalent) => (
+                <div
+                  key={equivalent.id}
+                  className="rounded-lg border border-violet-200 bg-violet-50/80 px-2 py-1.5"
+                >
+                  <p className="text-xs font-semibold text-violet-800">{equivalent.courseCode}</p>
+                  <p className="text-[11px] font-medium text-violet-700">
+                    {getCurriculumName(equivalent.curriculumId) || 'Other curriculum'}
+                  </p>
+                  <p className="truncate text-[11px] text-slate-600">{equivalent.courseTitle}</p>
+                </div>
+              ))}
+            </div>
+          );
+        };
+
+        const renderPrerequisiteChips = (course, rowState, compact = false) => {
+          const prerequisites = getCoursePrerequisites(course);
+          if (prerequisites.length === 0) {
+            return <span className="text-xs text-slate-400">None required</span>;
+          }
+
+          return (
+            <div className={`flex flex-col gap-1.5 ${compact ? '' : 'min-w-[12rem]'}`}>
+              {prerequisites.map((prereq) => {
+                const fulfillment = getPrerequisiteFulfillment(prereq);
+                const met = fulfillment.status === 'completed';
+                const title = getPrerequisiteCourseTitle(prereq);
+                const statusLabel = getPrerequisiteStatusLabel(fulfillment.status);
+
+                return (
+                  <div
+                    key={prereq}
+                    className={`rounded-lg border px-2 py-1.5 ${
+                      met
+                        ? 'border-emerald-200 bg-emerald-50/80'
+                        : 'border-red-200 bg-red-50/80'
+                    }`}
+                  >
+                    <div className="flex items-start gap-1.5">
+                      {met ? (
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                      ) : (
+                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600" />
+                      )}
+                      <div className="min-w-0">
+                        <p className={`text-xs font-semibold ${met ? 'text-emerald-800' : 'text-red-800'}`}>
+                          {fulfillment.courseCode}
+                        </p>
+                        {!compact && title ? (
+                          <p className="truncate text-[11px] text-slate-600">{title}</p>
+                        ) : null}
+                        <p className={`text-[10px] font-medium ${met ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {statusLabel}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {rowState.prerequisitesNotMet && !compact && (
+                <p className="text-[11px] leading-snug text-red-600">
+                  {rowState.prerequisiteValidationMessage}
                 </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSubjectPickerOpen(false)}
-                className="p-1 rounded-full cursor-pointer bg-gray-50 hover:bg-gray-100 text-gray-500 hover:text-red-600 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              )}
             </div>
+          );
+        };
 
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <div className='flex items-center gap-2'>
-                <div className='flex items-center gap-2'>
-                  <Funnel className="w-4 h-4 text-gray-500" />
+        const renderRowStatus = (rowState) => {
+          if (rowState.status === 'graded') {
+            return (
+              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Graded
+              </span>
+            );
+          }
+          if (rowState.status === 'added') {
+            return (
+              <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                <Layers className="w-3.5 h-3.5" />
+                Added
+              </span>
+            );
+          }
+          if (rowState.status === 'limit') {
+            return (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                <AlertCircle className="w-3.5 h-3.5" />
+                Unit limit
+              </span>
+            );
+          }
+          if (rowState.status === 'blocked') {
+            return (
+              <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">
+                <Lock className="w-3.5 h-3.5" />
+                Blocked
+              </span>
+            );
+          }
+          return (
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Ready
+            </span>
+          );
+        };
 
-                <select
-                  value={subjectPickerYearFilter}
-                  onChange={(e) => setSubjectPickerYearFilter(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
-                >
-                  <option value="all">All Year Levels</option>
-                  <option value="1">1st Year</option>
-                  <option value="2">2nd Year</option>
-                  <option value="3">3rd Year</option>
-                  <option value="4">4th Year</option>
-                </select>
-              </div>
-
-              <div>
-                <select
-                  value={subjectPickerSemesterFilter}
-                  onChange={(e) => setSubjectPickerSemesterFilter(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
-                >
-                  <option value="all">All Semesters</option>
-                  <option value="1">1st Semester</option>
-                  <option value="2">2nd Semester</option>
-                  <option value="3">Summer</option>
-                </select>
-              </div>
-                <div className="flex items-center gap-2">
-                <select
-                  value={subjectPickerCurriculumFilter}
-                  onChange={(e) => setSubjectPickerCurriculumFilter(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
-                >
-                  <option value="all">All Curriculum</option>
-                  {curriculums.map((curriculum) => (
-                    <option key={curriculum.id} value={curriculum.id}>{curriculum.name}</option>
-                  ))}
-                </select>
-              </div>
-              </div>
-
-            
-
-              <div className="relative w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  value={subjectPickerSearch}
-                  onChange={(e) => setSubjectPickerSearch(e.target.value)}
-                  placeholder="Search code, description, curriculum, or classification"
-                  className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <div className="max-h-[64vh] overflow-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-blue-500 text-white sticky top-0 text-xs uppercase">
-                    <tr>
-                      <th
-                        className="px-2 py-2 text-left cursor-pointer select-none w-[15%]"
-                        onClick={() => {
-                          if (subjectPickerSortBy === 'curriculum') {
-                            setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-                          } else {
-                            setSubjectPickerSortBy('curriculum');
-                            setSubjectPickerSortOrder('asc');
-                          }
-                        }}
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          Curriculum
-                          {subjectPickerSortBy === 'curriculum' && subjectPickerSortOrder === 'asc' ? (
-                            <ChevronUp className="w-3.5 h-3.5" />
-                          ) : subjectPickerSortBy === 'curriculum' ? (
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          ) : (
-                            <ChevronsUpDown className="w-3.5 h-3.5" />
-                          )}
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+            <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" onClick={() => setSubjectPickerOpen(false)} />
+            <div className="relative z-10 flex h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+              <div className="border-b border-blue-100 bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 px-5 py-4 text-white sm:px-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <div className="rounded-lg bg-white/15 p-2">
+                        <BookOpen className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold tracking-tight sm:text-xl">Add Irregular Subject</h3>
+                        <p className="truncate text-sm text-blue-100">{selectedStudent.name || 'Student'}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium">
+                        <GraduationCap className="h-3.5 w-3.5" />
+                        {targetYearLabel} Year · {targetSemLabel} Semester
+                      </span>
+                      {term.semester && term.schoolYear && (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium">
+                          <Calendar className="h-3.5 w-3.5" />
+                          Active: {SEMESTER_LABELS[term.semester] || `Sem ${term.semester}`} · S.Y. {term.schoolYear}
                         </span>
-                      </th>
-                      
-                    
-                      <th
-                        className="px-2 py-2 text-left cursor-pointer select-none w-[15%]"
-                        onClick={() => {
-                          if (subjectPickerSortBy === 'courseCode') {
-                            setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-                          } else {
-                            setSubjectPickerSortBy('courseCode');
-                            setSubjectPickerSortOrder('asc');
-                          }
-                        }}
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          Subject Code
-                          {subjectPickerSortBy === 'courseCode' && subjectPickerSortOrder === 'asc' ? (
-                            <ChevronUp className="w-3.5 h-3.5" />
-                          ) : subjectPickerSortBy === 'courseCode' ? (
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          ) : (
-                            <ChevronsUpDown className="w-3.5 h-3.5" />
-                          )}
-                        </span>
-                      </th>
-                      <th
-                        className="px-2 py-2 text-left cursor-pointer select-none w-[40%]"
-                        onClick={() => {
-                          if (subjectPickerSortBy === 'courseTitle') {
-                            setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-                          } else {
-                            setSubjectPickerSortBy('courseTitle');
-                            setSubjectPickerSortOrder('asc');
-                          }
-                        }}
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          Subject Description
-                          {subjectPickerSortBy === 'courseTitle' && subjectPickerSortOrder === 'asc' ? (
-                            <ChevronUp className="w-3.5 h-3.5" />
-                          ) : subjectPickerSortBy === 'courseTitle' ? (
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          ) : (
-                            <ChevronsUpDown className="w-3.5 h-3.5" />
-                          )}
-                        </span>
-                      </th>
-                      <th
-                        className="px-2 py-2 text-left cursor-pointer select-none w-[10%]"
-                        onClick={() => {
-                          if (subjectPickerSortBy === 'units') {
-                            setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-                          } else {
-                            setSubjectPickerSortBy('units');
-                            setSubjectPickerSortOrder('asc');
-                          }
-                        }}
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          Units
-                          {subjectPickerSortBy === 'units' && subjectPickerSortOrder === 'asc' ? (
-                            <ChevronUp className="w-3.5 h-3.5" />
-                          ) : subjectPickerSortBy === 'units' ? (
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          ) : (
-                            <ChevronsUpDown className="w-3.5 h-3.5" />
-                          )}
-                        </span>
-                      </th>
-                      <th className="px-2 py-2 text-left w-[10%]">Major</th>
-                      <th className="px-2 py-2 text-left w-[10%]">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {getIrregularSubjectCandidates().length === 0 ? (
-                      <tr>
-                        <td className="px-2 py-4 text-gray-500" colSpan={6}>No offered subjects found for this filter.</td>
-                      </tr>
-                    ) : (
-                      getIrregularSubjectCandidates().map((course) => {
-                        const semKey = `sem${subjectPickerSemester}`;
-                        const alreadyAdded = (irregularSubjects[semKey] || []).some(
-                          (subject) =>
-                            (subject.courseCode || '').toString().trim().toUpperCase() === (course.courseCode || '').toString().trim().toUpperCase() &&
-                            Number(subject.yearLevel || (courseTab + 1)) === (courseTab + 1)
-                        );
-                        const courseCodeNorm = (course.courseCode || '').toString().trim().toUpperCase();
-                        const alreadyGraded = studentGrades && Object.keys(studentGrades).some(k => (k || '').toString().trim().toUpperCase() === courseCodeNorm && studentGrades[k] !== undefined && studentGrades[k] !== '');
-                        const maxIrregularUnits = academicConfig?.unitsLimits?.default?.irregular ?? 15;
-                        const currentPickerUnits = (irregularSubjects[`sem${subjectPickerSemester}`] || []).reduce(
-                          (sum, subject) => sum + (parseFloat(subject.units) || 0),
-                          0
-                        );
-                        const exceedsUnitLimit = currentPickerUnits + (parseFloat(course.units) || 0) > maxIrregularUnits;
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSubjectPickerOpen(false)}
+                    className="rounded-full bg-white/15 p-2 text-white transition hover:bg-white/25"
+                    aria-label="Close"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
 
-                        return (
-                          <tr key={course.id} className="border-t border-gray-200">
-                            <td className="px-2 py-2">{getCurriculumName(course.curriculumId) || 'Unknown Curriculum'}</td>
-                            <td className="px-2 py-2 font-semibold text-blue-700">{course.courseCode}</td>
-                            <td className="px-2 py-2">{course.courseTitle}</td>
-                            <td className="px-2 py-2">{course.units}</td>
-                            <td className="px-2 py-2">
-                              {course.isMajor ? (
-                                <span className="inline-block px-2 py-0.5 rounded-full text-xs border bg-blue-50 border-blue-200 text-blue-700">
-                                  Major
-                                </span>
+              <div className="grid shrink-0 gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-3 sm:grid-cols-2 sm:px-5">
+                <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Enrollment term</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIrregularAddTermMode('previous')}
+                      className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
+                        irregularAddTermMode === 'previous'
+                          ? 'border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-100'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="font-semibold">Previous Term</span>
+                      <span className="mt-0.5 block text-[11px] text-slate-500">Backfill — no block required</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIrregularAddTermMode('current')}
+                      className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
+                        irregularAddTermMode === 'current'
+                          ? 'border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-100'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="font-semibold">Current Term</span>
+                      <span className="mt-0.5 block text-[11px] text-slate-500">Join a class block</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Target year level</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {['all', '1', '2', '3', '4'].map((yearKey) => (
+                      <button
+                        key={yearKey}
+                        type="button"
+                        onClick={() => setSubjectPickerYearFilter(yearKey)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                          subjectPickerYearFilter === yearKey
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        {yearKey === 'all' ? 'All' : `${yearKey === '1' ? '1st' : yearKey === '2' ? '2nd' : yearKey === '3' ? '3rd' : '4th'} Year`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="shrink-0 space-y-3 border-b border-slate-100 px-4 py-3 sm:px-5">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+                      <Funnel className="h-4 w-4 text-slate-400" />
+                      <select
+                        id="subject-picker-curriculum"
+                        value={subjectPickerCurriculumFilter}
+                        onChange={(e) => setSubjectPickerCurriculumFilter(e.target.value)}
+                        className="min-w-[10rem] border-0 bg-transparent text-sm focus:outline-none focus:ring-0"
+                      >
+                        {curriculums.map((curriculum) => (
+                          <option key={curriculum.id} value={curriculum.id}>
+                            {curriculum.name}
+                            {curriculum.id === selectedStudent?.curriculumId ? '' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <select
+                      id="subject-picker-semester"
+                      value={subjectPickerSemesterFilter}
+                      onChange={(e) => setSubjectPickerSemesterFilter(e.target.value)}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="all">All semesters</option>
+                      <option value="1">1st semester</option>
+                      <option value="2">2nd semester</option>
+                      <option value="3">Summer</option>
+                    </select>
+                    <div className="relative min-w-[14rem] flex-1 sm:min-w-[18rem]">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        value={subjectPickerSearch}
+                        onChange={(e) => setSubjectPickerSearch(e.target.value)}
+                        placeholder="Search code, title, or curriculum…"
+                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
+                    {[
+                      { key: 'all', label: `All (${irregularSubjectPickerStats.total})` },
+                      { key: 'addable', label: `Ready (${irregularSubjectPickerStats.addable})` },
+                      { key: 'blocked', label: `Blocked (${irregularSubjectPickerStats.blocked})` }
+                    ].map((tab) => (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setSubjectPickerStatusFilter(tab.key)}
+                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                          subjectPickerStatusFilter === tab.key
+                            ? 'bg-blue-600 text-white'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {irregularSubjectPickerStats.addable} ready to add
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 font-medium text-red-700">
+                    <Lock className="h-3.5 w-3.5" />
+                    {irregularSubjectPickerStats.blocked} blocked by prerequisites
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 font-medium text-blue-700">
+                    <Layers className="h-3.5 w-3.5" />
+                    {irregularSubjectPickerStats.added} already added
+                  </span>
+                  {irregularSubjectPickerStats.withEquivalentsInOther > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 font-medium text-violet-700">
+                      <Link2 className="h-3.5 w-3.5" />
+                      {irregularSubjectPickerStats.withEquivalentsInOther} with equivalents in other curricula
+                    </span>
+                  )}
+                  <span className="ml-auto flex min-w-[12rem] items-center gap-2">
+                    <span className="font-medium text-slate-700">
+                      Units {irregularSubjectPickerStats.unitsUsed}/{irregularSubjectPickerStats.unitsLimit}{' '}
+                      {irregularSubjectPickerStats.unitsScopeLabel}
+                    </span>
+                    <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
+                      <span
+                        className={`block h-full rounded-full transition-all ${
+                          unitsProgress >= 100 ? 'bg-amber-500' : 'bg-blue-500'
+                        }`}
+                        style={{ width: `${unitsProgress}%` }}
+                      />
+                    </span>
+                  </span>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-hidden px-4 pb-3 pt-2 sm:px-5">
+                <div className="h-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <div className="h-full overflow-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="sticky top-0 z-10 bg-slate-800 text-xs uppercase tracking-wide text-white">
+                        <tr>
+                          <th className="px-3 py-2.5 text-left">Status</th>
+                          <th
+                            className="cursor-pointer px-3 py-2.5 text-left select-none"
+                            onClick={() => {
+                              if (subjectPickerSortBy === 'courseCode') {
+                                setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                              } else {
+                                setSubjectPickerSortBy('courseCode');
+                                setSubjectPickerSortOrder('asc');
+                              }
+                            }}
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              Code
+                              {subjectPickerSortBy === 'courseCode' && subjectPickerSortOrder === 'asc' ? (
+                                <ChevronUp className="h-3.5 w-3.5" />
+                              ) : subjectPickerSortBy === 'courseCode' ? (
+                                <ChevronDown className="h-3.5 w-3.5" />
                               ) : (
-                                 <span className="inline-block px-2 py-0.5 rounded-full text-xs border bg-yellow-50 border-yellow-200 text-yellow-700">
-                                  Minor
-                                </span>
+                                <ChevronsUpDown className="h-3.5 w-3.5 opacity-60" />
                               )}
-                            </td>
-                            <td className="px-2 py-2">
-                              {alreadyGraded ? (
-                                <span title="Student already has a grade for this subject" className="w-15 text-center inline-block cursor-not-allowed px-2 py-1 rounded text-xs bg-gray-100 text-gray-600 border border-gray-200">
-                                  Graded
-                                </span>
-                              ) : alreadyAdded ? (
-                                <span className="w-15 text-center inline-block cursor-not-allowed px-2 py-1 rounded text-xs bg-gray-100 text-gray-600 border border-gray-200">
-                                  Added
-                                </span>
-                              ) : exceedsUnitLimit ? (
-                                <span title="This subject would exceed the irregular unit limit" className="w-15 text-center inline-block cursor-not-allowed px-2 py-1 rounded text-xs bg-amber-100 text-amber-700 border border-amber-200">
-                                  Exceeds limit
-                                </span>
+                            </span>
+                          </th>
+                          <th
+                            className="cursor-pointer px-3 py-2.5 text-left select-none"
+                            onClick={() => {
+                              if (subjectPickerSortBy === 'courseTitle') {
+                                setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                              } else {
+                                setSubjectPickerSortBy('courseTitle');
+                                setSubjectPickerSortOrder('asc');
+                              }
+                            }}
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              Description
+                              {subjectPickerSortBy === 'courseTitle' && subjectPickerSortOrder === 'asc' ? (
+                                <ChevronUp className="h-3.5 w-3.5" />
+                              ) : subjectPickerSortBy === 'courseTitle' ? (
+                                <ChevronDown className="h-3.5 w-3.5" />
                               ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => handleRequestAddIrregularSubject(course)}
-                                  className="w-15 text-center px-2 py-1 rounded text-xs bg-green-500 text-white hover:bg-green-600 cursor-pointer"
-                                >
-                                  Add
-                                </button>
+                                <ChevronsUpDown className="h-3.5 w-3.5 opacity-60" />
                               )}
+                            </span>
+                          </th>
+                          <th className="px-3 py-2.5 text-center">Units</th>
+                          <th className="px-3 py-2.5 text-left">Type</th>
+                          <th className="min-w-[14rem] px-3 py-2.5 text-left">Prerequisites</th>
+                          <th className="min-w-[12rem] px-3 py-2.5 text-left">Equivalents (Other Curr.)</th>
+                          <th className="px-3 py-2.5 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredIrregularSubjectPickerRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="px-4 py-12 text-center">
+                              <div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-slate-500">
+                                <Info className="h-8 w-8 text-slate-300" />
+                                <p className="text-sm font-medium text-slate-700">No subjects match your filters</p>
+                                <p className="text-xs">Try another search term, semester, or switch to “All” subjects.</p>
+                              </div>
                             </td>
                           </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+                        ) : (
+                          filteredIrregularSubjectPickerRows.map(({ course, rowState }, index) => (
+                            <tr
+                              key={course.id}
+                              className={`border-t border-slate-100 transition hover:bg-blue-50/40 ${
+                                index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
+                              }`}
+                            >
+                              <td className="px-3 py-3 align-top">{renderRowStatus(rowState)}</td>
+                              <td className="px-3 py-3 align-top">
+                                <span className="font-semibold text-blue-700">{course.courseCode}</span>
+                                <p className="mt-0.5 text-[11px] text-slate-500">
+                                  {getCurriculumName(course.curriculumId) || 'Unknown'}
+                                </p>
+                              </td>
+                              <td className="px-3 py-3 align-top text-slate-700">{course.courseTitle}</td>
+                              <td className="px-3 py-3 text-center align-top text-slate-600">{course.units}</td>
+                              <td className="px-3 py-3 align-top">
+                                {course.isMajor ? (
+                                  <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                                    Major
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                                    Minor
+                                  </span>
+                                )}
+                              </td>
+                              <td className="min-w-[14rem] px-3 py-3 align-top">
+                                {renderPrerequisiteChips(course, rowState)}
+                              </td>
+                              <td className="min-w-[12rem] px-3 py-3 align-top">
+                                {renderEquivalentOtherCurricula(course)}
+                              </td>
+                              <td className="px-3 py-3 text-right align-top">
+                                {rowState.canAdd ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRequestAddIrregularSubject(course)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    Add
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-slate-400">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-4 py-3 sm:px-5">
+                <p className="text-xs text-slate-500">
+                  Prerequisites show completion status. Violet cards list equivalent subjects from other curricula.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSubjectPickerOpen(false)}
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  Done
+                </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Join Class Modal — shown after clicking Add on a subject */}
       {joinClassModalOpen && joinClassPendingCourse && (
@@ -4531,10 +5202,15 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
             {/* Header */}
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-gray-800">Select Class to Join</h3>
+                <h3 className="text-lg font-semibold text-gray-800">Join Class</h3>
                 <p className="text-sm text-gray-500 mt-0.5">
                   Choose which block this student will join for{' '}
-                  <span className="font-semibold text-blue-700">{joinClassPendingCourse.courseCode}</span>.
+                  <span className="font-semibold text-blue-700">{joinClassPendingCourse.courseCode}</span>
+                  {term.semester && term.schoolYear ? (
+                    <span>
+                      {' '}under {SEMESTER_LABELS[term.semester] || `Sem ${term.semester}`} · S.Y. {term.schoolYear}
+                    </span>
+                  ) : null}.
                 </p>
               </div>
               <button
@@ -4567,7 +5243,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               >
                 <option value="">— Select Block —</option>
-                {getBlocksForYear(Number(joinClassPendingCourse.yearLevel), false).map((block) => (
+                {getBlocksForYearInActiveTerm(Number(joinClassPendingCourse.yearLevel)).map((block) => (
                   <option key={block} value={block}>Block {block}</option>
                 ))}
               </select>

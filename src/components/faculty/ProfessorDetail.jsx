@@ -804,7 +804,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
         return;
       }
       setOtherClassesLoading(true);
-      const res = await getOtherDeptClasses(otherDeptId);
+      const res = await getOtherDeptClasses(otherDeptId, activeTerm);
       if (res.success) setOtherClasses(res.data);
       setOtherClassesLoading(false);
       setOtherSelectedClass(null);
@@ -812,7 +812,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
       setOtherBlocks([]);
     };
     loadOtherClasses();
-  }, [otherDeptId]);
+  }, [otherDeptId, activeTerm]);
 
   useEffect(() => {
     const loadOtherCurriculumCourses = async () => {

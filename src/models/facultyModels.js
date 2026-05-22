@@ -604,7 +604,7 @@ export const getOtherDepartments = async () => {
 // Distills a list of "classes" from the student records of a department:
 //   each unique (course, yearLevel) tuple becomes one class, with the set of
 //   blocks present and a student count.
-export const getOtherDeptClasses = async (departmentId) => {
+export const getOtherDeptClasses = async (departmentId, activeTerm = null) => {
   try {
     if (!departmentId) return { success: true, data: [] };
     const q = query(
@@ -615,6 +615,15 @@ export const getOtherDeptClasses = async (departmentId) => {
     const classes = new Map();
     snap.docs.forEach(d => {
       const s = d.data();
+      if (activeTerm?.semester && activeTerm?.schoolYear) {
+        const createdTerm = s.createdTerm || {};
+        if (
+          Number(createdTerm.semester) !== Number(activeTerm.semester) ||
+          (createdTerm.schoolYear || '') !== (activeTerm.schoolYear || '')
+        ) {
+          return;
+        }
+      }
       const courseName = (s.course || '').toString().trim();
       const year = Number(s.yearLevel) || 0;
       const block = (s.block || '').toString().trim().toUpperCase();

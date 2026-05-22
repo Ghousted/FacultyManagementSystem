@@ -263,13 +263,19 @@ const CurriculumCheckerMain = () => {
 
   const handlePrintStudentPDF = (student, studentCurriculum, summerCourses = []) => {
     if (!student || !studentCurriculum) return;
-    const firstYearCourses = studentCurriculum.courses.filter(c => c.yearLevel === 1);
+    const mergedCourses = mergeIrregularSubjectsIntoCourses(
+      student,
+      getAvailableCoursesForIrregular(student, studentCurriculum.courses)
+    );
+    const coursesForPrint = student.isIrregular
+      ? mergedCourses
+      : mergedCourses.filter((c) => c.yearLevel === 1);
     const availableSummerCourses = summerCourses.filter(c => c.semester === 3);
     setPreviewTarget({
       student,
       studentCurriculum: {
         ...studentCurriculum,
-        courses: firstYearCourses
+        courses: coursesForPrint
       },
       summerCourses: availableSummerCourses
     });
@@ -488,6 +494,39 @@ const CurriculumCheckerMain = () => {
         status: anyAvailable ? 'available' : course.status
       };
     });
+  };
+
+  const mergeIrregularSubjectsIntoCourses = (student, curriculumCourses) => {
+    if (!student?.isIrregular) return curriculumCourses;
+
+    const courseCodes = new Set(
+      curriculumCourses.map((course) =>
+        (course.courseCode || '').toString().trim().toUpperCase()
+      )
+    );
+    const extras = [];
+
+    Object.entries(student.irregularSubjects || {}).forEach(([semKey, subjects]) => {
+      const semester = Number(String(semKey).replace('sem', '')) || 1;
+      (subjects || []).forEach((subject) => {
+        const code = (subject.courseCode || '').toString().trim().toUpperCase();
+        if (!code || courseCodes.has(code)) return;
+        courseCodes.add(code);
+        extras.push({
+          id: subject.id || `irregular-${code}`,
+          courseCode: code,
+          courseTitle: subject.courseTitle || '',
+          units: subject.units || '',
+          isMajor: !!subject.isMajor,
+          prerequisites: Array.isArray(subject.prerequisites) ? subject.prerequisites : [],
+          yearLevel: Number(subject.yearLevel) || 1,
+          semester,
+          status: 'available'
+        });
+      });
+    });
+
+    return [...curriculumCourses, ...extras];
   };
 
   const getEquivalentCoursesFromOtherCurriculums = (student, curriculumCourses) => {
@@ -758,7 +797,10 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
     if (!studentCurriculum) return null;
 
     const { student, courses } = studentCurriculum;
-    const processedCourses = getAvailableCoursesForIrregular(student, courses);
+    const processedCourses = mergeIrregularSubjectsIntoCourses(
+      student,
+      getAvailableCoursesForIrregular(student, courses)
+    );
 
     return (
       <div>
@@ -769,7 +811,16 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
             <div className="text-gray-900 text-lg font-semibold">{student.name}</div>
               <span className='text-sm text-gray-600'>{student.studentNumber}</span><br />
               <span className='text-sm text-gray-600'>{student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year{student.isIrregular ? ' - Irregular' : ''} {' '}
-              <span> Block {student.block ? student.block : 'Not Set'}</span></span>
+              {!student.isIrregular && (
+                <span> Block {student.block ? student.block : 'Not Set'}</span>
+              )}
+              </span>
+              {student.isIrregular && (
+                <p className="mt-1 text-sm text-blue-800">
+                  Assigned curriculum: {student.curriculumName || student.curriculumId || 'Not set'}
+                  {' '}· All curriculum subjects are shown; grades appear only where recorded.
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -861,6 +912,15 @@ className={`rounded-lg px-4 py-1 text-sm font-medium transition-all
                   </tr>
                 </thead>
                 <tbody>
+                  {processedCourses
+                    .filter(course => course.yearLevel === year && course.semester === semester)
+                    .length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-4 text-center text-gray-500">
+                        No subjects in this semester.
+                      </td>
+                    </tr>
+                  ) : null}
                   {processedCourses
                     .filter(course => course.yearLevel === year && course.semester === semester)
                     .map(course => {
