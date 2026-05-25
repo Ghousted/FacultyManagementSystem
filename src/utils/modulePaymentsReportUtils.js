@@ -4,6 +4,19 @@ import { db } from '../firebase';
 const normalizeCode = (value) => (value || '').toString().trim().toUpperCase();
 const normalizeBlock = (value) => (value || '').toString().trim().toUpperCase() || 'A';
 
+const isStudentEnrolledForTerm = (student, activeTerm) => {
+  if (!student || student.enrolled === false) return false;
+  if (!activeTerm?.semester || !activeTerm?.schoolYear) return student.enrolled !== false;
+
+  const term = student.enrolledTerm || student.createdTerm || null;
+  if (!term || (!term.semester && !term.schoolYear)) return student.enrolled === true;
+
+  return (
+    Number(term.semester) === Number(activeTerm.semester) &&
+    String(term.schoolYear || '').trim() === String(activeTerm.schoolYear || '').trim()
+  );
+};
+
 const buildOtherDeptReportKey = ({ departmentId, courseId, courseCode, classCourse }) =>
   `other::${departmentId || ''}::${courseId || normalizeCode(courseCode)}::${(classCourse || '').toString().trim().toLowerCase()}`;
 
@@ -85,6 +98,7 @@ const buildStudentRowsForPayables = (matchingPayables, studentMap, otherStudentM
     Object.entries(payable.studentPayments || {}).forEach(([studentId, payment]) => {
       const student = studentMap.get(studentId) || otherStudentMap.get(studentId);
       if (!student) return;
+      if (!isStudentEnrolledForTerm(student, activeTerm)) return;
 
       const rawBlock = getStudentBlockForCourse(student, courseKey, activeTerm, payable.block || 'A');
       const block = rawBlock || '—';
@@ -229,6 +243,7 @@ export const buildModulePaymentCourses = ({
       : [];
     const relevantStudents = curriculum
       ? students.filter((student) => {
+          if (!isStudentEnrolledForTerm(student, activeTerm)) return false;
           const block = getStudentBlockForCourse(student, courseKey, activeTerm, student.block || 'A');
           if (allowedBlocks.length > 0 && !allowedBlocks.includes(block)) return false;
           if (student.isIrregular) {
@@ -241,6 +256,7 @@ export const buildModulePaymentCourses = ({
           return true;
         })
       : otherDeptStudents.filter((student) => {
+          if (!isStudentEnrolledForTerm(student, activeTerm)) return false;
           if (mod.departmentId && student.departmentId !== mod.departmentId) return false;
           if ((student.course || '').toString().trim() !== (mod.classCourse || mod.course || '').toString().trim()) return false;
           if (Number(student.yearLevel) !== Number(mod.yearLevel)) return false;
@@ -309,6 +325,7 @@ export const buildModulePaymentCourses = ({
       const built = buildStudentRowsForPayables(matchingPayables, studentMap, otherStudentMap, courseKey, activeTerm);
 
       const relevantStudents = otherDeptStudents.filter((student) => {
+        if (!isStudentEnrolledForTerm(student, activeTerm)) return false;
         if (student.departmentId !== assignment.departmentId) return false;
         if ((student.course || '').toString().trim() !== (assignment.classCourse || '').toString().trim()) {
           return false;

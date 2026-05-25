@@ -135,6 +135,23 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
       }
     }
 
+    // show selected folder for students or enrollment modes
+    if ((activeMode === 'students' || activeMode === 'enrollment') && folder) {
+      if (folder.isInactiveFolder) {
+        const label = 'Archived Students';
+        crumbs.push({ label, onClick: () => window.dispatchEvent(new CustomEvent('open-student-folder', { detail: { selectedFolder: folder } })) });
+      } else if (folder.isIrregular) {
+        const label = 'Irregular Students';
+        crumbs.push({ label, onClick: () => window.dispatchEvent(new CustomEvent(activeMode === 'enrollment' ? 'open-enrollment-folder' : 'open-student-folder', { detail: { selectedFolder: folder } })) });
+      } else {
+        const y = Number(folder?.year);
+        const block = folder?.block;
+        const yearLabel = y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : y === 4 ? '4th' : `${folder?.year}th`;
+        const folderLabel = `${yearLabel} Year${block ? ` Block ${block}` : ''}`.trim();
+        crumbs.push({ label: folderLabel || 'Folder', onClick: () => window.dispatchEvent(new CustomEvent(activeMode === 'enrollment' ? 'open-enrollment-folder' : 'open-student-folder', { detail: { selectedFolder: folder } })) });
+      }
+    }
+
     if (selectedStudent && selectedStudent.name) {
       crumbs.push({ label: selectedStudent.name, onClick: null });
     }
@@ -241,7 +258,7 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
                <button
                 type="button"
                 onClick={() => window.dispatchEvent(new CustomEvent('open-academic-config'))}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-xl cursor-pointer bg-blue-500 text-white hover:bg-blue-600 transition"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg cursor-pointer bg-blue-500 text-white hover:bg-blue-600 transition"
               >
                 <FileSliders className="h-4 w-4" />
                 Academic Eligibility
@@ -251,7 +268,7 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
             <button
               type="button"
               onClick={() => window.dispatchEvent(new CustomEvent('open-add-student'))}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-xl cursor-pointer bg-green-500 text-white hover:bg-green-600 transition"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg cursor-pointer bg-green-500 text-white hover:bg-green-600 transition"
             >
               <UserPlus className="h-4 w-4" />
               Add Student
@@ -264,7 +281,7 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
             <button
               type="button"
               onClick={() => window.dispatchEvent(new CustomEvent('open-add-department'))}
-              className="inline-flex items-center gap-2 rounded-xl bg-green-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-600"
+              className="inline-flex items-center gap-2 rounded-lg bg-green-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-600"
             >
               <BadgePlus className="h-4 w-4" />
               Add Department

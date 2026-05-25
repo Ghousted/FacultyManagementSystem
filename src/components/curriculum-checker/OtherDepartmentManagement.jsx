@@ -39,7 +39,7 @@ const OtherStudentRowSkeleton = () => (
   <tr className="border-t border-gray-200 animate-pulse">
     <td className="w-10 px-4 py-3"><div className="h-4 w-4 rounded bg-gray-200" /></td>
     <td className="px-4 py-3 w-40%"><div className="h-4 w-40 rounded bg-gray-200" /></td>
-    <td className="px-4 py-3 w-15%"><div className="h-4 w-28 rounded bg-gray-200" /></td>
+    <td className="px-4 py-3 w-15%"><div className="h-4 w-24 rounded bg-gray-200" /></td>
     <td className="px-4 py-3 w-15%"><div className="h-4 w-16 rounded bg-gray-200" /></td>
     <td className="px-4 py-3 w-15%"><div className="h-4 w-16 rounded bg-gray-200" /></td>
     <td className="px-4 py-3 w-15%">
@@ -678,7 +678,7 @@ const OtherDepartmentManagement = () => {
             className={index === 0 ? '' : 'border-t border-slate-200 pt-4'}
           >
             <div className="mb-3 text-sm font-semibold text-slate-700">{group.termLabel}</div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
               {sortFoldersForDisplay(group.folders).map((folder) => {
                 const counts = getOtherDeptFolderStudentCounts(folder, activeTerm);
                 return (
@@ -1137,7 +1137,7 @@ const OtherDepartmentManagement = () => {
               <button
                 type="button"
                 onClick={confirmCurrentDialog}
-                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 {confirmDialog.confirmLabel}
               </button>
@@ -1184,7 +1184,7 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                 <button
                   type="submit"
                   disabled={loading}
-                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   {editingDepartmentId ? 'Update' : 'Save'}
                 </button>
@@ -1268,7 +1268,7 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                 <button
                   type="submit"
                   disabled={loading}
-                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   {editingOtherStudentId ? 'Update' : 'Add'}
                 </button>

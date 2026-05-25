@@ -662,22 +662,24 @@ const buildProfessorDetailedSheet = (prof, ratePerStudent, classDetails, options
     
     // Class computations
     const totalStudents = Number(course.studentCount || 0);
+    const paidStudentsCount = (students || []).filter(s => s.status === 'PAID').length;
     const totalPaid = students.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0);
     const totalBalance = students.reduce((sum, s) => sum + Math.max(0, amountRequired - Number(s.paidAmount || 0)), 0);
-    const professorRate = ratePerStudent;
-    const professorCutback = totalStudents * professorRate;
-    const totalExpected = professorCutback;
+    const professorRate = Number(ratePerStudent) || 0;
+    const professorCutbackClaimable = totalStudents * professorRate; // claimable regardless of paid status
+    const professorCutbackPaid = paidStudentsCount * professorRate; // actual/payout based on counted paid students
     const totalModuleAmount = amountRequired * totalStudents;
     const totalCollection = totalPaid;
 
     rows.push(['COMPUTATIONS']);
     rows.push(['Professor Rate per Student:', `PHP ${professorRate.toFixed(2)}`]);
-    rows.push(['Number of Students × Professor Rate:', `${totalStudents} × ${professorRate.toFixed(2)} = PHP ${totalExpected.toFixed(2)}`]);
+    rows.push(['Number of Students × Professor Rate:', `${totalStudents} × ${professorRate.toFixed(2)} = PHP ${professorCutbackClaimable.toFixed(2)}`]);
+    rows.push(['Counted Paid Students × Professor Rate:', `${paidStudentsCount} × ${professorRate.toFixed(2)} = PHP ${professorCutbackPaid.toFixed(2)}`]);
     rows.push(['Total Module Amount × Number of Students:', `${amountRequired.toFixed(2)} × ${totalStudents} = PHP ${totalModuleAmount.toFixed(2)}`]);
     rows.push(['Total Paid:', `PHP ${totalCollection.toFixed(2)}`]);
     rows.push([]);
-    rows.push([]);
-    rows.push(['Cutback for Prof:', `PHP ${professorCutback.toFixed(2)}`]);
+    rows.push(['Cutback for Prof (Paid students):', `PHP ${professorCutbackPaid.toFixed(2)}`]);
+    rows.push(['Cutback for Prof (Claimable/all students):', `PHP ${professorCutbackClaimable.toFixed(2)}`]);
     rows.push(['Total Remaining Balance:', `PHP ${totalBalance.toFixed(2)}`]);
     rows.push([]);
   });
@@ -770,8 +772,10 @@ const buildProfessorBlockTablesSheet = (prof, ratePerStudent, classDetails) => {
     const blockTables = Array.from(grouped.entries()).map(([block, blockStudents]) => {
       const totalPaid = blockStudents.reduce((sum, student) => sum + Number(student.paidAmount || 0), 0);
       const paidStudents = blockStudents.filter((student) => student.status === 'PAID').length;
+      const totalStudents = blockStudents.length;
       const professorRate = Number(ratePerStudent) || 0;
-      const professorCutback = paidStudents * professorRate;
+      const professorCutbackPaid = paidStudents * professorRate;
+      const professorCutbackClaimable = totalStudents * professorRate;
       const table = [
         [`Block ${block}`, '', '', '', ''],
         ['No.', 'Student Name', 'Amount Paid', 'Payment Date', 'Remaining Balance']
@@ -795,10 +799,11 @@ const buildProfessorBlockTablesSheet = (prof, ratePerStudent, classDetails) => {
       }
 
       table.push(['', '', '', '', '']);
-      table.push(['', '', '', '', `Total Paid: ${totalPaid}`]);
+      table.push(['', '', '', '', `Total Paid: PHP ${Number(totalPaid).toFixed(2)}`]);
       table.push(['', '', '', '', '']);
       table.push(['', '', '', '', '']);
-      table.push(['', '', '', '', `Cutback: ${professorCutback}`]);
+      table.push(['', '', '', '', `Cutback (Paid students): PHP ${Number(professorCutbackPaid).toFixed(2)}`]);
+      table.push(['', '', '', '', `Claimable Cutback (All students): PHP ${Number(professorCutbackClaimable).toFixed(2)}`]);
       return table;
     });
 
@@ -874,11 +879,13 @@ const buildProfessorSheet = (prof, ratePerStudent, options = {}) => {
   rows.push([]);
   const header = ['Course Code', 'Course Title', 'Year', 'Block(s)', 'Students', 'Paid (counted)'];
   if (deadline) header.push('Late (excluded)');
+  header.push('Claimable Cutback (PHP)');
   header.push('Cutback (PHP)');
   rows.push(header);
 
   const classes = prof.classes || [];
   let total = 0;
+  let totalClaimable = 0;
   if (classes.length === 0) {
     const emptyRow = ['—', 'No assigned classes', '', '', 0, 0];
     if (deadline) emptyRow.push(0);
@@ -887,8 +894,10 @@ const buildProfessorSheet = (prof, ratePerStudent, options = {}) => {
   } else {
     classes.forEach(c => {
       const paid = c.paidCount || 0;
+      const claimable = (c.studentCount || 0) * ratePerStudent;
       const cutback = paid * ratePerStudent;
       total += cutback;
+      totalClaimable += claimable;
       const row = [
         c.courseCode  || '',
         c.courseTitle || '',
@@ -898,19 +907,22 @@ const buildProfessorSheet = (prof, ratePerStudent, options = {}) => {
         paid
       ];
       if (deadline) row.push(c.lateCount || 0);
+      row.push(claimable.toFixed(2));
       row.push(cutback.toFixed(2));
       rows.push(row);
     });
   }
   rows.push([]);
-  const totalRow = ['', '', '', '', '', 'TOTAL'];
-  if (deadline) totalRow.push('');
-  totalRow.push(total.toFixed(2));
+    const totalRow = ['', '', '', '', '', 'TOTAL'];
+    if (deadline) totalRow.push('');
+    totalRow.push(totalClaimable.toFixed(2));
+    totalRow.push(total.toFixed(2));
   rows.push(totalRow);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
   const cols = [{ wch: 14 }, { wch: 40 }, { wch: 6 }, { wch: 12 }, { wch: 10 }, { wch: 14 }];
   if (deadline) cols.push({ wch: 14 });
+  cols.push({ wch: 18 }); // Claimable Cutback
   cols.push({ wch: 14 });
   ws['!cols'] = cols;
   return ws;
@@ -1022,20 +1034,22 @@ export function buildDepartmentShareSheet(report) {
   rows.push([]);
   rows.push(['Amount per paid student (PHP):', Number(report.amountPerPaidStudent || 0).toFixed(2)]);
   rows.push([]);
-  rows.push(['Module Code', 'Module Title', 'Paid Students', 'Share Amount (PHP)']);
+  rows.push(['Module Code', 'Module Title', 'Paid Students', 'Claimable Students', 'Share Amount (PHP)', 'Claimable Share (PHP)']);
 
   (report.breakdown || []).forEach(r => {
     rows.push([
       r.courseCode || '',
       r.courseTitle || '',
       r.paidCount || 0,
-      (Number(r.shareAmount) || 0).toFixed(2)
+      r.claimableCount || 0,
+      (Number(r.shareAmount) || 0).toFixed(2),
+      (Number(r.claimableShare) || 0).toFixed(2)
     ]);
   });
 
   rows.push([]);
-  rows.push(['', '', 'Total Paid Students', report.totalPaidCount || 0]);
-  rows.push(['', '', 'Total Department Share (PHP)', (Number(report.totalShare) || 0).toFixed(2)]);
+  rows.push(['', '', 'Total Paid Students', report.totalPaidCount || 0, 'Total Claimable Students', report.totalClaimableCount || 0]);
+  rows.push(['', '', 'Total Department Share (PHP)', (Number(report.totalShare) || 0).toFixed(2), 'Total Claimable Share (PHP)', (Number(report.totalClaimableShare) || 0).toFixed(2)]);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 16 }, { wch: 20 }];

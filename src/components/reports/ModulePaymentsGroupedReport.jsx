@@ -86,11 +86,24 @@ const fetchStudentById = async (course, studentId) => {
   }
 };
 
-const loadCourseStudentsFromPayables = async ({ course, baseStudents = [], payablePackets = [] }) => {
+const isStudentEnrolledForTerm = (student, activeTerm) => {
+  if (!student || student.enrolled === false) return false;
+  if (!activeTerm?.semester || !activeTerm?.schoolYear) return student.enrolled !== false;
+
+  const term = student.enrolledTerm || student.createdTerm || null;
+  if (!term || (!term.semester && !term.schoolYear)) return student.enrolled === true;
+
+  return (
+    Number(term.semester) === Number(activeTerm.semester) &&
+    String(term.schoolYear || '').trim() === String(activeTerm.schoolYear || '').trim()
+  );
+};
+
+const loadCourseStudentsFromPayables = async ({ course, baseStudents = [], payablePackets = [], activeTerm = null }) => {
   const studentsById = new Map();
 
   baseStudents.forEach((student) => {
-    if (student?.id) studentsById.set(student.id, student);
+    if (student?.id && isStudentEnrolledForTerm(student, activeTerm)) studentsById.set(student.id, student);
   });
 
   const payableStudentIds = new Set();
@@ -102,7 +115,7 @@ const loadCourseStudentsFromPayables = async ({ course, baseStudents = [], payab
   await Promise.all(Array.from(payableStudentIds).map(async (studentId) => {
     if (!studentId || studentsById.has(studentId)) return;
     const student = await fetchStudentById(course, studentId);
-    if (student) studentsById.set(student.id, student);
+    if (student && isStudentEnrolledForTerm(student, activeTerm)) studentsById.set(student.id, student);
   }));
 
   return Array.from(studentsById.values()).sort((left, right) => (left.name || '').localeCompare(right.name || ''));
@@ -843,7 +856,8 @@ const ModulePaymentsGroupedReport = ({ onBackToReportsMain }) => {
           const students = await loadCourseStudentsFromPayables({
             course,
             baseStudents: (studentsRes.success ? studentsRes.data : []).filter((student) => student.active !== false),
-            payablePackets
+            payablePackets,
+            activeTerm: term
           });
 
           const blockGroups = buildBlockGroups({

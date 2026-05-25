@@ -2341,37 +2341,37 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setAcademicModalOpen(false)} />
           <div className="relative z-10 w-full max-w-md rounded-xl border border-gray-300 bg-white shadow-lg overflow-hidden flex flex-col" style={{height: '90vh', maxHeight: '680px'}}>
             <div className="flex items-center justify-between px-8 py-4 border-b border-slate-300 shrink-0">
-              <h3 className="text-xl font-medium text-slate-800">Academic Configuration</h3>
+              <h3 className="text-xl font-medium text-slate-800">Academic Eligibility Configuration</h3>
             </div>
 
-            <div className="px-6 py-4 flex flex-col flex-1 min-h-0">
-              <div className="flex gap-2 justify-between w-full mb-4 items-center rounded-xl border border-slate-200 bg-slate-100 p-1 shrink-0">
+            <div className="px-8 py-4 flex flex-col flex-1 min-h-0">
+              <div className="flex flex-wrap gap-1.5 mb-4">
                 <button 
                   onClick={() => setAcademicActiveTab(0)} 
-                  className={`flex-1 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                  className={`flex-1 rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
                     academicActiveTab===0
-                      ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                      : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
                     }`}
                     >
                       Dean's List 
                     </button>
                 <button 
                   onClick={() => { setAcademicActiveTab(1); setScholarshipTierTab(0); }} 
-                  className={`flex-1 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                  className={`flex-1 rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
                     academicActiveTab===1
-                      ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                      : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
                       }`}
                     >
                       Scholarship 
                     </button>
                 <button 
                   onClick={() => setAcademicActiveTab(2)} 
-                  className={`flex-1 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+                  className={`flex-1 rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
                     academicActiveTab===2
-                        ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                        : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
                     }`}
                 >
                       Units Limit 
@@ -3138,7 +3138,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                     }}
                     disabled={loading}
                     style={{ cursor: loading ? 'not-allowed' : 'pointer' }}
-                    className="p-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
+                    className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
                     title="Reload"
                     aria-label="Reload"
                   >
@@ -3148,7 +3148,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                   <div className="relative w-full sm:w-72">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                     <input
-                      className="w-full border text-sm border-slate-200 bg-white rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                      className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                       placeholder="Search student name..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
@@ -4277,25 +4277,26 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                 />
               </div>
               <div className='flex items-center gap-4'>
-                <div className={editingData.isIrregular ? 'w-full' : 'w-2/3'}>
-                <label className="block text-sm text-gray-600 mb-1">Year Level</label>
-                <div className="inline-flex w-full rounded-lg border border-slate-200 bg-slate-100 p-1">
-                  {[1, 2, 3, 4].map((year) => (
-                    <button
-                      key={year}
-                      type="button"
-                      onClick={() => setEditingData({ ...editingData, yearLevel: year })}
-                      className={`flex-1 rounded-md px-2 py-2 text-sm font-medium transition ${
-                        Number(editingData.yearLevel) === year
-                          ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
-                    </button>
-                  ))}
-                </div>
-              </div>
+             <div className={editingData.isIrregular ? 'w-full' : 'w-2/3'}>
+              <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+
+              <select
+                value={editingData.yearLevel || ''}
+                onChange={(e) =>
+                  setEditingData({
+                    ...editingData,
+                    yearLevel: Number(e.target.value),
+                  })
+                }
+                className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+              >
+                <option value="" disabled>Select Year Level</option>
+                <option value={1}>1st Year</option>
+                <option value={2}>2nd Year</option>
+                <option value={3}>3rd Year</option>
+                <option value={4}>4th Year</option>
+              </select>
+            </div>
 
               {!editingData.isIrregular && (
                 <div className='w-1/3'>
@@ -4360,7 +4361,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 accent-blue-600"
+                  className="h-3 w-3 accent-blue-600"
                   checked={editingData.isIrregular}
                   onChange={(e) => setEditingData({ ...editingData, isIrregular: e.target.checked, block: e.target.checked ? '' : editingData.block || '' })}
                 />
@@ -4480,29 +4481,28 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                 />
               </div>
              <div className='flex items-center gap-4'>
-               <div className={studentForm.isIrregular ? 'w-full' : 'w-2/3'}>
-  <label className="block text-sm text-gray-600 mb-1">Year Level</label>
-  <div className="inline-flex w-full rounded-lg border border-slate-200 bg-slate-100 p-1">
-    {[1, 2, 3, 4].map((year) => (
-      <button
-        key={year}
-        type="button"
-        onClick={() => {
-          setStudentForm({ ...studentForm, yearLevel: year });
-          setStudentFormYearError('');
-        }}
-        className={`flex-1 rounded-md px-2 py-2 text-sm font-medium transition ${
-          Number(studentForm.yearLevel) === year
-            ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-            : 'text-slate-600 hover:text-slate-900'
-        }`}
-      >
-        {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
-      </button>
-    ))}
-  </div>
-  {studentFormYearError && <div className="text-sm text-red-600 mt-2">{studentFormYearError}</div>}
-</div>
+              <div className={studentForm.isIrregular ? 'w-full' : 'w-2/3'}>
+                <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+
+                <select
+                  value={studentForm.yearLevel || ''}
+                  onChange={(e) => {
+                    setStudentForm({ ...studentForm, yearLevel: Number(e.target.value) });
+                    setStudentFormYearError('');
+                  }}
+                className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                >
+                  <option value="" disabled>Select Year Level</option>
+                  <option value={1}>1st Year</option>
+                  <option value={2}>2nd Year</option>
+                  <option value={3}>3rd Year</option>
+                  <option value={4}>4th Year</option>
+                </select>
+
+                {studentFormYearError && (
+                  <div className="text-sm text-red-600 mt-2">{studentFormYearError}</div>
+                )}
+              </div>
 
 
             {!studentForm.isIrregular && (
@@ -4576,7 +4576,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 accent-blue-600"
+                  className="h-3 w-3 accent-blue-600"
                   checked={studentForm.isIrregular}
                   onChange={(e) => setStudentForm({ ...studentForm, isIrregular: e.target.checked, block: e.target.checked ? '' : studentForm.block || '' })}
                 />
@@ -4606,12 +4606,13 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
       {deleteDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setDeleteDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
-            <div className="text-xl font-semibold mb-4">Confirm Delete</div>
-            <div className="text-gray-700 mb-8 text-justify">
-              Are you sure you want to delete student: <span className="font-semibold">{studentToDeleteName || 'this student'}</span>? 
-              {" "} This action cannot be undone and all associated data will be permanently removed.
-            </div>
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow">
+            <div className="text-xl font-semibold px-8 py-4 border-b border-slate-200 bg-slate-100 rounded-t-xl">Confirm Delete</div>
+            <div className="px-8 py-4">
+              <div className="text-gray-700 mb-8 text-justify">
+                Are you sure you want to delete student: <span className="font-semibold">{studentToDeleteName || 'this student'}</span>? 
+                {" "} This action cannot be undone and all associated data will be permanently removed.
+              </div>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => {
@@ -4625,10 +4626,11 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
               <button
                 onClick={handleConfirmDelete}
                 disabled={loading}
-                className="px-4 py-2 w-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 w-24 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 {loading ? 'Deleting...' : 'Delete'}
               </button>
+            </div>
             </div>
           </div>
         </div>
@@ -4669,9 +4671,10 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
       {archiveConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setArchiveConfirmOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
-            <div className="text-xl font-semibold mb-4">Confirm Archive</div>
-            <div className="text-gray-700 text-justify mb-8">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow ">
+            <div className="text-xl font-semibold px-8 py-4 border-b border-slate-200 bg-slate-100 rounded-t-xl">Confirm Archive</div>
+            <div className="px-8 py-4">
+                <div className="text-gray-700 text-justify mb-8">
               Are you sure you want to archive  student: <span className="font-semibold">{studentToArchive?.name}</span>? This will move the student to an archive folder.
             </div>
             <div className="flex justify-end gap-2">
@@ -4688,10 +4691,11 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
               <button
                 type="button"
                 onClick={handleConfirmArchive}
-                className="px-4 py-2 w-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
+                className="px-4 py-2 w-24 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
               >
                 Archive
               </button>
+            </div>
             </div>
           </div>
         </div>

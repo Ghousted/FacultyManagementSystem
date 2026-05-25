@@ -65,6 +65,7 @@ const isSameTerm = (left, right) => {
   if (!left?.semester || !left?.schoolYear || !right?.semester || !right?.schoolYear) return false;
   return Number(left.semester) === Number(right.semester) && String(left.schoolYear || '').trim() === String(right.schoolYear || '').trim();
 };
+
   const [exportFilename, setExportFilename] = useState('');
 
   // Move `offeredModules` state before any dependent logic
@@ -368,7 +369,13 @@ useEffect(() => {
     try {
       const result = await getStudents();
       if (result.success) {
-        setStudents(result.data);
+        setStudents((result.data || []).filter((student) => {
+          if (!student || student.enrolled === false) return false;
+          if (!activeTerm?.semester || !activeTerm?.schoolYear) return student.enrolled !== false;
+          const studentTerm = student.enrolledTerm || student.createdTerm || null;
+          if (!studentTerm || (!studentTerm.semester && !studentTerm.schoolYear)) return student.enrolled === true;
+          return isSameTerm(studentTerm, activeTerm);
+        }));
       } else {
         setError(result.error);
       }
@@ -377,7 +384,7 @@ useEffect(() => {
     } finally {
       setLoading(false);
     }
-  }, [currentUser]);
+  }, [activeTerm, currentUser]);
 
   const loadPayables = useCallback(async () => {
     if (!currentUser) {

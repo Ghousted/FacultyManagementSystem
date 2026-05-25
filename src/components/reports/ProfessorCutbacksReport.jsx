@@ -544,7 +544,9 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
                     deadlineCutoff,
                     term
                   });
+                  const enrolledStudentIds = new Set(students.map((student) => student.id));
                   paidRows.forEach((row) => {
+                    if (!enrolledStudentIds.has(row.id)) return;
                     if (!paidRowsByStudent.has(row.id)) paidRowsByStudent.set(row.id, row);
                   });
                 }));
@@ -597,6 +599,7 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
         // Get all students for this course
         const studentsRes = await getStudentsForCourse(course, activeTerm);
         const allStudents = studentsRes.success ? studentsRes.data : [];
+        const enrolledStudentIds = new Set(allStudents.map((student) => student.id));
         
         const rowsByStudent = new Map();
         
@@ -614,6 +617,7 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
               term: activeTerm
             });
             rows.forEach((row) => {
+              if (!enrolledStudentIds.has(row.id)) return;
               if (!rowsByStudent.has(row.id)) rowsByStudent.set(row.id, row);
             });
           }));

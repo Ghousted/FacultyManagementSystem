@@ -57,9 +57,10 @@ export const compareTermKeys = (termKeyA, termKeyB, activeTerm) => {
 };
 
 export const isStudentInActiveTerm = (student, activeTerm) => {
+  if (student?.enrolled === false) return false;
   if (!isActiveTermConfigured(activeTerm)) return false;
 
-  const term = student?.createdTerm || {};
+  const term = student?.enrolledTerm || student?.createdTerm || {};
   if (!term.semester || !term.schoolYear) return false;
 
   return (

@@ -277,8 +277,17 @@ const EnrollmentManager = ({ activeTerm, onBreadcrumbChange }) => {
       setSelectMode(false);
     };
 
+    const handleOpenEnrollmentFolder = (e) => {
+      const d = e.detail || {};
+      if (d.selectedFolder) setSelectedFolder(d.selectedFolder);
+    };
+
     window.addEventListener('reset-enrollment-manager', onReset);
-    return () => window.removeEventListener('reset-enrollment-manager', onReset);
+    window.addEventListener('open-enrollment-folder', handleOpenEnrollmentFolder);
+    return () => {
+      window.removeEventListener('reset-enrollment-manager', onReset);
+      window.removeEventListener('open-enrollment-folder', handleOpenEnrollmentFolder);
+    };
   }, []);
 
   // Filter students by status
@@ -743,7 +752,7 @@ const EnrollmentManager = ({ activeTerm, onBreadcrumbChange }) => {
                 type="button"
                 onClick={refresh}
                 disabled={loading}
-                className="p-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
+                className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
                 title="Refresh"
                 aria-label="Refresh"
               >
@@ -757,7 +766,7 @@ const EnrollmentManager = ({ activeTerm, onBreadcrumbChange }) => {
                   placeholder="Search students"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                      className="w-full border text-sm border-slate-200 bg-white rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                  className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                 />
               </div>
 
@@ -1006,11 +1015,14 @@ const EnrollmentManager = ({ activeTerm, onBreadcrumbChange }) => {
 
       {modal.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[2px] bg-opacity-50">
-          <div className="rounded-xl bg-white p-8 shadow-lg max-w-md w-full ">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          <div className="rounded-xl bg-white shadow-lg max-w-sm w-full ">
+            <div className="border-b px-8 py-4 border-slate-200 bg-slate-100 rounded-t-xl">
+                <h3 className="text-lg font-semibold text-gray-900 ">
               Confirm {modal.type === 'enroll' ? 'Enrollment' : 'Unenrollment'}
             </h3>
-            <p className="text-gray-600 mb-8">
+            </div>
+            <div className="px-8 py-4">
+              <p className="text-gray-600 mb-8">
               {modal.bulkIds.length > 0
                 ? `Are you sure you want to ${modal.type} ${modal.bulkIds.length} student${modal.bulkIds.length > 1 ? 's' : ''}?`
                 : `Are you sure you want to ${modal.type} ${modal.student?.name}?`
@@ -1027,10 +1039,11 @@ const EnrollmentManager = ({ activeTerm, onBreadcrumbChange }) => {
               <button
                 type="button"
                 onClick={confirmModal}
-                className="px-4 py-1.5 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-24 text-sm  rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 Confirm
               </button>
+            </div>
             </div>
           </div>
         </div>

@@ -50,6 +50,19 @@ const getStudentTerm = (student, activeTerm) => {
 
 const getStudentTermKey = (student, activeTerm) => getTermKey(getStudentTerm(student, activeTerm));
 
+const isStudentEnrolledForTerm = (student, activeTerm) => {
+  if (!student || student.enrolled === false) return false;
+  if (!activeTerm?.semester || !activeTerm?.schoolYear) return student.enrolled !== false;
+
+  const term = student.enrolledTerm || student.createdTerm || null;
+  if (!term || (!term.semester && !term.schoolYear)) return student.enrolled === true;
+
+  return (
+    Number(term.semester) === Number(activeTerm.semester) &&
+    String(term.schoolYear || '').trim() === String(activeTerm.schoolYear || '').trim()
+  );
+};
+
 const getPayableTerm = (payable) => {
   const term = payable?.createdTerm || null;
   if (term && (term.semester || term.schoolYear)) {
@@ -257,8 +270,8 @@ const buildPayableColumns = (students, payablesByYear, selectedFolder, activeTer
   const ordered = [];
   const seen = new Set();
   const exportStudents = scope === 'all-blocks'
-    ? (students || []).filter((student) => student.active !== false && getStudentTermKey(student, activeTerm) === (selectedFolder?.termKey || getTermKey(activeTerm)))
-    : (students || []);
+    ? (students || []).filter((student) => student.active !== false && isStudentEnrolledForTerm(student, activeTerm) && getStudentTermKey(student, activeTerm) === (selectedFolder?.termKey || getTermKey(activeTerm)))
+    : (students || []).filter((student) => isStudentEnrolledForTerm(student, activeTerm));
 
   exportStudents.forEach((student) => {
     getRelevantPayablesForStudent(student, payablesByYear).forEach((payable) => {
@@ -576,8 +589,8 @@ export const exportCcsPayablesSpreadsheet = ({
 }) => {
   const selectedTermKey = selectedFolder?.termKey || getTermKey(activeTerm);
   const exportStudents = scope === 'all-blocks'
-    ? (students || []).filter((student) => getStudentTermKey(student, activeTerm) === selectedTermKey)
-    : (students || []).filter((student) => isStudentInSelectedFolder(student, selectedFolder, activeTerm));
+    ? (students || []).filter((student) => isStudentEnrolledForTerm(student, activeTerm) && getStudentTermKey(student, activeTerm) === selectedTermKey)
+    : (students || []).filter((student) => isStudentEnrolledForTerm(student, activeTerm) && isStudentInSelectedFolder(student, selectedFolder, activeTerm));
 
   const defaultBaseName = scope === 'all-blocks'
     ? 'ccs-payables-all-blocks'
