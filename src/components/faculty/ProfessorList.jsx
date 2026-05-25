@@ -426,7 +426,7 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
 
               <button
                 onClick={handleDelete}
-                className="px-4 py-1.5 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 Delete
               </button>

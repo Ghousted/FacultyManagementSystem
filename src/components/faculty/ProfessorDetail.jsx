@@ -52,8 +52,7 @@ const YEAR_TABS = [
   { value: 1, label: '1st Year' },
   { value: 2, label: '2nd Year' },
   { value: 3, label: '3rd Year' },
-  { value: 4, label: '4th Year' },
-  { value: 'irregular', label: 'Irregular' }
+  { value: 4, label: '4th Year' }
 ];
 
 const IRREGULAR_MODAL_TAB = '__irregular_students__';
@@ -108,7 +107,7 @@ const BlockToggle = ({ value, onChange, availableBlocks = [], unavailableBlocks 
             onClick={() => toggle(b)}
             title={unavailable ? 'Assigned to another professor' : undefined}
             disabled={unavailable}
-            className={`relative min-w-[40px] rounded-xl border-2 px-3 py-2 text-sm font-bold transition-all duration-150 ${
+            className={`relative min-w-[40px] rounded-lg border cursor-pointer p-2 text-sm font-bold transition-all duration-150 ${
               active
                 ? 'border-blue-600 bg-blue-600 text-white shadow-md shadow-blue-200 scale-105'
                 : unavailable
@@ -185,6 +184,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
   const [otherCurriculumLoading, setOtherCurriculumLoading] = useState(false);
   const [otherSubjectSearch, setOtherSubjectSearch] = useState('');
   const [otherBlocks, setOtherBlocks] = useState([]);
+  const [otherCourseBlocks, setOtherCourseBlocks] = useState({});
   const [otherBlockModalOpen, setOtherBlockModalOpen] = useState(false);
   const [otherModalCourse, setOtherModalCourse] = useState(null);
   const [otherModalBlocks, setOtherModalBlocks] = useState([]);
@@ -580,6 +580,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     setOtherDeptId(''); setOtherClasses([]); setOtherSelectedClass(null);
     setOtherSelectedCourse(''); setOtherCurriculumId(''); setOtherCurriculumCourses([]);
     setOtherSubjectSearch(''); setOtherBlocks([]); setOtherError('');
+    setOtherCourseBlocks({});
     setOtherYearTab(1); setOtherSemesterFilter('all');
   };
 
@@ -820,13 +821,14 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
     setOtherError(''); setError('');
     if (!otherSelectedClass) { setOtherError('Select a class first.'); return; }
     if (!otherCurriculumId) { setOtherError('Select a curriculum first.'); return; }
-    if (nextChecked && otherBlocks.length === 0) { setOtherError('Select at least one block.'); return; }
-    if (!subject?.id) return;
     const courseId = `other::${otherDeptId}::${otherSelectedClass.course.toLowerCase()}::${otherSelectedClass.yearLevel}::${subject.id}`;
+    const selectedBlocks = otherCourseBlocks[courseId] || otherBlocks || [];
+    if (nextChecked && normalizeBlockList(selectedBlocks).length === 0) { setOtherError('Select at least one block.'); return; }
+    if (!subject?.id) return;
     setCourseSaving(courseId, true);
     try {
       if (nextChecked) {
-        const freeBlocks = getFreeBlocksForCourse(courseId, otherBlocks);
+        const freeBlocks = getFreeBlocksForCourse(courseId, selectedBlocks);
         if (freeBlocks.length === 0) { toast.error('Selected blocks are already assigned to other professors.'); return; }
         const dept = otherDepts.find(d => d.id === otherDeptId);
         const curriculum = curriculums.find(c => c.id === otherCurriculumId);
@@ -856,8 +858,11 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
 
   const openOtherBlockModal = (course) => {
     const otherCourseId = getOtherCourseId(course);
-    const initialBlocks = otherBlocks.length > 0 ? normalizeBlockList(otherBlocks)
-      : otherCourseId ? getExistingAssignmentBlocks(otherCourseId) : [];
+    const initialBlocks = otherCourseId
+      ? (otherCourseBlocks[otherCourseId] && otherCourseBlocks[otherCourseId].length > 0
+          ? normalizeBlockList(otherCourseBlocks[otherCourseId])
+          : getExistingAssignmentBlocks(otherCourseId))
+      : (otherBlocks.length > 0 ? normalizeBlockList(otherBlocks) : []);
     setOtherModalCourse(course); setOtherModalBlocks(initialBlocks); setOtherBlockModalOpen(true); setOtherError('');
   };
 
@@ -865,7 +870,14 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
 
   const saveOtherBlockSelection = () => {
     if (otherModalBlocks.length === 0) { setOtherError('Select at least one block.'); return; }
-    setOtherBlocks(normalizeBlockList(otherModalBlocks)); closeOtherBlockModal();
+    const otherCourseId = getOtherCourseId(otherModalCourse);
+    const normalized = normalizeBlockList(otherModalBlocks);
+    if (otherCourseId) {
+      setOtherCourseBlocks(prev => ({ ...prev, [otherCourseId]: normalized }));
+    } else {
+      setOtherBlocks(normalized);
+    }
+    closeOtherBlockModal();
   };
 
   const openCcsBlockModal = (course) => {
@@ -1076,7 +1088,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                   type="button"
                   onClick={() => refreshProfessor({ tableOnly: true })}
                   disabled={tableLoading}
-                  className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white p-2.5 text-sm text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition disabled:opacity-50 shadow-sm"
+                  className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
                   title="Refresh"
                 >
                   <RefreshCw className={`h-4 w-4 ${tableLoading ? 'animate-spin text-blue-500' : ''}`} />
@@ -1099,13 +1111,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                         }`}
                       >
                         {year.label}
-                        {count > 0 && (
-                          <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                            active ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-500'
-                          }`}>
-                            {count}
-                          </span>
-                        )}
+                      
                       </button>
                     );
                   })}
@@ -1121,111 +1127,26 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
               </button>
             </div>
 
-            {/* ── Irregular Table ── */}
-            {assignedYearTab === 'irregular' && (
-              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-                <div className="border-b border-gray-100 bg-gradient-to-r from-violet-50 to-purple-50 px-5 py-3 flex items-center gap-2">
-                  <Users className="h-4 w-4 text-violet-500" />
-                  <span className="text-sm font-semibold text-violet-800">Irregular Students</span>
-                  {irregularStudents.length > 0 && (
-                    <span className="ml-1 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-bold text-violet-700">{irregularStudents.length}</span>
-                  )}
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full table-fixed text-sm">
-                    <thead className="bg-gradient-to-r from-violet-600 to-purple-700 text-left text-xs uppercase tracking-wider text-white">
-                      <tr>
-                        <th className="w-[25%] px-4 py-3">Student Name</th>
-                        <th className="w-[15%] px-4 py-3">Course</th>
-                        <th className="w-[15%] px-4 py-3">Year &amp; Block</th>
-                        <th className="w-[30%] px-4 py-3">Irregular Subjects</th>
-                        <th className="w-[15%] px-4 py-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-50">
-                      {irregularLoading ? (
-                        Array.from({ length: 5 }).map((_, i) => (
-                          <tr key={i}>
-                            {[...Array(5)].map((_, j) => (
-                              <td key={j} className="px-4 py-3">
-                                <div className="h-4 animate-pulse rounded-lg bg-gray-100" />
-                              </td>
-                            ))}
-                          </tr>
-                        ))
-                      ) : irregularStudents.length === 0 ? (
-                        <tr>
-                          <td colSpan={5}>
-                            <EmptyState icon={Users} title="No irregular students" description="No irregular students available for the active term." />
-                          </td>
-                        </tr>
-                      ) : (
-                        irregularStudents.map((student, idx) => {
-                          const joinedBlocks = [...new Set(
-                            (student.irregularSubjects || [])
-                              .map(item => item.joinedBlock ? String(item.joinedBlock).trim().toUpperCase() : null)
-                              .filter(Boolean)
-                          )].sort();
-                          const blockDisplay = joinedBlocks.length > 0 ? joinedBlocks.join(', ') : 'Irregular';
-                          const enrolledInCurrentTerm = Number(student.enrolledTerm?.semester) === Number(activeTerm?.semester)
-                            && student.enrolledTerm?.schoolYear === activeTerm?.schoolYear;
-                          const irregularSubjectLabels = (student.irregularSubjects || [])
-                            .map(item => item.courseCode || item.subjectCode || 'Unknown').join(', ');
-                          return (
-                            <tr key={student.id} className={`transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-violet-50/40`}>
-                              <td className="px-4 py-3 font-medium text-gray-800">{student.name}</td>
-                              <td className="px-4 py-3 text-gray-600">{student.course || '—'}</td>
-                              <td className="px-4 py-3 text-gray-600">{getYearLabel(student.yearLevel)} · Blk. {blockDisplay}</td>
-                              <td className="px-4 py-3 text-gray-500 text-xs">{irregularSubjectLabels}</td>
-                              <td className="px-4 py-3 text-right">
-                                <button
-                                  type="button"
-                                  onClick={() => scheduleIrregularStudentAction(student, enrolledInCurrentTerm ? 'unenroll' : 'enroll')}
-                                  disabled={enrollingStudentId === student.id || enrolledInCurrentTerm}
-                                  className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
-                                    enrolledInCurrentTerm
-                                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                      : 'bg-violet-100 text-violet-700 hover:bg-violet-200 cursor-pointer'
-                                  } disabled:opacity-60`}
-                                >
-                                  {enrollingStudentId === student.id ? (
-                                    <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
-                                  ) : enrolledInCurrentTerm ? (
-                                    <UserX className="h-3.5 w-3.5" />
-                                  ) : (
-                                    <UserPlus className="h-3.5 w-3.5" />
-                                  )}
-                                  {enrolledInCurrentTerm ? 'Enrolled' : 'Enroll'}
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            
 
             {/* ── Regular Subjects Table ── */}
             {assignedYearTab !== 'irregular' && (
-              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+              <div className="rounded-xl border border-gray-200 bg-white  overflow-hidden">
                 <table className="w-full table-fixed text-sm border-separate border-spacing-0">
-                  <thead className="bg-gradient-to-r from-blue-600 to-indigo-700 text-left text-xs uppercase tracking-wider text-white">
+                  <thead className="bg-blue-500 text-left text-xs uppercase tracking-wider text-white">
                     <tr>
-                      <th className="w-[15%] cursor-pointer select-none px-4 py-3.5" onClick={() => handleSort('courseCode')}>
+                      <th className="w-[15%] cursor-pointer select-none px-4 py-2 " onClick={() => handleSort('courseCode')}>
                         Subject Code <SortIcon column="courseCode" />
                       </th>
-                      <th className="w-[28%] cursor-pointer select-none px-4 py-3.5" onClick={() => handleSort('courseTitle')}>
+                      <th className="w-[28%] cursor-pointer select-none px-4 py-2 " onClick={() => handleSort('courseTitle')}>
                         Description <SortIcon column="courseTitle" />
                       </th>
-                      <th className="w-[12%] px-4 py-3.5">Course</th>
-                      <th className="w-[15%] px-4 py-3.5">Block/s</th>
-                      <th className="w-[18%] cursor-pointer select-none px-4 py-3.5" onClick={() => handleSort('curriculum')}>
+                      <th className="w-[12%] px-4 py-2 ">Course</th>
+                      <th className="w-[15%] px-4 py-2 ">Block/s</th>
+                      <th className="w-[18%] cursor-pointer select-none px-4 py-2 " onClick={() => handleSort('curriculum')}>
                         Curriculum <SortIcon column="curriculum" />
                       </th>
-                      <th className="w-[12%] px-4 py-3.5 text-right">Actions</th>
+                      <th className="w-[12%] px-4 py-2  text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white">
@@ -1302,10 +1223,10 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                               <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
                                 <button
                                   onClick={() => setConfirmUnassign(c)}
-                                  className="inline-flex items-center rounded-xl border border-rose-200 bg-rose-50 p-1.5 text-rose-600 hover:bg-rose-100 hover:border-rose-300 transition"
+                              className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
                                   title="Unassign"
                                 >
-                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <Trash2 className="h-4 w-4" />
                                 </button>
                               </div>
                             </td>
@@ -1327,7 +1248,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
          
 
           {/* Source Tabs */}
-          <div className="mb-5 flex gap-2 w-fit items-center rounded-xl border border-gray-200 bg-gray-50 p-1 shadow-sm">
+          <div className="flex flex-wrap gap-1.5 mb-4">
             {[
               { key: 'ccs', label: 'CCS Curriculum', icon: Laptop, color: 'blue' },
               { key: 'other', label: 'Other Department', icon: Building2, color: 'amber' }
@@ -1338,12 +1259,12 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                   key={tab.key}
                   type="button"
                   onClick={() => { setPickerTab(tab.key); setPickerError(''); setOtherError(''); }}
-                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${
+                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
                     active
                       ? tab.key === 'ccs'
-                        ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-100'
-                        : 'bg-white text-amber-700 shadow-sm ring-1 ring-amber-100'
-                      : 'text-gray-500 hover:bg-white hover:text-gray-800 cursor-pointer'
+                        ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
                   }`}
                 >
                   <tab.icon className="h-4 w-4" />
@@ -1375,13 +1296,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                         }`}
                       >
                         {year.label}
-                        {count > 0 && (
-                          <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                            isActive ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'
-                          }`}>
-                            {count}
-                          </span>
-                        )}
+                        
                       </button>
                     );
                   })}
@@ -1392,9 +1307,9 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                   <select
                     value={pickerCurriculumId}
                     onChange={e => { setPickerCurriculumId(e.target.value); setPickerYearTab(1); setPickerError(''); }}
-                    className={`rounded-xl border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 transition ${
+                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 transition ${
                       pickerCurriculumId ? 'border-blue-300 bg-blue-50 ring-1 ring-blue-200 text-blue-800 font-medium' : 'border-gray-200 bg-white text-gray-700'
-                    } shadow-sm`}
+                    } `}
                   >
                     <option value="">Select a curriculum...</option>
                     {curriculums.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -1407,7 +1322,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                       value={pickerSearch}
                       onChange={e => setPickerSearch(e.target.value)}
                       disabled={!pickerCurriculumId}
-                      className="w-72 rounded-xl border border-gray-200 py-2.5 pl-9 pr-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400 transition"
+                      className="w-80 border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     />
                   </div>
                 </div>
@@ -1424,7 +1339,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
               )}
 
               {/* CCS Subjects Table */}
-              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+              <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
                 {!pickerCurriculumId ? (
                   <EmptyState icon={BookMarked} title="Select a curriculum" description="Choose a curriculum above to see available subjects." />
                 ) : pickerLoading ? (
@@ -1439,21 +1354,21 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead className="bg-gradient-to-r from-blue-600 to-indigo-700 text-left text-xs uppercase tracking-wider text-white sticky top-0">
+                      <thead className="bg-blue-500 text-left text-xs uppercase tracking-wider text-white sticky top-0">
                         <tr>
-                          <th className="w-14 px-4 py-3.5">Assign</th>
-                          <th className="w-16 px-4 py-3.5">Select</th>
-                          <th className="cursor-pointer select-none px-4 py-3.5 w-[18%]" onClick={() => handlePickerSort('courseCode')}>
+                          <th className="w-14 px-4 py-2 w-[5%]">Assign</th>
+                          <th className="w-16 px-4 py-2 w-[5%]">Select</th>
+                          <th className="cursor-pointer select-none px-4 py-2  w-[10%]" onClick={() => handlePickerSort('courseCode')}>
                             Code <PickerSortIcon col="courseCode" />
                           </th>
-                          <th className="cursor-pointer select-none px-4 py-3.5" onClick={() => handlePickerSort('courseTitle')}>
+                          <th className="cursor-pointer select-none px-4 py-2 w-[30%]" onClick={() => handlePickerSort('courseTitle')}>
                             Title <PickerSortIcon col="courseTitle" />
                           </th>
-                          <th className="cursor-pointer select-none px-4 py-3.5 w-20" onClick={() => handlePickerSort('units')}>
+                          <th className="cursor-pointer select-none px-4 py-2  w-[10%]" onClick={() => handlePickerSort('units')}>
                             Units <PickerSortIcon col="units" />
                           </th>
-                          <th className="px-4 py-3.5 w-40">Blocks Selected</th>
-                          <th className="px-4 py-3.5 w-28 text-right">Status</th>
+                          <th className="px-4 py-2  w-[20%]">Blocks</th>
+                          <th className="px-4 py-2  w-[20%] text-left">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 bg-white">
@@ -1481,7 +1396,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                   type="button"
                                   onClick={() => openCcsBlockModal(course)}
                                   disabled={assignedToThis || assignedElsewhere}
-                                  className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
+                                  className={`inline-flex items-center gap-1.5 rounded-xl p-1.5 text-xs font-semibold transition-all ${
                                     assignedToThis || assignedElsewhere
                                       ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                                       : selectedBlocks.length > 0
@@ -1512,7 +1427,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                               <td className="px-4 py-3 text-gray-700">
                                 <div className="max-w-[260px] truncate text-sm" title={course.courseTitle}>{course.courseTitle}</div>
                               </td>
-                              <td className="px-4 py-3 text-gray-600 text-center">
+                              <td className="px-4 py-3 text-gray-600 text-left">
                                 {Number(course.units) > 0 ? course.units : '—'}
                               </td>
                               <td className="px-4 py-3">
@@ -1526,7 +1441,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                   <span className="text-xs text-gray-400 italic">None selected</span>
                                 )}
                               </td>
-                              <td className="px-4 py-3 text-right">
+                              <td className="px-4 py-3 text-left">
                                 <StatusBadge status={assignedElsewhere ? 'conflict' : assignedToThis ? 'assigned' : selectedBlocks.length > 0 ? 'available' : 'unassigned'} />
                               </td>
                             </tr>
@@ -1624,7 +1539,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                     <option value="">Select year level...</option>
                     {otherYearOptions.map(c => {
                       const key = `${c.course.toLowerCase()}::${c.yearLevel}`;
-                      return <option key={key} value={key}>{getYearLabel(c.yearLevel)} — {c.studentCount} student{c.studentCount !== 1 ? 's' : ''}</option>;
+                      return <option key={key} value={key}>{getYearLabel(c.yearLevel)} </option>;
                     })}
                   </select>
                 </div>
@@ -1634,12 +1549,25 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
               {otherSelectionComplete && (
                 <>
                   <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-                      <span className="text-xs font-semibold text-emerald-700">
-                        {otherSelectedClass.course} · {getYearLabel(otherSelectedClass.yearLevel)} · {otherSelectedClass.studentCount} students
-                      </span>
-                    </div>
+                      <div className="flex flex-wrap gap-1.5">
+                      {YEAR_TABS.filter(y => y.value !== 'irregular').map(year => {
+                        const active = otherYearTab === year.value;
+                        return (
+                          <button
+                            key={year.value}
+                            type="button"
+                            onClick={() => setOtherYearTab(year.value)}
+                            className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
+                              active
+                                ? 'bg-blue-500 text-white shadow-sm'
+                                : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
+                            }`}
+                          >
+                            {year.label}
+                          </button>
+                        );
+                      })}
+                  </div>
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                       <input
@@ -1647,12 +1575,14 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                         placeholder="Search subjects..."
                         value={otherSubjectSearch}
                         onChange={e => setOtherSubjectSearch(e.target.value)}
-                        className="w-72 rounded-xl border border-gray-200 py-2.5 pl-9 pr-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300 transition"
+                      className="w-80 border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                       />
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+                
+
+                  <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
                     {otherCurriculumLoading ? (
                       <div className="py-10 text-center text-sm text-gray-500">Loading subjects...</div>
                     ) : sortedOtherCourses.length === 0 ? (
@@ -1660,20 +1590,22 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
-                          <thead className="bg-gradient-to-r from-amber-500 to-orange-600 text-left text-xs uppercase tracking-wider text-white sticky top-0">
+                          <thead className="bg-blue-500 text-left text-xs uppercase tracking-wider text-white sticky top-0">
                             <tr>
-                              <th className="w-16 px-4 py-3.5">Select</th>
-                              <th className="cursor-pointer select-none px-4 py-3.5" onClick={() => handleOtherSort('courseCode')}>
+                              <th className="px-4 py-2  w-[5%] text-right">Assign</th>
+
+                              <th className="w-16 px-4 py-2 w-[5%] ">Select</th>
+                              <th className="cursor-pointer select-none px-4 py-2 w-[10%] " onClick={() => handleOtherSort('courseCode')}>
                                 Code <OtherSortIcon col="courseCode" />
                               </th>
-                              <th className="cursor-pointer select-none px-4 py-3.5" onClick={() => handleOtherSort('courseTitle')}>
+                              <th className="cursor-pointer select-none px-4 py-2 w-[30%] " onClick={() => handleOtherSort('courseTitle')}>
                                 Title <OtherSortIcon col="courseTitle" />
                               </th>
-                              <th className="cursor-pointer select-none px-4 py-3.5 w-20" onClick={() => handleOtherSort('units')}>
+                              <th className="cursor-pointer select-none px-4 py-2  w-[10%] " onClick={() => handleOtherSort('units')}>
                                 Units <OtherSortIcon col="units" />
                               </th>
-                              <th className="px-4 py-3.5 w-36">Blocks</th>
-                              <th className="px-4 py-3.5 w-32 text-right">Actions</th>
+                              <th className="px-4 py-2  w-[20%]">Blocks</th>
+                              <th className="px-4 py-2  w-[20%] text-left">Status</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100 bg-white">
@@ -1686,8 +1618,11 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                               const freeClassBlocks = otherCourseId ? getFreeBlocksForCourse(otherCourseId, classBlocks) : [];
                               const assignedElsewhere = otherCourseId ? (!assignedToThis && freeClassBlocks.length === 0) : false;
                               const isSaving = otherCourseId ? savingCourseIds.has(otherCourseId) : false;
-                              const missingBlocksForAssign = !assignedToThis && normalizeBlockList(otherBlocks).length === 0;
-                              const displayedBlocks = assignedToThis && otherCourseId ? getExistingAssignmentBlocks(otherCourseId) : normalizeBlockList(otherBlocks);
+                              const selectedOtherBlocks = otherCourseId ? (otherCourseBlocks[otherCourseId] || []) : [];
+                              const missingBlocksForAssign = !assignedToThis && normalizeBlockList(selectedOtherBlocks).length === 0;
+                              const displayedBlocks = assignedToThis && otherCourseId
+                                ? getExistingAssignmentBlocks(otherCourseId)
+                                : normalizeBlockList(selectedOtherBlocks);
 
                               return (
                                 <tr
@@ -1698,6 +1633,23 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                     idx % 2 === 0     ? 'bg-white' : 'bg-gray-50/40'
                                   } hover:bg-amber-50/30`}
                                 >
+                                    <td className="px-4 py-3 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => openOtherBlockModal(course)}
+                                      disabled={!otherCourseId || assignedElsewhere || assignedToThis || isSaving}
+                                  className={`inline-flex items-center gap-1.5 rounded-xl p-1.5 text-xs font-semibold transition-all ${
+                                        (assignedToThis || assignedElsewhere || isSaving || !otherCourseId)
+                                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                          : (displayedBlocks.length > 0)
+                                            ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 cursor-pointer'
+                                            : 'bg-blue-100 text-blue-700 hover:bg-blue-200 cursor-pointer'
+                                      }`}
+                                    >
+                                      {assignedToThis ? <CheckCircle2 className="h-3.5 w-3.5" /> : <ClipboardEdit className="h-3.5 w-3.5" /> }
+                                    </button>
+                                  </td>
+
                                   <td className="px-4 py-3">
                                     {isSaving ? (
                                       <svg className="animate-spin h-4 w-4 text-amber-500" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
@@ -1718,6 +1670,9 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                   <td className="px-4 py-3 text-gray-600 text-center">
                                     {Number(course.units) > 0 ? course.units : '—'}
                                   </td>
+                                  <td className="px-4 py-3 text-left">
+                                    <StatusBadge status={assignedElsewhere ? 'conflict' : assignedToThis ? 'assigned' : displayedBlocks.length > 0 ? 'available' : 'unassigned'} />
+                                  </td>
                                   <td className="px-4 py-3">
                                     {displayedBlocks.length > 0 ? (
                                       <div className="flex flex-wrap gap-1">
@@ -1729,20 +1684,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                       <span className="text-xs text-gray-400 italic">None selected</span>
                                     )}
                                   </td>
-                                  <td className="px-4 py-3 text-right">
-                                    <button
-                                      type="button"
-                                      onClick={() => openOtherBlockModal(course)}
-                                      disabled={!otherCourseId || assignedElsewhere || isSaving}
-                                      className={`rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all disabled:cursor-not-allowed ${
-                                        assignedToThis
-                                          ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                                          : 'bg-amber-500 text-white hover:bg-amber-600 shadow-sm cursor-pointer disabled:bg-gray-200 disabled:text-gray-400'
-                                      }`}
-                                    >
-                                      {assignedToThis ? 'Assigned' : 'Assign Blocks'}
-                                    </button>
-                                  </td>
+                                
                                 </tr>
                               );
                             })}
@@ -1771,19 +1713,19 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
       {/* ── STUDENTS MODAL ── */}
       {selectedSubject && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-[2px]"
           onClick={closeStudentsModal}
         >
           <div
-            className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl bg-white shadow-2xl overflow-hidden"
+            className="flex min-h-[90vh] max-h-[90vh] w-full max-w-6xl flex-col rounded-2xl bg-white shadow-2xl overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
-            {/* Top accent */}
-            <div className="h-1 w-full bg-gradient-to-r from-blue-500 to-indigo-600" />
+            
+           
+            <div className="">
 
-            {/* Modal Header */}
-            <div className="border-b border-gray-100 px-6 py-5">
-              <div className="flex items-start justify-between gap-3">
+               {/* Modal Header */}
+              <div className="flex items-start justify-between px-8 py-4 border-b border-slate-200 bg-slate-100 ">
                 <div className="min-w-0 flex-1">
                   <div className="mb-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-blue-600">
                     <Users className="h-3.5 w-3.5" /> Enrolled Students
@@ -1799,7 +1741,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                       {getYearBlockLabel(selectedSubject)}
                     </span>
                     {!studentsLoading && (
-                      <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-blue-50 border border-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
                         <Users className="h-3.5 w-3.5" />
                         {students.length} Student{students.length !== 1 ? 's' : ''}
                       </span>
@@ -1808,15 +1750,16 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 </div>
                 <button
                   onClick={closeStudentsModal}
-                  className="rounded-xl border border-gray-200 bg-gray-50 p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
+                  className="rounded-full border border-gray-200 bg-gray-50 p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
 
-              {/* Block Tabs */}
+              <div className="px-8 py-4 flex items-center justify-between gap-4">
+                {/* Block Tabs */}
               {!studentsLoading && modalTabs.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1">
+              <div className="flex flex-wrap gap-1.5">
                   {modalTabs.map(tab => {
                     const isActive = activeBlockTab === tab.value;
                     return (
@@ -1824,18 +1767,14 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                         key={tab.value}
                         type="button"
                         onClick={() => { setActiveBlockTab(tab.value); setStudentSearch(''); }}
-                        className={`inline-flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-semibold transition-all ${
+                        className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
                           isActive
-                            ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-100'
-                            : 'text-gray-500 hover:bg-white hover:text-gray-800 cursor-pointer'
+                             ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
                         }`}
                       >
                         {tab.label}
-                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                          isActive ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600'
-                        }`}>
-                          {tab.count}
-                        </span>
+                       
                       </button>
                     );
                   })}
@@ -1844,99 +1783,123 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
 
               {/* Search */}
               {!studentsLoading && students.length > 0 && (
-                <div className="relative mt-3">
+                <div className="relative w-72">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
                     placeholder="Search by name or student number..."
                     value={studentSearch}
                     onChange={e => setStudentSearch(e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 transition"
+                    className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   />
                 </div>
               )}
+              </div>
+
             </div>
 
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto">
-              {studentsLoading ? (
-                <div className="flex flex-col items-center justify-center py-16">
-                  <svg className="animate-spin h-8 w-8 text-blue-400 mb-3" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
-                  <p className="text-sm text-gray-500">Loading students...</p>
-                </div>
-              ) : students.length === 0 ? (
-                <EmptyState icon={Users} title="No students enrolled" description="No students are taking this subject in the active term." />
-              ) : filteredStudents.length === 0 ? (
-                <div className="py-10 text-center text-sm text-gray-500">
-                  {studentSearch ? 'No students match your search.' : activeBlockTab === IRREGULAR_MODAL_TAB ? 'No irregular students in this category.' : `No students in Block ${activeBlockTab}.`}
-                </div>
-              ) : (
-                <table className="min-w-full text-sm">
-                  <thead className="sticky top-0 bg-gradient-to-r from-blue-600 to-indigo-700 text-left text-xs tracking-wider text-white">
-                    <tr>
-                      <th className="px-5 py-3.5 cursor-pointer select-none" onClick={() => handleStudentSort('name')}>
-                        Name <StudentSortIcon column="name" />
-                      </th>
-                      <th className="px-5 py-3.5">Course</th>
-                      <th className="px-5 py-3.5">Year Level</th>
-                      <th className="px-5 py-3.5">Block</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedStudents.map((s, i) => {
-                      let block, displayYearLevel = s.yearLevel;
-                      if (s.isIrregular) {
-                        block = 'Irregular';
-                        const activeSem = Number(activeTerm?.semester) || 1;
-                        const semKey = `sem${activeSem}`;
-                        const targetCode = (selectedSubject?.courseCode || '').toString().trim().toUpperCase();
-                        const irregItems = ((s.irregularSubjects || {})[semKey]) || [];
-                        const matchedItem = irregItems.find(item => (item.courseCode || '').toString().trim().toUpperCase() === targetCode);
-                        if (matchedItem?.joinedYearLevel) displayYearLevel = matchedItem.joinedYearLevel;
-                      } else {
-                        block = s.block && String(s.block).trim() !== '' ? String(s.block).trim().toUpperCase() : 'A';
-                      }
-                      const courseLabel = getStudentCourseLabel(s, selectedSubject);
-                      return (
-                        <tr key={s.id} className={`border-t border-gray-100 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-blue-50/40`}>
-                          <td className="px-5 py-3">
-                            <div className="flex items-center gap-3">
-                              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-100 to-indigo-200 text-xs font-bold text-blue-700">
-                                {(s.name || '?').charAt(0)}
-                              </div>
-                              <div>
-                                <p className="font-semibold text-gray-800">{s.name}</p>
-                                {s.studentNumber && <p className="text-xs text-gray-400">{s.studentNumber}</p>}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-5 py-3 text-gray-600">{courseLabel}</td>
-                          <td className="px-5 py-3 text-gray-600">{getYearLabel(displayYearLevel)}</td>
-                          <td className="px-5 py-3">
-                            <span className={`rounded-lg border px-2.5 py-0.5 text-xs font-bold ${
-                              s.isIrregular
-                                ? 'border-violet-200 bg-violet-50 text-violet-700'
-                                : 'border-gray-200 bg-gray-50 text-gray-700'
-                            }`}>
-                              {block}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
+           {/* Modal Body */}
+            <div className="flex-1 overflow-auto px-6 pt-2 pb-4">
+              <div className="h-full relative overflow-y-auto rounded-xl border border-gray-200 bg-white ">
+                
+                {studentsLoading ? (
+                  <div className="flex flex-col items-center justify-center py-16">
+                    <svg className="animate-spin h-8 w-8 text-blue-400 mb-3" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                    </svg>
+                    <p className="text-sm text-gray-500">Loading students...</p>
+                  </div>
+                ) : students.length === 0 ? (
+                  <EmptyState icon={Users} title="No students enrolled" description="No students are taking this subject in the active term." />
+                ) : filteredStudents.length === 0 ? (
+                  <div className="py-10 text-center text-sm text-gray-500">
+                    {studentSearch
+                      ? 'No students match your search.'
+                      : activeBlockTab === IRREGULAR_MODAL_TAB
+                      ? 'No irregular students in this category.'
+                      : `No students in Block ${activeBlockTab}.`}
+                  </div>
+                ) : (
+                  <table className="min-w-full text-sm overflow-hidden rounded-xl">
+                    
+                    {/* Header */}
+                    <thead className="sticky top-0 z-40 bg-blue-500 text-left text-xs uppercase tracking-wider text-white shadow-sm">
+                      <tr>
+                        <th className="p-4  text-left w-[10%]">No.</th>
+                        <th className="p-4  cursor-pointer select-none w-[40%]" onClick={() => handleStudentSort('name')}>
+                          Name <StudentSortIcon column="name" />
+                        </th>
+                        <th className="p-4 w-[10%] ">Course</th>
+                        <th className="p-4 w-[15%] ">Year Level</th>
+                        <th className="p-4 w-[15%] ">Block</th>
+                      </tr>
+                    </thead>
 
+                    {/* Body */}
+                    <tbody className="overflow-hidden">
+                      {sortedStudents.map((s, i) => {
+                        let block, displayYearLevel = s.yearLevel;
+
+                        if (s.isIrregular) {
+                          block = 'Irregular';
+                          const activeSem = Number(activeTerm?.semester) || 1;
+                          const semKey = `sem${activeSem}`;
+                          const targetCode = (selectedSubject?.courseCode || '').toString().trim().toUpperCase();
+                          const irregItems = ((s.irregularSubjects || {})[semKey]) || [];
+                          const matchedItem = irregItems.find(item =>
+                            (item.courseCode || '').toString().trim().toUpperCase() === targetCode
+                          );
+                          if (matchedItem?.joinedYearLevel) displayYearLevel = matchedItem.joinedYearLevel;
+                        } else {
+                          block = s.block && String(s.block).trim() !== '' ? String(s.block).trim().toUpperCase() : 'A';
+                        }
+
+                        const courseLabel = getStudentCourseLabel(s, selectedSubject);
+
+                        return (
+                          <tr
+                            key={s.id}
+                            className={`border-t border-gray-100 transition-colors ${
+                              i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
+                            } hover:bg-blue-50/40`}
+                          >
+                            <td className="text-left p-4">
+                                {i + 1}.
+                            </td>
+
+                            <td className="p-4 ">
+                              <p className="font-semibold text-gray-800">{s.name}</p>
+                              {s.studentNumber && (
+                                <p className="text-xs text-gray-400">{s.studentNumber}</p>
+                              )}
+                            </td>
+
+                            <td className="p-4  text-gray-600">{courseLabel}</td>
+                            <td className="p-4  text-gray-600">{getYearLabel(displayYearLevel)}</td>
+
+                            <td className="p-4 ">
+                              <span
+                                className={`rounded-lg border px-2.5 py-0.5 text-xs font-bold ${
+                                  s.isIrregular
+                                    ? 'border-violet-200 bg-violet-50 text-violet-700'
+                                    : 'border-gray-200 bg-gray-50 text-gray-700'
+                                }`}
+                              >
+                                {block}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
             {/* Modal Footer */}
-            <div className="flex justify-end border-t border-gray-100 px-6 py-4 bg-gray-50/50">
-              <button
-                onClick={closeStudentsModal}
-                className="rounded-xl border border-gray-300 bg-white px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition shadow-sm cursor-pointer"
-              >
-                Close
-              </button>
+            <div className="p-4">
+             
             </div>
           </div>
         </div>
@@ -1970,10 +1933,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                   availableBlocks={editableConfig.allBlocks}
                   unavailableBlocks={editableConfig.blockedByOthers}
                 />
-                <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Selected Blocks</p>
-                  <p className="text-sm font-medium text-gray-800">{selectedText}</p>
-                </div>
+              
               </div>
               <div className="flex items-center justify-end gap-3 border-t border-gray-100 px-6 py-4 bg-gray-50/50">
                 <button onClick={cancelEditBlocks} disabled={savingBlocks} className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition">Cancel</button>
@@ -2008,14 +1968,21 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
               <div className="px-6 py-5">
                 <p className="mb-4 text-sm text-gray-600">Tap a block to toggle selection.</p>
                 <BlockToggle value={otherModalBlocks} onChange={setOtherModalBlocks} availableBlocks={avail} unavailableBlocks={unavail} />
-                <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Selected Blocks</p>
-                  <p className="text-sm font-medium text-gray-800">{selectedText}</p>
-                </div>
+             
               </div>
               <div className="flex items-center justify-end gap-3 border-t border-gray-100 px-6 py-4 bg-gray-50/50">
-                <button onClick={closeOtherBlockModal} className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition">Cancel</button>
-                <button onClick={saveOtherBlockSelection} className="rounded-xl bg-amber-500 px-5 py-2 text-sm font-semibold text-white hover:bg-amber-600 transition shadow-sm">Save Blocks</button>
+                <button
+                  onClick={closeOtherBlockModal} 
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={saveOtherBlockSelection} 
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
+                >
+                  Save 
+                </button>
               </div>
             </div>
           </div>
@@ -2028,38 +1995,54 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
         const unavail = getTakenBlocksForCourse(ccsModalCourse.id);
         const selectedText = ccsModalBlocks.length > 0 ? ccsModalBlocks.join(', ') : 'None selected';
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden">
-              <div className="h-1 w-full bg-gradient-to-r from-blue-500 to-indigo-600" />
-              <div className="border-b border-gray-100 px-6 py-5 flex items-start justify-between gap-3">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]">
+            <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+              <div className="border-b border-gray-100 px-8 py-4 flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-lg font-bold text-gray-900">Choose Blocks</h3>
+                  <h3 className="text-xl font-medium text-gray-900">Choose Blocks</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     For <span className="font-semibold text-gray-800">{ccsModalCourse.courseCode}</span> · {getYearLabel(ccsModalCourse.yearLevel)}
                   </p>
                 </div>
-                <button onClick={closeCcsBlockModal} className="rounded-xl border border-gray-200 p-2 text-gray-500 hover:bg-gray-50 transition">
-                  <X className="h-5 w-5" />
-                </button>
+             
               </div>
-              <div className="px-6 py-5">
-                <p className="mb-4 text-sm text-gray-600">Tap a block to toggle selection. Crossed-out blocks are taken by other professors.</p>
-                <BlockToggle value={ccsModalBlocks} onChange={setCcsModalBlocks} availableBlocks={avail} unavailableBlocks={unavail} />
+              <div className="px-8 py-4">
+                <p 
+                  className="mb-4 text-sm text-gray-600"
+                >
+                  Tap a block to toggle selection. Crossed-out blocks are taken by other professors.
+                </p>
+                <BlockToggle 
+                  value={ccsModalBlocks} 
+                  onChange={setCcsModalBlocks} 
+                  availableBlocks={avail} 
+                  unavailableBlocks={unavail} 
+                />
                 {pickerError && (
-                  <div className="mt-3 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5">
+                  <div className="mt-3 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5">
                     <AlertTriangle className="h-4 w-4 text-rose-600 flex-shrink-0" />
                     <p className="text-xs font-medium text-rose-700">{pickerError}</p>
                   </div>
                 )}
-                <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Selected Blocks</p>
-                  <p className="text-sm font-medium text-gray-800">{selectedText}</p>
-                </div>
+
+                   <div className="flex items-center justify-end gap-2 mt-8">
+                <button 
+                  onClick={closeCcsBlockModal} 
+                  className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={saveCcsBlockSelection} 
+                  className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
+                >
+                  Save
+                </button>
               </div>
-              <div className="flex items-center justify-end gap-3 border-t border-gray-100 px-6 py-4 bg-gray-50/50">
-                <button onClick={closeCcsBlockModal} className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition">Cancel</button>
-                <button onClick={saveCcsBlockSelection} className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition shadow-sm">Save Blocks</button>
+
+              
               </div>
+           
             </div>
           </div>
         );
