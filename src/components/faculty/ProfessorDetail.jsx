@@ -1135,18 +1135,18 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                 <table className="w-full table-fixed text-sm border-separate border-spacing-0">
                   <thead className="bg-blue-500 text-left text-xs uppercase tracking-wider text-white">
                     <tr>
-                      <th className="w-[15%] cursor-pointer select-none px-4 py-2 " onClick={() => handleSort('courseCode')}>
+                      <th className="w-[15%] cursor-pointer select-none p-4 " onClick={() => handleSort('courseCode')}>
                         Subject Code <SortIcon column="courseCode" />
                       </th>
-                      <th className="w-[28%] cursor-pointer select-none px-4 py-2 " onClick={() => handleSort('courseTitle')}>
-                        Description <SortIcon column="courseTitle" />
+                      <th className="w-[28%] cursor-pointer select-none p-4 " onClick={() => handleSort('courseTitle')}>
+                        Subject Description <SortIcon column="courseTitle" />
                       </th>
-                      <th className="w-[12%] px-4 py-2 ">Course</th>
-                      <th className="w-[15%] px-4 py-2 ">Block/s</th>
-                      <th className="w-[18%] cursor-pointer select-none px-4 py-2 " onClick={() => handleSort('curriculum')}>
+                      <th className="w-[12%] p-4 ">Course</th>
+                      <th className="w-[15%] p-4 ">Block/s</th>
+                      <th className="w-[18%] cursor-pointer select-none p-4 " onClick={() => handleSort('curriculum')}>
                         Curriculum <SortIcon column="curriculum" />
                       </th>
-                      <th className="w-[12%] px-4 py-2  text-right">Actions</th>
+                      <th className="w-[12%] p-4  text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white">
@@ -1154,7 +1154,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                       Array.from({ length: 5 }).map((_, i) => (
                         <tr key={i} className="border-t border-gray-100">
                           {[...Array(6)].map((_, j) => (
-                            <td key={j} className="px-4 py-3">
+                            <td key={j} className="p-4">
                               <div className="h-4 animate-pulse rounded-lg bg-gray-100" />
                             </td>
                           ))}
@@ -1192,20 +1192,20 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                               idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'
                             } hover:bg-blue-50/50 group`}
                           >
-                            <td className="px-4 py-3">
+                            <td className="p-4">
                               <span className="font-bold text-gray-900 group-hover:text-blue-700 transition-colors">{c.courseCode}</span>
                             </td>
-                            <td className="px-4 py-3 text-gray-700">
+                            <td className="p-4 text-gray-700">
                               <div className="truncate text-sm" title={c.courseTitle}>{c.courseTitle}</div>
                             </td>
-                            <td className="px-4 py-3">
+                            <td className="p-4">
                               <span className={`inline-flex items-center rounded-lg px-2.5 py-0.5 text-xs font-semibold ${
                                 isOther ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
                               }`}>
                                 {getCourseLabel(c)}
                               </span>
                             </td>
-                            <td className="px-4 py-3">
+                            <td className="p-4">
                               <div className="flex flex-wrap gap-1">
                                 {(c.blocks?.length ? c.blocks : ['-']).map(b => (
                                   <span key={b} className="rounded-lg border border-gray-200 bg-white px-2 py-0.5 text-xs font-bold text-gray-700 shadow-sm">
@@ -1214,12 +1214,12 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                 ))}
                               </div>
                             </td>
-                            <td className="px-4 py-3">
+                            <td className="p-4">
                               <div className="truncate text-xs text-gray-500">
                                 {isOther ? c.departmentName || 'Other Department' : c.curriculumName || '—'}
                               </div>
                             </td>
-                            <td className="px-4 py-3 text-right">
+                            <td className="p-4 text-right">
                               <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
                                 <button
                                   onClick={() => setConfirmUnassign(c)}
@@ -1356,19 +1356,19 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                     <table className="w-full text-sm">
                       <thead className="bg-blue-500 text-left text-xs uppercase tracking-wider text-white sticky top-0">
                         <tr>
-                          <th className="w-14 px-4 py-2 w-[5%]">Assign</th>
-                          <th className="w-16 px-4 py-2 w-[5%]">Select</th>
-                          <th className="cursor-pointer select-none px-4 py-2  w-[10%]" onClick={() => handlePickerSort('courseCode')}>
-                            Code <PickerSortIcon col="courseCode" />
+                          <th className=" p-4 w-[5%]">Assign</th>
+                          <th className="p-4 w-[5%]">Select</th>
+                          <th className="cursor-pointer select-none p-4   w-[15%]" onClick={() => handlePickerSort('courseCode')}>
+                            Subject Code <PickerSortIcon col="courseCode" />
                           </th>
-                          <th className="cursor-pointer select-none px-4 py-2 w-[30%]" onClick={() => handlePickerSort('courseTitle')}>
-                            Title <PickerSortIcon col="courseTitle" />
+                          <th className="cursor-pointer select-none p-4  w-[30%]" onClick={() => handlePickerSort('courseTitle')}>
+                            Subject Description <PickerSortIcon col="courseTitle" />
                           </th>
-                          <th className="cursor-pointer select-none px-4 py-2  w-[10%]" onClick={() => handlePickerSort('units')}>
+                          <th className="cursor-pointer select-none p-4  w-[10%]" onClick={() => handlePickerSort('units')}>
                             Units <PickerSortIcon col="units" />
                           </th>
-                          <th className="px-4 py-2  w-[20%]">Blocks</th>
-                          <th className="px-4 py-2  w-[20%] text-left">Status</th>
+                          <th className="p-4  w-[20%]">Blocks</th>
+                          <th className="p-4  w-[15%] text-left">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 bg-white">
@@ -1391,7 +1391,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                               } hover:bg-blue-50/50`}
                             >
                               {/* Assign Blocks Button */}
-                              <td className="px-4 py-3">
+                              <td className="p-4">
                                 <button
                                   type="button"
                                   onClick={() => openCcsBlockModal(course)}
@@ -1409,7 +1409,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                               </td>
 
                               {/* Checkbox */}
-                              <td className="px-4 py-3">
+                              <td className="p-4">
                                 {isSaving ? (
                                   <svg className="animate-spin h-4 w-4 text-blue-500" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
                                 ) : (
@@ -1423,14 +1423,14 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                 )}
                               </td>
 
-                              <td className="px-4 py-3 font-bold text-gray-900">{course.courseCode}</td>
-                              <td className="px-4 py-3 text-gray-700">
+                              <td className="p-4 font-bold text-gray-900">{course.courseCode}</td>
+                              <td className="p-4 text-gray-700">
                                 <div className="max-w-[260px] truncate text-sm" title={course.courseTitle}>{course.courseTitle}</div>
                               </td>
-                              <td className="px-4 py-3 text-gray-600 text-left">
+                              <td className="p-4 text-gray-600 text-left">
                                 {Number(course.units) > 0 ? course.units : '—'}
                               </td>
-                              <td className="px-4 py-3">
+                              <td className="p-4">
                                 {selectedBlocks.length > 0 ? (
                                   <div className="flex flex-wrap gap-1">
                                     {selectedBlocks.map(b => (
@@ -1441,7 +1441,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                   <span className="text-xs text-gray-400 italic">None selected</span>
                                 )}
                               </td>
-                              <td className="px-4 py-3 text-left">
+                              <td className="p-4 text-left">
                                 <StatusBadge status={assignedElsewhere ? 'conflict' : assignedToThis ? 'assigned' : selectedBlocks.length > 0 ? 'available' : 'unassigned'} />
                               </td>
                             </tr>
@@ -1476,7 +1476,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                     }`}
                   >
                     <option value="">Select department...</option>
-                    {otherDepts.map(d => <option key={d.id} value={d.id}>{d.name}{d.code ? ` (${d.code})` : ''}</option>)}
+                    {otherDepts.map(d => <option key={d.id} value={d.id}>{d.name}{d.code ? ` ` : ''}</option>)}
                   </select>
                 </div>
 
@@ -1592,20 +1592,20 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                         <table className="w-full text-sm">
                           <thead className="bg-blue-500 text-left text-xs uppercase tracking-wider text-white sticky top-0">
                             <tr>
-                              <th className="px-4 py-2  w-[5%] text-right">Assign</th>
+                              <th className="p-4  w-[5%] text-right">Assign</th>
 
-                              <th className="w-16 px-4 py-2 w-[5%] ">Select</th>
-                              <th className="cursor-pointer select-none px-4 py-2 w-[10%] " onClick={() => handleOtherSort('courseCode')}>
-                                Code <OtherSortIcon col="courseCode" />
+                              <th className="p-4 w-[5%] ">Select</th>
+                              <th className="cursor-pointer select-none p-4 w-[15%] " onClick={() => handleOtherSort('courseCode')}>
+                               Subject Code <OtherSortIcon col="courseCode" />
                               </th>
-                              <th className="cursor-pointer select-none px-4 py-2 w-[30%] " onClick={() => handleOtherSort('courseTitle')}>
-                                Title <OtherSortIcon col="courseTitle" />
+                              <th className="cursor-pointer select-none p-4 w-[30%] " onClick={() => handleOtherSort('courseTitle')}>
+                               Subject Title <OtherSortIcon col="courseTitle" />
                               </th>
-                              <th className="cursor-pointer select-none px-4 py-2  w-[10%] " onClick={() => handleOtherSort('units')}>
+                              <th className="cursor-pointer select-none p-4  w-[10%] " onClick={() => handleOtherSort('units')}>
                                 Units <OtherSortIcon col="units" />
                               </th>
-                              <th className="px-4 py-2  w-[20%]">Blocks</th>
-                              <th className="px-4 py-2  w-[20%] text-left">Status</th>
+                              <th className="p-4  w-[20%]">Blocks</th>
+                              <th className="p-4  w-[15%] text-left">Status</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100 bg-white">
@@ -1633,7 +1633,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                     idx % 2 === 0     ? 'bg-white' : 'bg-gray-50/40'
                                   } hover:bg-amber-50/30`}
                                 >
-                                    <td className="px-4 py-3 text-right">
+                                    <td className="p-4 text-right">
                                     <button
                                       type="button"
                                       onClick={() => openOtherBlockModal(course)}
@@ -1650,7 +1650,7 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                     </button>
                                   </td>
 
-                                  <td className="px-4 py-3">
+                                  <td className="p-4">
                                     {isSaving ? (
                                       <svg className="animate-spin h-4 w-4 text-amber-500" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
                                     ) : (
@@ -1663,17 +1663,17 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
                                       />
                                     )}
                                   </td>
-                                  <td className="px-4 py-3 font-bold text-gray-900">{course.courseCode}</td>
-                                  <td className="px-4 py-3 text-gray-700">
+                                  <td className="p-4 font-bold text-gray-900">{course.courseCode}</td>
+                                  <td className="p-4 text-gray-700">
                                     <div className="max-w-[280px] truncate text-sm" title={course.courseTitle}>{course.courseTitle}</div>
                                   </td>
-                                  <td className="px-4 py-3 text-gray-600 text-center">
+                                  <td className="p-4 text-gray-600 text-center">
                                     {Number(course.units) > 0 ? course.units : '—'}
                                   </td>
-                                  <td className="px-4 py-3 text-left">
+                                  <td className="p-4 text-left">
                                     <StatusBadge status={assignedElsewhere ? 'conflict' : assignedToThis ? 'assigned' : displayedBlocks.length > 0 ? 'available' : 'unassigned'} />
                                   </td>
-                                  <td className="px-4 py-3">
+                                  <td className="p-4 text-left">
                                     {displayedBlocks.length > 0 ? (
                                       <div className="flex flex-wrap gap-1">
                                         {displayedBlocks.map(b => (

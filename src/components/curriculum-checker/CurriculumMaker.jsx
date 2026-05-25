@@ -46,6 +46,8 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const [selectedCurriculumForMenu, setSelectedCurriculumForMenu] = useState(null);
   const [editCurriculumDialogOpen, setEditCurriculumDialogOpen] = useState(false);
   const [deleteCurriculumDialogOpen, setDeleteCurriculumDialogOpen] = useState(false);
+  const [deleteCourseDialogOpen, setDeleteCourseDialogOpen] = useState(false);
+  const [courseToDelete, setCourseToDelete] = useState(null);
   const [editingCurriculumData, setEditingCurriculumData] = useState({ name: '', description: '', yearLevels: [1, 2, 3, 4] });
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
@@ -83,6 +85,8 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
   const [equivTarget, setEquivTarget] = useState({ type: null, courseId: null, year: null, semester: null });
   const [tempSelectedEquivs, setTempSelectedEquivs] = useState([]);
   const [equivSelectedCurriculumId, setEquivSelectedCurriculumId] = useState(null);
+  const [equivSelectedYear, setEquivSelectedYear] = useState(1);
+  const [equivSelectedSemester, setEquivSelectedSemester] = useState(1);
   const [equivSearchTerm, setEquivSearchTerm] = useState('');
   const [equivSortField, setEquivSortField] = useState('courseCode');
   const [equivSortDirection, setEquivSortDirection] = useState('asc');
@@ -535,6 +539,8 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setTempSelectedEquivs(editingEquivalents || []);
     // prefer the course's curriculum or current selected curriculum
     setEquivSelectedCurriculumId(course.curriculumId || selectedCurriculum?.id || null);
+    setEquivSelectedYear(1);
+    setEquivSelectedSemester(1);
     setEquivSearchTerm('');
     setEquivModalOpen(true);
   };
@@ -543,6 +549,8 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     setEquivTarget({ type: 'new', courseId: null, year: selectedYear, semester });
     setTempSelectedEquivs(selectedEquivalent || []);
     setEquivSelectedCurriculumId(selectedCurriculum?.id || null);
+    setEquivSelectedYear(1);
+    setEquivSelectedSemester(1);
     setEquivSearchTerm('');
     setEquivModalOpen(true);
   };
@@ -619,24 +627,34 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
     }
   };
 
-  const handleDeleteCourse = async (courseId) => {
+  const handleDeleteCourse = (course) => {
     if (!currentUser) {
       showMessage('Please sign in to delete a course', 'error');
       return;
     }
-    if (!window.confirm('Are you sure you want to delete this course?')) return;
+    setCourseToDelete(course);
+    setDeleteCourseDialogOpen(true);
+  };
+
+  const handleConfirmDeleteCourse = async () => {
+    if (!courseToDelete) {
+      setDeleteCourseDialogOpen(false);
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      await deleteDoc(doc(db, 'courses', courseId));
+      await deleteDoc(doc(db, 'courses', courseToDelete.id));
       await logSystemAction({
         action: 'Deleted Course Record',
         module: 'Curriculum Checker',
         entityType: 'course',
-        entityId: courseId,
-        description: `Deleted course record ${courseId}`
+        entityId: courseToDelete.id,
+        description: `Deleted course record ${courseToDelete.courseCode || courseToDelete.id}`
       });
       showMessage('Course deleted successfully!');
+      setDeleteCourseDialogOpen(false);
+      setCourseToDelete(null);
       await loadCourses(selectedCurriculum.id);
     } catch (error) {
       showMessage('Failed to delete course: ' + error.message, 'error');
@@ -825,7 +843,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
 
        <div className="flex items-center justify-between">
         {/* Left Side */}
-        <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
           <button
             type="button"
             onClick={loadCurriculums}
@@ -979,15 +997,15 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
     
 
       <div className='flex items-center justify-between gap-4'>
-  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+  <div className="flex flex-wrap gap-1.5">
         {[1, 2, 3, 4].map((year, idx) => (
           <button
             key={year}
             onClick={() => { setTabValue(idx); setSelectedYear(year); }}
-              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all 
-                      ${tabValue === idx 
-                      ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
+                      tabValue === idx 
+                       ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
               }`}
           >
             {yearLabels[idx]}
@@ -1021,14 +1039,14 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
             <div className="overflow-x-auto rounded-xl border border-gray-200">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="sticky top-0 z-10 bg-blue-500 text-white">
-                      <th className="px-4 py-2 w-[10%] text-left" aria-sort={sortField === 'courseCode' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                  <tr className="sticky top-0 z-10 bg-blue-500 text-xs uppercase text-white">
+                      <th className="px-4 py-2 w-[15%] text-left" aria-sort={sortField === 'courseCode' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <button 
                         title="Sort by Course Code" 
                         onClick={() => handleSort('courseCode')} 
                         className="inline-flex items-center gap-1 cursor-pointer"
                       >
-                        <span>Code</span>
+                        <span>SUBJECT CODE</span>
                         {sortField === 'courseCode' ? (
                           <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
                         ) : (
@@ -1038,7 +1056,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                     </th>
                     <th className="px-4 py-2 w-[35%] text-left" aria-sort={sortField === 'courseTitle' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <button title="Sort by Course Title" onClick={() => handleSort('courseTitle')} className="inline-flex items-center gap-1">
-                        <span>Course Description</span>
+                        <span>SUBJECT DESCRIPTION</span>
                         {sortField === 'courseTitle' ? (
                           <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
                         ) : (
@@ -1048,7 +1066,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                     </th>
                     <th className="px-4 py-2 w-[5%] text-left" aria-sort={sortField === 'units' ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}>
                       <button title="Sort by Units" onClick={() => handleSort('units')} className="inline-flex items-center gap-1">
-                        <span>Units</span>
+                        <span>UNITS</span>
                         {sortField === 'units' ? (
                           <ChevronUp className={`w-4 ${sortDirection === 'asc' ? '' : 'rotate-180'}`} />
                         ) : (
@@ -1222,7 +1240,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                               </button>
                             )}
                             <button
-                              onClick={() => handleDeleteCourse(course.id)}
+                              onClick={() => handleDeleteCourse(course)}
                               disabled={loading}
                                 className="p-1 rounded-full text-gray-700  hover:bg-blue-100 cursor-pointer"
                               title="Delete course"
@@ -1237,7 +1255,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
 
                   {/* New Course Row */}
                   <tr className="bg-blue-50">
-                    <td className="px-4 py-2 w-[10%]">
+                    <td className="px-4 py-2 w-[15%]">
                       <input
                         className="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-0"                          
                         placeholder="Code"
@@ -1245,7 +1263,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                         onChange={(e) => handleNewCourseInputChange('courseCode', e.target.value, semester)}
                       />
                     </td>
-                    <td className="px-4 py-2 w-[35%]">
+                    <td className="px-4 py-2 w-[30%]">
                       <input
                         className="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-0"                          
                         placeholder="Course Description"
@@ -1462,27 +1480,59 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
 
       {/* Delete Confirmation Modal */}
       {deleteCurriculumDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setDeleteCurriculumDialogOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md bg-white rounded-lg shadow p-8">
-            <div className="text-lg font-semibold mb-2">Confirm Delete</div>
-            <div className=" text-gray-700">
-              Are you sure you want to delete "{selectedCurriculumForMenu?.name}"? This will also delete all associated courses and cannot be undone.
+        <div className="fixed inset-0 z-50 flex items-center justify-center  backdrop-blur-[2px]">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDeleteCurriculumDialogOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-md bg-white rounded-xl shadow ">
+            <div className="text-lg font-semibold px-8 py-4 border-b border-slate-200 bg-slate-100 rounded-t-xl">Confirm Delete</div>
+              <div className="px-8 py-4">
+                <div className=" text-gray-700 ">
+              Are you sure you want to delete "<strong>{selectedCurriculumForMenu?.name}</strong>"? This will also delete all associated courses and cannot be undone.
             </div>
             <div className="mt-8 flex justify-end gap-2">
               <button
                 onClick={() => setDeleteCurriculumDialogOpen(false)}
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDeleteCurriculum}
                 disabled={loading}
-                className="px-4 py-1.5 rounded-full text-sm bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
               >
                 Delete
               </button>
+            </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Course Confirmation Modal */}
+      {deleteCourseDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setDeleteCourseDialogOpen(false)}></div>
+          <div className="relative z-10 w-full max-w-md bg-white rounded-lg shadow ">
+            <div className="text-lg font-semibold px-8 py-4 border-b border-slate-200 bg-slate-100 rounded-t-xl">Confirm Delete</div>
+            <div className="px-8 py-4">
+            <div >
+              Are you sure you want to delete "<strong>{courseToDelete?.courseCode}</strong>"? This action cannot be undone.
+            </div>
+            <div className="mt-8 flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteCourseDialogOpen(false)}
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDeleteCourse}
+                disabled={loading}
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
+              >
+                Delete
+              </button>
+            </div>
             </div>
           </div>
         </div>
@@ -1677,9 +1727,9 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
           ></div>
 
           {/* Modal */}
-          <div className="relative z-10 w-full max-w-2xl bg-white rounded-lg shadow-xl max-h-[70vh] overflow-hidden flex flex-col">
+          <div className="relative z-10 w-full max-w-4xl bg-white rounded-2xl shadow-xl min-h-[70vh] max-h-[70vh] overflow-hidden flex flex-col">
             {/* Header */}
-            <div className="z-20 bg-white flex items-center justify-between px-8 py-4 border-b border-gray-200 shadow-sm">
+            <div className="z-20 bg-white flex items-center justify-between px-8 py-4 border-b border-slate-200 ">
               <h3 className="text-xl font-semibold text-gray-800">Select Prerequisites</h3>
              
             </div>
@@ -1692,7 +1742,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                   <select
                     value={prereqViewYear}
                     onChange={(e) => setPrereqViewYear(parseInt(e.target.value, 10))}
-                    className="px-2 py-1.5 w-32 text-sm rounded-lg border border-gray-300 cursor-pointer focus-outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   >
                     {/* build options dynamically from available years */}
                     {(() => {
@@ -1713,7 +1763,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                     value={prereqSearchTerm}
                     onChange={(e) => setPrereqSearchTerm(e.target.value)}
                     placeholder="Search across all years"
-                    className="w-full px-2 py-1.5 text-sm rounded-lg border border-gray-300  focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   />
                 </div>
               </div>
@@ -1799,7 +1849,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                                 {/* HEADER */}
                                 <thead className="bg-blue-500 text-white text-xs uppercase tracking-wide">
                                   <tr>
-                                    <th className="px-3 py-2 w-[5%]">
+                                    <th className="p-4  w-[5%]">
                                       <input
                                         type="checkbox"
                                         checked={allChecked}
@@ -1816,9 +1866,9 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                                         className="h-4 w-4 accent-white"
                                       />
                                     </th>
-                                    <th className="px-3 py-2 text-left w-[15%]">Code</th>
-                                    <th className="px-3 py-2 text-left w-[60%]">Title</th>
-                                    <th className="px-3 py-2 text-left w-[10%]">Units</th>
+                                    <th className="p-4  text-left w-[15%]">Subject Code</th>
+                                    <th className="p-4  text-left w-[60%]">Subject Description</th>
+                                    <th className="p-4  text-left w-[10%]">Units</th>
                                   </tr>
                                 </thead>
 
@@ -1846,7 +1896,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                                         }}
                                       >
                                         {/* CHECKBOX */}
-                                        <td className="px-3 py-2">
+                                        <td className="p-4 ">
                                           <input
                                             type="checkbox"
                                             checked={isSelected}
@@ -1863,17 +1913,17 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                                         </td>
 
                                         {/* CODE */}
-                                        <td className="px-3 py-2 font-semibold text-blue-700">
+                                        <td className="p-4  font-semibold text-blue-700">
                                           {c.courseCode}
                                         </td>
 
                                         {/* TITLE */}
-                                        <td className="px-3 py-2 text-gray-700">
+                                        <td className="p-4  text-gray-700">
                                           {c.courseTitle}
                                         </td>
 
                                         {/* UNITS */}
-                                        <td className="px-3 py-2 text-gray-600">
+                                        <td className="p-4  text-gray-600">
                                           {c.units}
                                         </td>
                                       </tr>
@@ -1896,13 +1946,13 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
             <div className="bg-white flex justify-end gap-3 py-3 px-5 border-t border-gray-200">
               <button
                 onClick={() => setPrereqModalOpen(false)}
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={savePrereqsFromModal}
-                className="px-6 py-1.5 rounded-full text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
               >
                 Save
               </button>
@@ -1915,19 +1965,54 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
       {equivModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 backdrop-blur-[2px] bg-black/40" onClick={() => setEquivModalOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-2xl bg-white rounded-lg shadow-xl max-h-[70vh] overflow-hidden flex flex-col">
-            <div className="z-20 bg-white flex items-center justify-between px-5 py-4 border-b border-gray-200 shadow-sm">
+          <div className="relative z-10 w-full max-w-3xl bg-white rounded-2xl shadow-xl max-h-[70vh] min-h-[70vh] overflow-hidden flex flex-col">
+            <div className="z-20 bg-white flex items-center justify-between px-5 py-4 border-b border-slate-200">
               <div className="text-lg font-semibold">Select Equivalent Subjects</div>
             
             </div>
+
               <div className="min-h-0 flex-1 overflow-y-auto space-y-3 p-4">
-              <div className="flex items-center gap-3">
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">Curriculum</label>
+              <div className="flex  items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-1.5">
+                 {[1, 2, 3, 4].map((year) => (
+                  <button
+                    key={year}
+                    type="button"
+                    onClick={() => {
+                      setEquivSelectedYear(year);
+                      if (year !== 3 && equivSelectedSemester === 3) {
+                        setEquivSelectedSemester(1);
+                      }
+                    }}
+                    className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                      equivSelectedYear === year
+                        ? 'bg-blue-500 text-white shadow-sm'
+                        : 'bg-slate-200 text-slate-600 hover:bg-slate-300 cursor-pointer'
+                    }`}
+                  >
+                    {year === 1 ? '1st Year' : year === 2 ? '2nd Year' : year === 3 ? '3rd Year' : '4th Year'}
+                  </button>
+                ))}
+                </div>
+
+              <div className="flex items-center gap-2">
+                  <div className="">
+                  <select
+                    value={equivSelectedSemester}
+                    onChange={(e) => setEquivSelectedSemester(parseInt(e.target.value, 10))}
+                    className="w-fit border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                  >
+                    <option value={1}>1st Semester</option>
+                    <option value={2}>2nd Semester</option>
+                    {equivSelectedYear === 3 && <option value={3}>Summer Semester</option>}
+                  </select>
+                </div>
+
+                  <div>
                   <select
                     value={equivSelectedCurriculumId || ''}
                     onChange={(e) => setEquivSelectedCurriculumId(e.target.value || null)}
-                    className="text-sm px-2 py-1.5 rounded-lg cursor-pointer border border-gray-300 focus:outline-none"
+className="w-fit border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   >
                     <option value="">All Curriculums</option>
                     {curriculums && curriculums.length > 0 && curriculums.map(cur => (
@@ -1935,23 +2020,17 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                     ))}
                   </select>
                 </div>
-
-                <div className="flex-1">
-                  <label className="block text-xs text-gray-600 mb-1">Search</label>
-                  <input
-                    value={equivSearchTerm}
-                    onChange={(e) => setEquivSearchTerm(e.target.value)}
-                    placeholder="Search codes or courses"
-                    className="w-full text-sm px-2 py-1.5 rounded-lg cursor-pointer border border-gray-300 focus:outline-none"
-                  />
                 </div>
+
               </div>
 
+       
               {(() => {
                 if (!allCourses || allCourses.length === 0) return <div className="text-sm text-gray-500">No available courses.</div>;
                 const q = (equivSearchTerm || '').toLowerCase().trim();
                 const curr = curriculums && curriculums.find(c => c.id === equivSelectedCurriculumId);
                 let candidates = allCourses.filter(c => c.courseCode);
+                candidates = candidates.filter(c => c.yearLevel === equivSelectedYear && c.semester === equivSelectedSemester);
                 if (q) {
                   candidates = candidates.filter(c => (c.courseCode || '').toLowerCase().includes(q) || (c.courseTitle || '').toLowerCase().includes(q));
                 } else if (equivSelectedCurriculumId) {
@@ -1969,11 +2048,11 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                 const allChecked = codes.length > 0 && codes.every(code => tempSelectedEquivs.includes(code));
 
                 return (
-                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                  <div className="overflow-x-auto border-x border-gray-200 rounded-lg">
                     <table className="min-w-full text-xs">
-                      <thead className="sticky top-0 z-10 bg-blue-500 text-white">
+                      <thead className="sticky top-0 z-10 bg-blue-500 text-xs uppercase text-white">
                         <tr>
-                          <th className="p-1.5 w-12 text-left">
+                          <th className="px-4 py-2 text-left w-[10%]">
                             <input
                               type="checkbox"
                               checked={allChecked}
@@ -1984,7 +2063,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                               className="h-4 w-4 accent-blue-600"
                             />
                           </th>
-                          <th className="p-1.5 text-left">
+                          <th className="px-4 py-2 text-left w-[20%]">
                             <button
                               type="button"
                               onClick={() => {
@@ -1993,7 +2072,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                               }}
                               className="inline-flex items-center gap-1"
                             >
-                              <span>Code</span>
+                              <span>SUBJECT CODE</span>
                               {equivSortField === 'courseCode' ? (
                                 <ChevronUp className={`w-4 ${equivSortDirection === 'asc' ? '' : 'rotate-180'}`} />
                               ) : (
@@ -2001,7 +2080,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                               )}
                             </button>
                           </th>
-                          <th className="p-1.5 text-left">
+                          <th className="px-4 py-2 text-left w-[70%]">
                             <button
                               type="button"
                               onClick={() => {
@@ -2010,7 +2089,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                               }}
                               className="inline-flex items-center gap-1"
                             >
-                              <span>Courses</span>
+                              <span>SUBJECT DESCRIPTION</span>
                               {equivSortField === 'courseTitle' ? (
                                 <ChevronUp className={`w-4 ${equivSortDirection === 'asc' ? '' : 'rotate-180'}`} />
                               ) : (
@@ -2018,14 +2097,13 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                               )}
                             </button>
                           </th>
-                          <th className="p-1.5 text-left">Curriculum</th>
                         </tr>
                       </thead>
                       <tbody>
                         {candidates.map(c => (
                           <tr
                             key={c.id}
-                            className={`border-b border-gray-300 hover:bg-gray-50 cursor-pointer ${tempSelectedEquivs.includes(c.courseCode) ? 'bg-amber-50' : ''}`}
+                            className={`border-b text-sm border-gray-300 hover:bg-gray-50 cursor-pointer ${tempSelectedEquivs.includes(c.courseCode) ? 'bg-amber-50' : ''}`}
                             onClick={(e) => {
                               if (e.target && e.target.closest && e.target.closest('input')) return;
                               const code = c.courseCode;
@@ -2033,7 +2111,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                               setTempSelectedEquivs(prev => prev.includes(code) ? prev.filter(x => x !== code) : Array.from(new Set([...prev, code])));
                             }}
                           >
-                            <td className="p-1.5">
+                            <td className="px-4 py-2">
                               <input
                                 type="checkbox"
                                 checked={tempSelectedEquivs.includes(c.courseCode)}
@@ -2044,11 +2122,9 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                                 className="h-4 w-4 accent-blue-600"
                               />
                             </td>
-                            <td className="p-1.5 font-medium text-blue-700">{c.courseCode}</td>
-                            <td className="p-1.5">{c.courseTitle}</td>
-                            <td className="p-1.5 text-xs text-gray-600">
-                              {c.curriculumName || (curriculums && curriculums.find(cur => cur.id === c.curriculumId)?.name) || (curr && curr.name) || ''}
-                            </td>
+                            <td className="px-4 py-2 font-medium text-blue-700">{c.courseCode}</td>
+                            <td className="px-4 py-2">{c.courseTitle}</td>
+                           
                           </tr>
                         ))}
                         {candidates.length === 0 && (
@@ -2065,13 +2141,13 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
             <div className="bg-white flex justify-end gap-3 py-3 px-5 border-t border-gray-200">
               <button
                 onClick={() => setEquivModalOpen(false)}
-                className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={saveEquivsFromModal}
-                className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
               >
                 Save
               </button>

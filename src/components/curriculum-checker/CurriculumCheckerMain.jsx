@@ -45,13 +45,15 @@ const CurriculumCheckerMain = () => {
   const folderStudentList = useMemo(() => {
     if (!selectedFolder) return [];
 
-    let list = students.filter(student =>
-      selectedFolder.isIrregular
-        ? student.isIrregular
-        : student.yearLevel === selectedFolder.year &&
-          (selectedFolder.block ? student.block === selectedFolder.block : true) &&
-          !student.isIrregular
-    );
+    let list = students.filter((student) => {
+      if (selectedFolder.isIrregular) return student.isIrregular;
+      if (selectedFolder.isInactiveFolder) return student.active === false;
+      return (
+        student.yearLevel === selectedFolder.year &&
+        (selectedFolder.block ? student.block === selectedFolder.block : true) &&
+        !student.isIrregular
+      );
+    });
 
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -398,7 +400,7 @@ const CurriculumCheckerMain = () => {
           student.completedCourses?.includes(prereq) &&
           (isCourseFailed(student, prereq) || isCourseIncomplete(student, prereq))
         );
-        return hasFailedOrIncompletePrereqs ? 'Blocked (Incomplete or Failed)' : 'Blocked (Prerequisite not met)';
+        return hasFailedOrIncompletePrereqs ? 'Incomplete or Failed' : 'Prerequisite not met';
       case 'available':
         return 'Available';
       case 'failed':
@@ -590,8 +592,10 @@ const CurriculumCheckerMain = () => {
         </div>
       )}
 
-      <div className="mb-6 w-full">
-        <div className="">
+      <div className="">
+        <div className="space-y-4">
+          
+
           <div className="flex-1">
             {/* Folder grid or selected folder card (left column) */}
             {!selectedFolder ? (
@@ -611,38 +615,68 @@ const CurriculumCheckerMain = () => {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                  {[1, 2, 3, 4].flatMap(year =>
-                    Array.from(new Set(students.filter(s => !s.isIrregular && s.yearLevel === year).map(s => s.block || 'Not Set'))).map(block => {
+                  {[1, 2, 3, 4].flatMap((year) => {
+                    const blocks = Array.from(
+                      new Set(
+                        students
+                          .filter((s) => !s.isIrregular && s.yearLevel === year)
+                          .map((s) => (s.block || '').toString().trim())
+                          .filter(Boolean)
+                      )
+                    );
+
+                    return blocks.map((block) => {
                       const yearLabel = year === 1 ? '1st Year' : year === 2 ? '2nd Year' : year === 3 ? '3rd Year' : '4th Year';
-                      const count = students.filter(s => !s.isIrregular && s.yearLevel === year && (s.block || 'Not Set') === block).length;
+                      const count = students.filter(
+                        (s) => !s.isIrregular && s.yearLevel === year && (s.block || '').toString().trim() === block
+                      ).length;
                       return (
                         <button
                           key={`${year}-${block}`}
-                          onClick={() => setSelectedFolder({ year, block: block === 'Not Set' ? null : block, isIrregular: false })}
-                          className="group relative cursor-pointer rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-400 hover:shadow-md"
+                          onClick={() => setSelectedFolder({ year, block, isIrregular: false })}
+                          className="group relative cursor-pointer rounded-lg border border-gray-300 bg-white p-4 text-left transition  hover:border-blue-400 hover:shadow-md"
                         >
-                          <div className="flex items-center gap-3">
+                    <div className="flex items-start gap-4">
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
                               <Folder className="h-5 w-5" />
                             </div>
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-blue-800">{yearLabel} Block {block}</p>
-                              <p className="mt-1 text-xs text-gray-500">{count} student{count !== 1 ? 's' : ''}</p>
+                              <p className="truncate text-sm font-semibold text-slate-900">{yearLabel} Block {block}</p>
+                              <p className="mt-1 text-xs text-slate-500">{count} student{count !== 1 ? 's' : ''}</p>
                             </div>
                           </div>
                         </button>
                       );
-                    })
-                  )}
+                    });
+                  })}
 
-                  <button onClick={() => setSelectedFolder({ isIrregular: true })} className="group relative cursor-pointer rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-400 hover:shadow-md">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                  <button 
+                    onClick={() => setSelectedFolder({ isIrregular: true })} 
+                    className="group relative cursor-pointer rounded-lg border border-gray-300 bg-white p-4 text-left transition  hover:border-blue-400 hover:shadow-md"
+                  >
+                    <div className="flex items-start gap-4">
+                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
                         <Folder className="h-5 w-5" />
                       </div>
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-blue-800">Irregular Students</p>
-                        <p className="mt-1 text-xs text-gray-500">{students.filter(s => s.isIrregular).length} students</p>
+                        <p className="truncate text-sm font-semibold text-slate-900">Irregular Students</p>
+                        <p className="mt-1 text-xs text-slate-500">{students.filter(s => s.isIrregular).length} students</p>
+                      </div>
+                    </div>
+                  </button>
+                
+                  {/* Inactive students folder (matches StudentManagement) */}
+                  <button 
+                    onClick={() => setSelectedFolder({ isInactiveFolder: true })} 
+                    className="group relative cursor-pointer rounded-lg border border-red-300 bg-white p-4 text-left transition  hover:border-red-400 hover:shadow-md"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600">
+                        <Folder className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-red-600">Inactive Students</p>
+                        <p className="mt-1 text-xs text-red-500">{students.filter(s => s.active === false).length} students</p>
                       </div>
                     </div>
                   </button>
@@ -653,30 +687,37 @@ const CurriculumCheckerMain = () => {
             )}
           </div>
 
-          <div className="w-80">
+          <div className="w-full">
             {selectedFolder && (
-              <div className="relative flex items-center gap-2">
+            <div className="flex gap-4 items-center justify-between mb-4">
+                <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center">
                 <button
                   type="button"
                   onClick={() => { loadStudents(); }}
                   title="Reload students"
-className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
+                  className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 disabled:cursor-not-allowed"
                 >
                   <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
                 <label className="sr-only" htmlFor="student-search">
                   Search students
                 </label>
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <div className="relative w-full sm:w-80">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" />
                   <input
                     id="student-search"
                     type="text"
                     placeholder="Search students by name..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                    className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   />
+                </div>
+              </div>
+              <div>
+                <p className="text-sm text-slate-600">
+                  Select student to view curriculum status.
+                </p>
                 </div>
               </div>
             )}
@@ -684,17 +725,17 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
         </div>
       </div>
 
-      {/* If a folder is selected render the students in that folder, otherwise render the main student table */}
+      {/* If app folder is selected render the students in that folder, otherwise render the main student table */}
       {selectedFolder ? (
-  <div className="overflow-hidden rounded-lg border border-gray-300 bg-white mb-4">
+  <div className="overflow-hidden rounded-xl border border-blue-100 bg-white shadow-[0_12px_40px_rgba(15,23,42,0.08)] mb-4">
     <table className="min-w-full text-sm">
-      <thead className="bg-blue-600 text-white">
+      <thead className="bg-blue-500 text-xs uppercase text-white">
         <tr>
-          <th className="px-4 py-2 text-left font-semibold border-b border-gray-300 w-[5%] cursor-pointer hover:bg-blue-700 transition">
+          <th className="p-4  text-left font-semibold border-b border-white/10 w-[5%] cursor-pointer hover:bg-white/10 transition">
             No.
           </th>
 
-          <th className="px-4 py-2 text-left font-semibold border-b border-gray-300 w-[12%] cursor-pointer hover:bg-blue-700 transition" onClick={() => requestSort('studentNumber')}>
+          <th className="p-4  text-left font-semibold border-b border-white/10 w-[12%] cursor-pointer hover:bg-white/10 transition" onClick={() => requestSort('studentNumber')}>
             <div className="flex items-center gap-2">
               Student No.
               {sortConfig.key === 'studentNumber' ? (
@@ -709,44 +750,44 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
             </div>
           </th>
 
-          <th className="px-4 py-2 ...">Name</th>
-          <th className="px-4 py-2 ...">Email</th>
-          <th className="px-4 py-2 ...">Contact No.</th>
-          <th className="px-4 py-2 ...">Curriculum</th>
-          <th className="px-4 py-2 ...">Status</th>
+          <th className="p-4  text-left">Name</th>
+          <th className="p-4  text-left">Email</th>
+          <th className="p-4  text-left">Contact No.</th>
+          <th className="p-4  text-left">Curriculum</th>
+          <th className="p-4  text-left">Status</th>
         </tr>
       </thead>
 
       <tbody>
         {loading ? (
           Array.from({ length: 6 }).map((_, i) => (
-            <tr key={i} className="border-b border-gray-200 last:border-b-0 animate-pulse">
-              <td className="px-3 py-2 w-[5%]"><div className="h-4 bg-gray-200 rounded w-24" /></td>
-              <td className="px-3 py-2 w-[12%]"><div className="h-4 bg-gray-200 rounded w-24" /></td>
-              <td className="px-3 py-2 w-[20%]"><div className="h-4 bg-gray-200 rounded w-40" /></td>
-              <td className="px-3 py-2 w-[18%]"><div className="h-4 bg-gray-200 rounded w-36" /></td>
-              <td className="px-3 py-2 w-[10%]"><div className="h-4 bg-gray-200 rounded w-24" /></td>
-              <td className="px-3 py-2 w-[15%]"><div className="h-4 bg-gray-200 rounded w-48" /></td>
-              <td className="px-3 py-2 w-[15%]"><div className="h-4 bg-gray-200 rounded w-20" /></td>
+              <tr key={i} className="border-b border-slate-100 last:border-b-0 animate-pulse">
+              <td className="p-4  w-[5%]"><div className="h-4 bg-gray-200 rounded w-24" /></td>
+              <td className="p-4  w-[12%]"><div className="h-4 bg-gray-200 rounded w-24" /></td>
+              <td className="p-4  w-[20%]"><div className="h-4 bg-gray-200 rounded w-40" /></td>
+              <td className="p-4  w-[18%]"><div className="h-4 bg-gray-200 rounded w-36" /></td>
+              <td className="p-4  w-[10%]"><div className="h-4 bg-gray-200 rounded w-24" /></td>
+              <td className="p-4  w-[15%]"><div className="h-4 bg-gray-200 rounded w-48" /></td>
+              <td className="p-4  w-[15%]"><div className="h-4 bg-gray-200 rounded w-20" /></td>
             </tr>
           ))
         ) : (
           students
-            .filter(s =>
-              selectedFolder.isIrregular
-                ? s.isIrregular
-                : (
-                    s.yearLevel === selectedFolder.year &&
-                    (selectedFolder.block ? s.block === selectedFolder.block : true) &&
-                    !s.isIrregular
-                  )
-            )
+            .filter((s) => {
+              if (selectedFolder.isIrregular) return s.isIrregular;
+              if (selectedFolder.isInactiveFolder) return s.active === false;
+              return (
+                s.yearLevel === selectedFolder.year &&
+                (selectedFolder.block ? s.block === selectedFolder.block : true) &&
+                !s.isIrregular
+              );
+            })
             .map((student, index) => (
               <tr
                 key={student.id}
                 id={`student-row-${student.id}`}
                 onClick={() => handleStudentSelect(student)}
-                className="border-b border-gray-300 last:border-b-0 odd:bg-white even:bg-gray-50 hover:bg-gray-100 cursor-pointer transition"
+                className="border-b border-slate-100 last:border-b-0 odd:bg-white even:bg-slate-50 hover:bg-blue-50/70 cursor-pointer transition"
               >
                 {/* ✅ FIXED NUMBERING */}
                 <td className="px-3 py-2 w-[5%]">{index + 1}</td>
@@ -763,11 +804,11 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
 
                 <td className="px-3 py-2 w-[15%]">
                   {student.enrolled ? (
-                    <span className="inline-flex w-24 justify-center text-center px-2 py-1 rounded-full border border-green-300 bg-green-100 text-green-700 text-xs font-medium">
+                    <span className="inline-flex w-22 justify-center text-center px-2 py-1 rounded-full border border-emerald-200 bg-emerald-100 text-emerald-700 text-xs font-medium">
                       Enrolled
                     </span>
                   ) : (
-                    <span className="inline-flex w-24 justify-center text-center px-2 py-1 rounded-full border border-red-300 bg-red-100 text-red-700 text-xs font-medium">
+                    <span className="inline-flex w-22 justify-center text-center px-2 py-1 rounded-full border border-rose-200 bg-rose-100 text-rose-700 text-xs font-medium">
                       Not Enrolled
                     </span>
                   )}
@@ -802,44 +843,66 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
       getAvailableCoursesForIrregular(student, courses)
     );
 
+    const year = selectedYear;
+    const scholarshipEligibility = calculateScholarshipEligibility(student, year);
+    const deansLister1stSem = calculateDeansListerEligibility(student, 1, year);
+    const deansLister2ndSem = calculateDeansListerEligibility(student, 2, year);
+    const hasSummer = processedCourses.some(c => c.yearLevel === year && c.semester === 3);
+
     return (
-      <div>
+      <div className="">
        
 
-        <div className='bg-white px-8 py-4 border border-slate-300 rounded-xl flex items-center justify-between'>
-          <div className="text-gray-600">
-            <div className="text-gray-900 text-lg font-semibold">{student.name}</div>
-              <span className='text-sm text-gray-600'>{student.studentNumber}</span><br />
-              <span className='text-sm text-gray-600'>{student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year{student.isIrregular ? ' - Irregular' : ''} {' '}
-              {!student.isIrregular && (
-                <span> Block {student.block ? student.block : 'Not Set'}</span>
-              )}
-              </span>
+        <div className='rounded-xl border border-slate-200 bg-white/95 px-8 py-4 '>
+          <div className="flex flex-col gap-2 ">
+            <div className="text-slate-600">
+              <div className="text-slate-900 text-xl font-medium tracking-tight">{student.name}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <span>{student.studentNumber}</span>
+                <span className="text-slate-500">•</span>
+                <span>{student.yearLevel === 1 ? '1st' : student.yearLevel === 2 ? '2nd' : student.yearLevel === 3 ? '3rd' : '4th'} Year{student.isIrregular ? ' - Irregular' : ''}</span>
+                {!student.isIrregular && (
+                  <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">Block {student.block ? student.block : 'Not Set'}</span>
+                )}
+              </div>
               {student.isIrregular && (
-                <p className="mt-1 text-sm text-blue-800">
+                <p className="mt-2 inline-flex flex-wrap items-center rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
                   Assigned curriculum: {student.curriculumName || student.curriculumId || 'Not set'}
                   {' '}· All curriculum subjects are shown; grades appear only where recorded.
                 </p>
               )}
+
+              
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handlePrintStudentPDF(
-                  student,
-                  studentCurriculum,
-                  processedCourses.filter(c => c.semester === 3)
-                )}
-                className="inline-flex items-center text-sm gap-2 bg-green-600 cursor-pointer text-white px-4 py-2 rounded-xl hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-300"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Print Curriculum</span>
-              </button>
-            </div>
+            {/* Academic eligibility moved into student info container */}
+              <div className="pt-2 border-t border-slate-200">
+                <div className="flex w-full flex-wrap gap-3">
+                  <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs text-slate-600">1st Sem Dean's Lister:</p>
+                    <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full border ${deansLister1stSem ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                      {deansLister1stSem ? 'Eligible' : 'Not Eligible'}
+                    </span>
+                  </div>
+                  <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs text-slate-600">2nd Sem Dean's Lister:</p>
+                    <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full border ${deansLister2ndSem ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                      {deansLister2ndSem ? 'Eligible' : 'Not Eligible'}
+                    </span>
+                  </div>
+                  <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs text-slate-600">Scholarship:</p>
+                    <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full border ${scholarshipEligibility.eligible ? 'bg-sky-100 text-sky-700 border-sky-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                      {scholarshipEligibility.eligible ? `${scholarshipEligibility.percentage}%` : 'Not Eligible'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+          </div>
         </div>
 
-        {/* Year Tabs */}
-<div className="flex gap-2  my-4 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+      <div className="flex items-center justify-between my-4">
+                {/* Year Tabs */}
+  <div className="flex flex-wrap gap-1.5">
   {[1, 2, 3, 4].map(year => {
     const yearLabel = year === 1 ? '1st Year' : year === 2 ? '2nd Year' : year === 3 ? '3rd Year' : '4th Year';
     return (
@@ -847,10 +910,10 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
         key={year}
         type="button"
         onClick={() => setSelectedYear(year)}
-className={`rounded-lg px-4 py-1 text-sm font-medium transition-all 
-          ${selectedYear === year
-          ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-: 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
+          selectedYear === year
+       ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
           }`}
       >
         {yearLabel}
@@ -859,8 +922,25 @@ className={`rounded-lg px-4 py-1 text-sm font-medium transition-all
   })}
 </div>
 
+  <div className="">
+              <button
+                type="button"
+                onClick={() => handlePrintStudentPDF(
+                  student,
+                  studentCurriculum,
+                  processedCourses.filter(c => c.semester === 3)
+                )}
+                className="inline-flex items-center gap-2 rounded-lg text-sm text-white bg-green-500 px-3 py-2 hover:bg-green-600 transition cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Print Curriculum</span>
+              </button>
+            </div>
+
+
+      </div>
 {/* Tab Content */}
-<div className="border  border-gray-200 bg-white rounded-xl mb-4">
+<div className="">
   {(() => {
     const year = selectedYear;
     const scholarshipEligibility = calculateScholarshipEligibility(student, year);
@@ -869,46 +949,23 @@ className={`rounded-lg px-4 py-1 text-sm font-medium transition-all
     const hasSummer = processedCourses.some(c => c.yearLevel === year && c.semester === 3);
 
     return (
-      <div className="py-6 px-10">
-        <div className="mb-4">
-          <h4 className="font-semibold text-sm">Academic Eligibility Summary</h4>
-          <div className="flex flex-wrap gap-6 mt-2">
-            <div>
-              <p className="text-xs text-gray-600">1st Semester Dean's Lister:</p>
-              <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full border ${deansLister1stSem ? 'bg-green-100 text-green-800 border-green-300' : 'bg-gray-100 text-gray-800 border-gray-300'}`}>
-                {deansLister1stSem ? 'Eligible' : 'Not Eligible'}
-              </span>
-            </div>
-            <div>
-              <p className="text-xs text-gray-600">2nd Semester Dean's Lister:</p>
-              <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full border ${deansLister2ndSem ? 'bg-green-100 text-green-800 border-green-300' : 'bg-gray-100 text-gray-800 border-gray-300'}`}>
-                {deansLister2ndSem ? 'Eligible' : 'Not Eligible'}
-              </span>
-            </div>
-            <div>
-              <p className="text-xs text-gray-600">Scholarship Eligibility:</p>
-              <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full border ${scholarshipEligibility.eligible ? 'bg-blue-100 text-blue-800 border-blue-300' : 'bg-gray-100 text-gray-800 border-gray-300'}`}>
-                {scholarshipEligibility.eligible ? `${scholarshipEligibility.percentage}% Scholarship` : 'Not Eligible'}
-              </span>
-            </div>
-          </div>
-        </div>
+      <div className="mt-6">
 
         {[1, 2, hasSummer ? 3 : null].filter(Boolean).map(semester => (
-          <div key={semester} className="mb-6">
-            <h5 className="text-blue-600 font-semibold mb-2">
+          <div key={semester} className="mb-8">
+            <h5 className="mb-1 font-medium text-slate-700">
               {semester === 1 ? '1st' : semester === 2 ? '2nd' : 'Summer'} Semester
             </h5>
-            <div className="border border-gray-300 rounded-lg overflow-hidden">
-              <table className="min-w-full text-xs">
-                <thead className="bg-blue-100 text-blue-800">
+            <div className="overflow-hidden rounded-2xl border border-slate-200 shadow-sm">
+              <table className="min-w-full text-xs bg-white">
+                <thead className="bg-blue-500 text-white text-xs uppercase">
                   <tr>
-                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[10%]">Code</th>
-                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[30%]">Description</th>
-                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[10%]">Units</th>
-                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[20%]">Prerequisites</th>
-                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[15%]">Status</th>
-                    <th className="text-left font-semibold px-4 py-2 border-b border-gray-300 w-[15%]">Grade</th>
+                    <th className="text-left font-semibold p-4  border-b border-white/60 w-[15%]">Subject Code</th>
+                    <th className="text-left font-semibold p-4  border-b border-white/60 w-[30%]">Subject Description</th>
+                    <th className="text-left font-semibold p-4  border-b border-white/60 w-[10%]">Units</th>
+                    <th className="text-left font-semibold p-4  border-b border-white/60 w-[20%]">Prerequisites</th>
+                    <th className="text-left font-semibold p-4  border-b border-white/60 w-[15%]">Status</th>
+                    <th className="text-left font-semibold p-4  border-b border-white/60 w-[10%]">Grade</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -916,7 +973,7 @@ className={`rounded-lg px-4 py-1 text-sm font-medium transition-all
                     .filter(course => course.yearLevel === year && course.semester === semester)
                     .length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-3 py-4 text-center text-gray-500">
+                      <td colSpan={6} className="px-3 py-4 text-center text-slate-500 bg-white">
                         No subjects in this semester.
                       </td>
                     </tr>
@@ -927,13 +984,13 @@ className={`rounded-lg px-4 py-1 text-sm font-medium transition-all
                       const failed = isCourseFailed(student, course.courseCode);
                       const incomplete = isCourseIncomplete(student, course.courseCode);
                       return (
-                        <tr key={course.id} className="border-b border-gray-200 last:border-b-0 hover:bg-gray-50 transition">
-                          <td className="px-3 py-2 w-[10%]">
-                            <span className="text-blue-700 font-semibold">{course.courseCode}</span>
+                        <tr key={course.id} className="border-b text-sm border-slate-100 last:border-b-0 hover:bg-blue-50/60 transition">
+                          <td className="p-4 w-[10%]">
+                            {course.courseCode}
                           </td>
-                          <td className="px-3 py-2 w-[30%]">{course.courseTitle}</td>
-                          <td className="px-3 py-2 w-[10%]">{course.units}</td>
-                          <td className="px-3 py-2 w-[20%]">
+                          <td className="p-4 w-[30%]">{course.courseTitle}</td>
+                          <td className="p-4 w-[10%]">{course.units}</td>
+                          <td className="p-4 w-[20%]">
                             {course.prerequisites.length > 0 ? (
                               <div className="flex flex-wrap gap-1">
                                 {course.prerequisites.map(prereq => {
@@ -994,7 +1051,7 @@ className={`rounded-lg px-4 py-1 text-sm font-medium transition-all
   };
 
   return (
-    <div className="flex flex-col">
+    <div className="">
       <Breadcrumbs
         items={[
           {
@@ -1004,7 +1061,7 @@ className={`rounded-lg px-4 py-1 text-sm font-medium transition-all
               : null
           },
           ...(selectedFolder ? [{
-            label: selectedFolder.isIrregular ? 'Irregular Students' : `${selectedFolder.year === 1 ? '1st' : selectedFolder.year === 2 ? '2nd' : selectedFolder.year === 3 ? '3rd' : '4th'} Year${selectedFolder.block ? ` Block ${selectedFolder.block}` : ''}`,
+            label: selectedFolder.isIrregular ? 'Irregular Students' : (selectedFolder.isInactiveFolder ? 'Inactive Students' : `${selectedFolder.year === 1 ? '1st' : selectedFolder.year === 2 ? '2nd' : selectedFolder.year === 3 ? '3rd' : '4th'} Year${selectedFolder.block ? ` Block ${selectedFolder.block}` : ''}`),
             onClick: selectedStudent ? () => { setSelectedStudent(null); } : null
           }] : []),
           ...(selectedStudent ? [{ label: selectedStudent.name }] : [])
@@ -1012,12 +1069,12 @@ className={`rounded-lg px-4 py-1 text-sm font-medium transition-all
       />
 
         <div className='mb-4'>
-          <h2 className='text-2xl font-bold text-gray-800'>Curriculum Checker</h2>
-          <p className='text-gray-600 mt-1 max-w-3xl text-sm'>Check student curriculum status, view course details, and print curriculum reports.</p>
+          <h2 className='text-2xl font-medium'>Curriculum Checker</h2>
+          <p className='text-slate-600 mt-1 max-w-3xl text-sm'>Check student curriculum status, view course details, and print curriculum reports in a cleaner, more readable layout.</p>
         </div>
 
       {!currentUser && (
-        <div className="mx-3 mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 px-4 py-2 text-sm">
+        <div className="mx-3 mb-2 rounded border border-blue-200 bg-blue-50 text-blue-800 p-4  text-sm">
           Please sign in to access the Curriculum Checker
         </div>
       )}
@@ -1090,7 +1147,7 @@ className={`rounded-lg px-4 py-1 text-sm font-medium transition-all
             <h3 className="text-lg font-semibold mb-2">Print Failed</h3>
             <p className="text-sm text-gray-700 whitespace-pre-wrap">{printErrorMessage}</p>
             <div className="flex justify-end mt-4">
-              <button onClick={() => setPrintErrorModalOpen(false)} className="px-4 py-2 rounded bg-blue-600 text-white">OK</button>
+              <button onClick={() => setPrintErrorModalOpen(false)} className="p-4  rounded bg-blue-600 text-white">OK</button>
             </div>
           </div>
         </div>
