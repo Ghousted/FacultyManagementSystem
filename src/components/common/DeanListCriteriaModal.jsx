@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { normalizeDeanListCriteria } from '../../models/curriculumModels';
 
 const computationOptions = [
-  { label: 'Weighted (Grade/Units)', value: 'weighted' },
-  { label: 'Simple Average (Subjects)', value: 'simple' }
+  { label: 'Weighted', value: 'weighted' },
+  { label: 'Simple', value: 'simple' }
 ];
 
 const applyUnitsOptions = [
@@ -23,15 +23,16 @@ export const DeanListCriteriaFields = ({ criteria, onChange }) => {
   };
 
   return (
-    <div className="space-y-5">
-      <div>
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
         <label className="block text-xs text-gray-700 mb-1">Major Grade Cutoff</label>
         <input
           type="number"
           step="0.01"
           value={currentCriteria.major}
           onChange={e => updateCriteria({ major: e.target.value })}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
+          className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
         />
       </div>
 
@@ -42,8 +43,9 @@ export const DeanListCriteriaFields = ({ criteria, onChange }) => {
           step="0.01"
           value={currentCriteria.minor}
           onChange={e => updateCriteria({ minor: e.target.value })}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
+          className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
         />
+      </div>
       </div>
 
       <div>
@@ -53,7 +55,7 @@ export const DeanListCriteriaFields = ({ criteria, onChange }) => {
           step="0.01"
           value={currentCriteria.gwa}
           onChange={e => updateCriteria({ gwa: e.target.value })}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
+          className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
         />
       </div>
 
@@ -65,7 +67,7 @@ export const DeanListCriteriaFields = ({ criteria, onChange }) => {
           step="1"
           value={currentCriteria.minUnits}
           onChange={e => updateCriteria({ minUnits: parseInt(e.target.value, 10) || 0 })}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
+          className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
         />
         <p className="text-[11px] text-gray-500 mt-1">Minimum units required before a student can qualify for Dean's List.</p>
       </div>
@@ -75,7 +77,7 @@ export const DeanListCriteriaFields = ({ criteria, onChange }) => {
         <select
           value={currentCriteria.applyMinUnitsFor || 'both'}
           onChange={e => updateCriteria({ applyMinUnitsFor: e.target.value })}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
+          className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
         >
           {applyUnitsOptions.map(option => (
             <option key={option.value} value={option.value}>{option.label}</option>
@@ -83,19 +85,29 @@ export const DeanListCriteriaFields = ({ criteria, onChange }) => {
         </select>
       </div>
 
-      <div>
-        <label className="block text-xs text-gray-700 mb-1">GWA Computation Method</label>
-        <select
-          value={currentCriteria.computation || 'weighted'}
-          onChange={e => updateCriteria({ computation: e.target.value, gwaMethod: e.target.value })}
-          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm transition"
-        >
+      <div className="flex items-center gap-4">
+        <label className="text-sm whitespace-nowrap1">Computation Method:</label>
+        <div className="flex items-center gap-4">
           {computationOptions.map(option => (
-            <option key={option.value} value={option.value}>{option.label}</option>
+            <label key={option.value} className="inline-flex items-center space-x-2 cursor-pointer text-sm text-gray-700">
+              <input
+                type="radio"
+                name="gwaComputation"
+                value={option.value}
+                checked={currentCriteria.computation === option.value}
+                onChange={() => updateCriteria({ computation: option.value, gwaMethod: option.value })}
+                className="h-3 w-3 text-blue-600 border-slate-300"
+              />
+              <span>{option.label}</span>
+            </label>
           ))}
-        </select>
-        <p className="text-[11px] text-gray-500 mt-1">Weighted uses grade × units / total units. Simple uses the average grade across subjects.</p>
+        </div>
       </div>
+
+       <div className=" text-xs border border-blue-300 bg-blue-50 text-slate-500 rounded-md px-4 py-2">
+                      Weighted: (sum of grade × units) / total units <br/> Simple: sum of grades / number of subjects
+                    </div>
+                    
     </div>
   );
 };

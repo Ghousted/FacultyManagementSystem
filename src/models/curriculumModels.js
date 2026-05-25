@@ -1,5 +1,5 @@
 import { writeBatch } from 'firebase/firestore';
-import { archiveStudentPayables } from './payablesModels';
+import { archiveStudentPayables, assignPayablesToStudent } from './payablesModels';
 // Archive and promote students (batch archiving, promotion, payables logic)
 export const archiveAndPromoteStudents = async (batchStartYear, batchEndYear) => {
   const batchName = `batch_${batchStartYear}_${batchEndYear}`;
@@ -331,6 +331,21 @@ export const addStudent = async (studentData) => {
         ...studentData
       }
     });
+    // After creating the student, assign any payables that were created for
+    // the same active term so newly-added students receive applicable payables.
+    try {
+      const studentRecord = {
+        id: docRef.id,
+        yearLevel: studentData.yearLevel,
+        block: studentData.block,
+        isIrregular,
+        enrolledTerm: enrolledTerm || null
+      };
+      await assignPayablesToStudent(studentRecord);
+    } catch (e) {
+      console.error('Failed to auto-assign payables to new student:', e);
+    }
+
     return { success: true, id: docRef.id };
   } catch (error) {
     console.error('Error adding student:', error);

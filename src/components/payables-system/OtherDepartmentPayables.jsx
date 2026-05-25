@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { saveAs } from 'file-saver';
+import * as XLSX from 'xlsx';
 import {
   addDoc,
   collection,
@@ -23,15 +25,24 @@ import {
   X,
   Folder,
   Package,
+  Download,
   ChevronsUpDown, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { db } from '../../firebase';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
-import { getOtherDepartments } from '../../models/facultyModels';
+import { getActiveTerm, getOtherDepartments } from '../../models/facultyModels';
 import { getOfferedModules } from '../../models/payablesModels';
+import {
+  buildOtherDeptComboFolders,
+  getOtherDeptFolderStudentCounts,
+  groupOtherDeptFoldersByTerm,
+  studentMatchesOtherDeptCombo
+} from '../../utils/studentFolderUtils';
 import { createReceiptRecord, generateReceiptNumber } from '../../utils/receiptService';
 import { logSystemAction } from '../../utils/auditLogger';
+import { isStudentInActiveTerm } from '../../utils/termHelpers';
+import { exportOtherDepartmentPayablesToExcel } from '../../utils/otherDepartmentPayablesExport';
 import ReceiptModal from './ReceiptModal';
 
 const emptyDepartmentForm = { name: '', code: '' };
@@ -74,6 +85,74 @@ const formatPeso = (value) => {
   }).format(numberOrZero(value));
 };
 
+const formatExportDate = (rawValue) => {
+  if (!rawValue) return 'No payment yet';
+
+  const parsed = new Date(rawValue);
+  if (Number.isNaN(parsed.getTime())) return 'No payment yet';
+
+  return parsed.toLocaleString('en-PH', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+const sanitizeExportText = (value) => String(value || '').replace(/[\\/?*\[\]:]/g, '-').trim() || 'payables';
+
+const FilenameModal = ({ isOpen, onClose, onConfirm, defaultName = 'other-department-payables', extension = 'xlsx' }) => {
+  const [name, setName] = useState(defaultName);
+
+  useEffect(() => setName(defaultName), [defaultName]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
+      <div className="bg-white p-6 rounded-3xl shadow-2xl w-96 max-w-full">
+        <h3 className="text-lg font-bold text-blue-700">Export CS Payables</h3>
+        <p className="text-sm text-gray-600 mb-4">Enter a file name for this export before downloading.</p>
+        <div className="flex items-center">
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="flex-1 border border-gray-300 rounded-l-lg px-3 py-1.5 text-sm focus:outline-none"
+          />
+          <span className="px-3 py-1.5 text-sm bg-gray-100 border border-gray-300 border-l-0 rounded-r-lg">.{extension}</span>
+        </div>
+        <div className="flex justify-end gap-2 mt-6">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirm((name || defaultName).trim())}
+            className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700"
+          >
+            Export
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ALL_DEPARTMENTS_VALUE = '__all_departments__';
+
+const buildActiveTermPayload = (activeTerm) => {
+  if (!activeTerm?.semester || !activeTerm?.schoolYear) return null;
+  return {
+    semester: Number(activeTerm.semester),
+    schoolYear: activeTerm.schoolYear
+  };
+};
+
 const toDateLabel = (rawValue) => {
   if (!rawValue) return '';
   const date = new Date(rawValue);
@@ -87,7 +166,7 @@ const toDateLabel = (rawValue) => {
   });
 };
 
-const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
+const OtherDepartmentPayables = ({ onBackToPayablesMain, registerToolbarActions }) => {
   const { currentUser } = useAuth();
 
   // Add Previous Balance state and handler
@@ -116,6 +195,24 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
   useEffect(() => {
     loadOfferedModules();
   }, [loadOfferedModules]);
+
+  useEffect(() => {
+    if (!registerToolbarActions) {
+      return;
+    }
+
+    registerToolbarActions('other', {
+      openModuleManagement: () => {
+        setModuleSelectorContext('new');
+        setModuleSelectorOpen(true);
+      },
+      openAddPayable: () => {
+        setPayableForm(emptyPayableForm);
+        setEditingPayableId('');
+        setPayableModalOpen(true);
+      }
+    });
+  }, [registerToolbarActions]);
 
   const individualSelectedModuleIds = individualPayableForm?.selectedModuleIds || [];
   const individualSelectedModules = useMemo(
@@ -288,6 +385,10 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
   const [students, setStudents] = useState([]);
   const [studentSearch, setStudentSearch] = useState('');
   const [selectedFolder, setSelectedFolder] = useState(null);
+  const [activeTerm, setActiveTerm] = useState({ semester: null, schoolYear: '' });
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportFilenameModalOpen, setExportFilenameModalOpen] = useState(false);
+  const [pendingExportMode, setPendingExportMode] = useState('xlsx-current-folder');
   const [studentForm, setStudentForm] = useState(emptyStudentForm);
   const [editingStudentId, setEditingStudentId] = useState('');
   const [studentModalOpen, setStudentModalOpen] = useState(false);
@@ -295,6 +396,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain }) => {
   const [payables, setPayables] = useState([]);
   const [payableForm, setPayableForm] = useState(emptyPayableForm);
   const [editingPayableId, setEditingPayableId] = useState('');
+  const [payableDepartmentId, setPayableDepartmentId] = useState('');
   const [payableModalOpen, setPayableModalOpen] = useState(false);
   const [editPayablesModalOpen, setEditPayablesModalOpen] = useState(false);
 
@@ -406,6 +508,19 @@ useEffect(() => {
 }, [loadCurriculums]);
 
 useEffect(() => {
+  const loadActiveTermData = async () => {
+    if (!currentUser) return;
+
+    const result = await getActiveTerm();
+    if (result.success && result.data) {
+      setActiveTerm(result.data);
+    }
+  };
+
+  loadActiveTermData();
+}, [currentUser]);
+
+useEffect(() => {
   if (moduleSelectorOpen && moduleSelectorContext === 'new' && moduleYearLevelFilter === 'all') {
     setModuleYearLevelFilter('1');
   }
@@ -421,27 +536,35 @@ useEffect(() => {
     [offeredModules, payableForm.selectedModuleIds]
   );
 
+  const currentTermStudents = useMemo(() => {
+    if (!activeTerm?.semester || !activeTerm?.schoolYear) {
+      return students;
+    }
+
+    return students.filter((student) => isStudentInActiveTerm(student, activeTerm));
+  }, [activeTerm, students]);
+
   const courseOptions = useMemo(() => {
     const courses = new Set();
-    students.forEach(student => {
+    currentTermStudents.forEach(student => {
       if (student.course) courses.add(student.course);
     });
     return ['All', ...Array.from(courses).sort()];
-  }, [students]);
+  }, [currentTermStudents]);
 
   const yearLevelOptions = useMemo(() => {
     const levels = new Set();
-    students.forEach(student => {
+    currentTermStudents.forEach(student => {
       if (payableForm.targetCourse === 'All' || student.course === payableForm.targetCourse) {
         if (student.yearLevel) levels.add(student.yearLevel);
       }
     });
     return ['All', ...Array.from(levels).sort()];
-  }, [students, payableForm.targetCourse]);
+  }, [currentTermStudents, payableForm.targetCourse]);
 
   const blockOptions = useMemo(() => {
     const blocks = new Set();
-    students.forEach(student => {
+    currentTermStudents.forEach(student => {
       if (payableForm.targetCourse === 'All' || student.course === payableForm.targetCourse) {
         if (payableForm.targetYearLevel === 'All' || student.yearLevel === payableForm.targetYearLevel) {
           const block = student.block ? String(student.block).trim().toUpperCase() : 'A';
@@ -450,14 +573,14 @@ useEffect(() => {
       }
     });
     return ['All', ...Array.from(blocks).sort()];
-  }, [students, payableForm.targetCourse, payableForm.targetYearLevel]);
+  }, [currentTermStudents, payableForm.targetCourse, payableForm.targetYearLevel]);
 
   const studentsById = useMemo(() => {
-    return students.reduce((acc, student) => {
+    return currentTermStudents.reduce((acc, student) => {
       acc[student.id] = student;
       return acc;
     }, {});
-  }, [students]);
+  }, [currentTermStudents]);
 
   const payablesById = useMemo(() => {
     return payables.reduce((acc, payable) => {
@@ -478,22 +601,52 @@ useEffect(() => {
 
   const departmentStudents = useMemo(() => {
     const normalizedSearch = studentSearch.trim().toLowerCase();
-    if (!normalizedSearch) return students;
-    return students.filter((student) => {
+    if (!normalizedSearch) return currentTermStudents;
+    return currentTermStudents.filter((student) => {
       const haystack = `${student.name} ${student.course || ''} ${student.yearLevel} ${student.block}`.toLowerCase();
       return haystack.includes(normalizedSearch);
     });
-  }, [studentSearch, students]);
+  }, [currentTermStudents, studentSearch]);
+
+  const folderGroups = useMemo(() => {
+    const groups = groupOtherDeptFoldersByTerm(
+      buildOtherDeptComboFolders(departmentStudents, { activeTerm }),
+      activeTerm
+    );
+
+    return groups.map((group) => ({
+      ...group,
+      folders: [...group.folders].sort((left, right) => {
+        const leftCourse = String(left.course || '').trim().toLowerCase();
+        const rightCourse = String(right.course || '').trim().toLowerCase();
+        const leftIsBsa = leftCourse.startsWith('bsa');
+        const rightIsBsa = rightCourse.startsWith('bsa');
+
+        if (leftIsBsa !== rightIsBsa) {
+          return leftIsBsa ? -1 : 1;
+        }
+
+        const courseCompare = leftCourse.localeCompare(rightCourse, undefined, { sensitivity: 'base' });
+        if (courseCompare !== 0) {
+          return courseCompare;
+        }
+
+        const leftYear = Number.isFinite(Number(left.year)) ? Number(left.year) : Number.MAX_SAFE_INTEGER;
+        const rightYear = Number.isFinite(Number(right.year)) ? Number(right.year) : Number.MAX_SAFE_INTEGER;
+        if (leftYear !== rightYear) {
+          return leftYear - rightYear;
+        }
+
+        const leftBlock = String(left.block || '').trim().toUpperCase();
+        const rightBlock = String(right.block || '').trim().toUpperCase();
+        return leftBlock.localeCompare(rightBlock, undefined, { sensitivity: 'base' });
+      })
+    }));
+  }, [activeTerm, departmentStudents]);
 
   const studentsInSelectedFolder = useMemo(() => {
     if (!selectedFolder) return departmentStudents;
-    return departmentStudents.filter((student) => {
-      const block = (student.block || 'A').toString().trim().toUpperCase() || 'A';
-      if (selectedFolder.isIrregular) {
-        return student.isIrregular && block === selectedFolder.block;
-      }
-      return !student.isIrregular && Number(student.yearLevel) === Number(selectedFolder.year) && block === selectedFolder.block;
-    });
+    return departmentStudents.filter((student) => studentMatchesOtherDeptCombo(student, selectedFolder));
   }, [departmentStudents, selectedFolder]);
 
   useEffect(() => {
@@ -884,6 +1037,10 @@ const renderSortIcon = (field) => {
     setLoading(true);
     clearStatus();
     try {
+      const activeTermPayload = buildActiveTermPayload(activeTerm);
+      const existingStudent = editingStudentId
+        ? students.find((student) => student.id === editingStudentId)
+        : null;
       const payload = {
         userId: currentUser.uid,
         departmentId: selectedDepartmentId,
@@ -891,6 +1048,7 @@ const renderSortIcon = (field) => {
         course: studentForm.course.trim(),
         yearLevel: Number(studentForm.yearLevel),
         block: studentForm.block.trim(),
+        createdTerm: existingStudent?.createdTerm ?? activeTermPayload,
         updatedAt: new Date().toISOString()
       };
 
@@ -908,7 +1066,8 @@ const renderSortIcon = (field) => {
       } else {
         const ref = await addDoc(collection(db, 'otherDept-Students'), {
           ...payload,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          createdTerm: activeTermPayload
         });
         await logSystemAction({
           action: 'Added other department student',
@@ -1020,7 +1179,13 @@ const renderSortIcon = (field) => {
   const handleSavePayable = async (event) => {
     event.preventDefault();
 
-    if (!currentUser?.uid || !selectedDepartmentId) {
+    const requestedDepartmentId = payableDepartmentId || selectedDepartmentId;
+    const shouldCreateForAllDepartments = requestedDepartmentId === ALL_DEPARTMENTS_VALUE;
+    const targetDepartmentIds = shouldCreateForAllDepartments
+      ? departments.map((department) => department.id).filter(Boolean)
+      : [requestedDepartmentId].filter(Boolean);
+
+    if (!currentUser?.uid || targetDepartmentIds.length === 0) {
       showError('Select a department first.');
       return;
     }
@@ -1057,7 +1222,6 @@ const renderSortIcon = (field) => {
       const isModule = payableForm.category === 'module';
       const commonPayload = {
         userId: currentUser.uid,
-        departmentId: selectedDepartmentId,
         amount,
         category: payableForm.category || 'general',
         targetCourse,
@@ -1070,6 +1234,7 @@ const renderSortIcon = (field) => {
       if (editingPayableId) {
         const payload = {
           ...commonPayload,
+          departmentId: requestedDepartmentId,
           title: isModule
             ? `Module: ${payableForm.moduleCode} — ${payableForm.moduleTitle}`
             : payableForm.title.trim(),
@@ -1097,16 +1262,19 @@ const renderSortIcon = (field) => {
           payableForm.selectedModuleIds.includes(module.id)
         );
         const refs = await Promise.all(
-          modulesToCreate.map((module) =>
-            addDoc(collection(db, 'otherDept-payables'), {
-              ...commonPayload,
-              title: `Module: ${module.courseCode} — ${module.courseTitle}`,
-              moduleId: module.id,
-              moduleCode: module.courseCode,
-              moduleTitle: module.courseTitle,
-              moduleCurriculumId: module.curriculumId,
-              createdAt: new Date().toISOString()
-            })
+          targetDepartmentIds.flatMap((departmentId) =>
+            modulesToCreate.map((module) =>
+              addDoc(collection(db, 'otherDept-payables'), {
+                ...commonPayload,
+                departmentId,
+                title: `Module: ${module.courseCode} — ${module.courseTitle}`,
+                moduleId: module.id,
+                moduleCode: module.courseCode,
+                moduleTitle: module.courseTitle,
+                moduleCurriculumId: module.curriculumId,
+                createdAt: new Date().toISOString()
+              })
+            )
           )
         );
         await logSystemAction({
@@ -1114,33 +1282,39 @@ const renderSortIcon = (field) => {
           module: 'Payables System',
           entityType: 'otherDepartmentPayable',
           entityId: refs.length === 1 ? refs[0].id : refs.map((r) => r.id).join(','),
-          description: `Created ${refs.length} module payable${refs.length === 1 ? '' : 's'}`,
+          description: `Created ${refs.length} module payable${refs.length === 1 ? '' : 's'} across ${targetDepartmentIds.length} department${targetDepartmentIds.length === 1 ? '' : 's'}`,
           details: {
             count: refs.length,
             amountPerModule: amount,
+            departmentIds: targetDepartmentIds,
             moduleIds: payableForm.selectedModuleIds
           }
         });
-        showSuccess(`Created ${refs.length} module payable${refs.length === 1 ? '' : 's'}.`);
+        showSuccess(`Created ${refs.length} module payable${refs.length === 1 ? '' : 's'} across ${targetDepartmentIds.length} department${targetDepartmentIds.length === 1 ? '' : 's'}.`);
       } else {
-        const payload = {
-          ...commonPayload,
-          title: payableForm.title.trim(),
-          updatedAt: new Date().toISOString()
-        };
-        const ref = await addDoc(collection(db, 'otherDept-payables'), {
-          ...payload,
-          createdAt: new Date().toISOString()
-        });
+        const refs = await Promise.all(
+          targetDepartmentIds.map((departmentId) =>
+            addDoc(collection(db, 'otherDept-payables'), {
+              ...commonPayload,
+              departmentId,
+              title: payableForm.title.trim(),
+              createdAt: new Date().toISOString()
+            })
+          )
+        );
         await logSystemAction({
           action: 'Created other department payable',
           module: 'Payables System',
           entityType: 'otherDepartmentPayable',
-          entityId: ref.id,
-          description: `Created payable: ${payload.title}`,
-          details: payload
+          entityId: refs.length === 1 ? refs[0].id : refs.map((r) => r.id).join(','),
+          description: `Created payable: ${payableForm.title.trim()} across ${targetDepartmentIds.length} department${targetDepartmentIds.length === 1 ? '' : 's'}`,
+          details: {
+            count: refs.length,
+            departmentIds: targetDepartmentIds,
+            title: payableForm.title.trim()
+          }
         });
-        showSuccess('Payable created.');
+        showSuccess(`Payable created for ${targetDepartmentIds.length} department${targetDepartmentIds.length === 1 ? '' : 's'}.`);
       }
 
       setPayableForm(emptyPayableForm);
@@ -1175,6 +1349,9 @@ const renderSortIcon = (field) => {
   const openCreatePayableModal = () => {
     setPayableForm(emptyPayableForm);
     setEditingPayableId('');
+    setPayableDepartmentId(selectedDepartmentId || '');
+    setModuleSelectorContext('new');
+    setModuleSelectorOpen(false);
     setPayableModalOpen(true);
   };
 
@@ -1182,6 +1359,9 @@ const renderSortIcon = (field) => {
     setPayableModalOpen(false);
     setPayableForm(emptyPayableForm);
     setEditingPayableId('');
+    setPayableDepartmentId(selectedDepartmentId || '');
+    setModuleSelectorOpen(false);
+    setModuleSelectorContext('new');
   };
 
   const openEditPayablesModal = () => {
@@ -1734,6 +1914,68 @@ const renderSortIcon = (field) => {
     return Math.max(0, payableAmount - settled);
   };
 
+  useEffect(() => {
+    if (!exportMenuOpen) {
+      return undefined;
+    }
+
+    const handleClickOutside = (event) => {
+      if (event.target.closest('.export-dropdown-container')) {
+        return;
+      }
+
+      setExportMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [exportMenuOpen]);
+
+  const isExportDisabled = !selectedFolder;
+
+  const getDefaultExportFilename = () => {
+    const baseName = selectedFolder?.label || `${selectedDepartment?.name || 'other-department'}-payables`;
+    return sanitizeExportText(baseName);
+  };
+
+  const handleExportAction = (mode) => {
+    setExportMenuOpen(false);
+    if (!selectedFolder) {
+      showError('Open a folder to export its current payables records.');
+      return;
+    }
+
+    const exportStudents = mode.includes('all-blocks') ? departmentStudents : sortedStudents;
+
+    if (!exportStudents.length) {
+      showError('There are no students available to export for the selected scope.');
+      return;
+    }
+
+    setPendingExportMode(mode);
+    setExportFilenameModalOpen(true);
+  };
+
+  const handleExportConfirm = (filename) => {
+    const exportStudents = pendingExportMode.includes('all-blocks') ? departmentStudents : sortedStudents;
+    const effectiveFilename = filename || getDefaultExportFilename();
+    const extension = pendingExportMode.includes('csv') ? 'csv' : 'xlsx';
+
+    setExportFilenameModalOpen(false);
+
+    exportOtherDepartmentPayablesToExcel({
+      students: exportStudents,
+      payables,
+      payments,
+      paymentTotalsByStudentPayable,
+      selectedDepartment,
+      selectedFolder,
+      scope: pendingExportMode.includes('all-blocks') ? 'all-blocks' : 'current-folder',
+      activeTerm,
+      filename: effectiveFilename.endsWith(`.${extension}`) ? effectiveFilename : `${effectiveFilename}.${extension}`
+    });
+  };
+
   const isPayableRelevantToStudent = (payable, student) => {
     if (!payable || !student) return false;
     if (payable.studentId) {
@@ -1812,29 +2054,18 @@ const renderSortIcon = (field) => {
   };
 
   return (
-    <div className="">
+    <div className="pt-4">
       {/* messages shown via toast notifications */}
 
       {!selectedDepartment && (
         <>
-          <div />
-          <div className="flex items-center justify-between my-4 gap-2">
-            <h3 className="text-lg font-semibold text-slate-800">Departments</h3>
-            <button
-              type="button"
-              onClick={openCreateDepartmentModal}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg cursor-pointer bg-green-500 text-white hover:bg-green-600"
-            >
-              <BadgePlus className="w-4 h-4" />
-              Add Department
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+       
+         
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
             {departments.map((department) => (
               <div
                 key={department.id}
-                className="relative  rounded-xl border p-4 cursor-pointer bg-white shadow-md border-gray-300 hover:border-blue-500"
+                className="relative  rounded-lg border p-4 cursor-pointer bg-white  border-gray-300 hover:border-blue-300"
                 onClick={() => {
                   setSelectedDepartmentId(department.id);
                   window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'other', departmentName: department.name } }));
@@ -1874,8 +2105,7 @@ const renderSortIcon = (field) => {
                     <Folder className="h-5 w-5" />
                   </div>
                     <div className="text-left w-full pr-10">
-                    <p className="text-xs text-slate-600 mt-1">{department.code || 'No code'}</p>
-                    <p className="font-semibold text-sm h-12 text-slate-900">{department.name}</p>
+                    <p className="font-semibold text-sm text-slate-900">{department.name}</p>
                 </div>
                 </div>
               </div>
@@ -1889,23 +2119,6 @@ const renderSortIcon = (field) => {
           <section className="">
       <div className="flex flex-wrap items-center justify-between mb-3 gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          {/* Back Button */}
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedDepartmentId('');
-              window.dispatchEvent(
-                new CustomEvent('payables-breadcrumb', {
-                  detail: { departmentType: 'other' }
-                })
-              );
-            }}
-            className="p-2 cursor-pointer bg-blue-500 hover:bg-blue-600 text-white rounded-xl"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-
-          {/* Conditionally Render Search Bar (only when inside a folder) */}
           {selectedFolder && (
             <div className="relative w-72">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1918,94 +2131,117 @@ const renderSortIcon = (field) => {
               />
             </div>
           )}
-        </div>
 
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between mt-6">
-        
-          <button
-            type="button"
-            onClick={openCreatePayableModal}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm cursor-pointer bg-green-500 text-white hover:bg-green-600"
-          >
-            <BadgePlus className="w-4 h-4" />
-            Add Payable
-          </button>
+          {selectedFolder && (
+            <div className="relative export-dropdown-container">
+              <button
+                type="button"
+                onClick={() => setExportMenuOpen((current) => !current)}
+                disabled={isExportDisabled}
+                className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                <Download className="h-4 w-4" />
+                Export
+                <ChevronDown className="h-4 w-4" />
+              </button>
+
+              {exportMenuOpen && (
+                <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                  <button
+                    type="button"
+                    onClick={() => handleExportAction('xlsx-current-folder')}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <span>Export as Excel (.xlsx)</span>
+                    <span className="text-xs text-slate-500">Current folder</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExportAction('csv-current-folder')}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <span>Export as Google Sheet format</span>
+                    <span className="text-xs text-slate-500">Current folder</span>
+                  </button>
+                  <div className="my-2 h-px bg-slate-200" />
+                  <button
+                    type="button"
+                    onClick={() => handleExportAction('xlsx-current-folder')}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <span>Export Current Folder Only</span>
+                    <span className="text-xs text-slate-500">Excel</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExportAction('xlsx-all-blocks')}
+                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <span>Export All Blocks</span>
+                    <span className="text-xs text-slate-500">Excel</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
             <div className="">
               {!selectedFolder ? (
-                (() => {
-                  const searchLower = studentSearch.trim().toLowerCase();
-                  const filteredStudents = departmentStudents.filter((student) => {
-                    if (!searchLower) return true;
-                    const searchable = `${student.name || ''} ${student.course || ''} ${student.yearLevel || ''} ${student.block || ''}`.toLowerCase();
-                    return searchable.includes(searchLower);
-                  });
-                  const folders = Array.from(filteredStudents.reduce((map, student) => {
-                    const isIrregular = Boolean(student.isIrregular);
-                    const year = isIrregular ? null : Number(student.yearLevel) || 1;
-                    const block = (student.block || 'A').toString().trim().toUpperCase() || 'A';
-                    const key = `${isIrregular ? 'irregular' : year}-${block}`;
-
-                    if (!map.has(key)) {
-                      map.set(key, {
-                        key,
-                        year,
-                        block,
-                        isIrregular,
-                        label: isIrregular ? `Irregular Block ${block}` : `${year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year Block ${block}`,
-                        students: []
-                      });
-                    }
-                    map.get(key).students.push(student);
-                    return map;
-                  }, new Map()).values()).sort((a, b) => {
-                    if (a.isIrregular && !b.isIrregular) return 1;
-                    if (!a.isIrregular && b.isIrregular) return -1;
-                    if (!a.isIrregular && !b.isIrregular && a.year !== b.year) return a.year - b.year;
-                    return a.block.localeCompare(b.block);
-                  });
-
-                  if (folders.length === 0) {
-                    return (
-                      <div className="text-center py-8">
-                        <h6 className="text-lg text-gray-600 mb-2">{studentSearch ? 'No folders found' : 'No student folders yet'}</h6>
-                        <p className="text-sm text-gray-600">
-                          {studentSearch ? 'Try adjusting your search terms' : 'Students will appear here grouped by year level and block.'}
-                        </p>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mt-4">
-                        {folders.map((folder) => (
-                        <button
-                          key={folder.key}
-                          type="button"
-                          onClick={() => {
-                            setSelectedFolder(folder);
-                            window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'other', departmentName: selectedDepartment?.name || '', selectedFolder: folder } }));
-                          }}
-                          className="rounded-xl border border-gray-200 bg-white p-4 text-left transition hover:border-blue-300 hover:shadow-lg"
-                        >
-                          <div className="flex items-start gap-4">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-500">
-                              <Folder className="h-5 w-5" />
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">{folder.label}</div>
-                              <div className="text-xs text-gray-500 mt-1">
-                                {folder.students.length} student{folder.students.length === 1 ? '' : 's'}
+                folderGroups.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
+                    {studentSearch ? 'No folders found for the current search.' : 'No student folders yet.'}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {folderGroups.map((group, index) => (
+                      <section
+                        key={group.termKey}
+                        className={index === 0 ? '' : 'border-t border-slate-200 -pt-4'}
+                      >
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+                          {group.folders.map((folder) => {
+                            const counts = getOtherDeptFolderStudentCounts(folder, activeTerm);
+                            return (
+                              <div
+                                key={folder.key}
+                                  className="rounded-lg border cursor-pointer border-slate-200 bg-white p-4 transition hover:border-blue-300 hover:shadow-sm"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedFolder(folder);
+                                    window.dispatchEvent(
+                                      new CustomEvent('payables-breadcrumb', {
+                                        detail: {
+                                          departmentType: 'other',
+                                          departmentName: selectedDepartment?.name || '',
+                                          selectedFolder: folder
+                                        }
+                                      })
+                                    );
+                                  }}
+                                  className="flex w-full items-start gap-4 text-left"
+                                >
+                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                                    <Folder className="h-5 w-5" />
+                                  </div>
+                                  <div>
+                                    <div className="text-sm font-medium text-slate-900">{folder.label}</div>
+                                    <div className="text-xs text-slate-500">
+                                      {counts.total} student{counts.total !== 1 ? 's' : ''}
+                                    </div>
+                                  </div>
+                                </button>
                               </div>
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  );
-                })()
+                            );
+                          })}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                )
               ) : (
                 <div className="overflow-hidden rounded-lg border border-slate-200">
   <table className="w-full text-sm">
@@ -2286,50 +2522,78 @@ const renderSortIcon = (field) => {
       </p>
 
       <form onSubmit={handleSavePayable} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">
+            Department
+          </label>
+          <select
+            value={payableDepartmentId || ''}
+            onChange={(event) => setPayableDepartmentId(event.target.value)}
+            disabled={!!editingPayableId}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-slate-100 disabled:cursor-not-allowed"
+          >
+            <option value="" disabled>
+              Select department
+            </option>
+            <option value={ALL_DEPARTMENTS_VALUE}>
+              All Departments
+            </option>
+            {departments.map((department) => (
+              <option key={department.id} value={department.id}>
+                {department.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-500">
+            Choose a single department or use “All Departments” to create the same payable for every other department.
+          </p>
+        </div>
+
         {/* Category Selection */}
-       <div className='flex items-center gap-4'>
-  <label className="block text-sm font-medium text-slate-700">
-    Category: 
-  </label>
+        <div className='flex items-center gap-4'>
+          <label className="block text-sm font-medium text-slate-700">
+            Category:
+          </label>
 
-  <div className="flex items-center gap-4">
-    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-      <input
-        type="radio"
-        name="category"
-        checked={payableForm.category === 'general'}
-        onChange={() =>
-          setPayableForm((prev) => ({
-            ...prev,
-            category: 'general',
-            selectedModuleIds: [],
-          }))
-        }
-        className="cursor-pointer"
-      />
-      General
-    </label>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+              <input
+                type="radio"
+                name="category"
+                checked={payableForm.category === 'general'}
+                onChange={() =>
+                  setPayableForm((prev) => ({
+                    ...prev,
+                    category: 'general',
+                    selectedModuleIds: [],
+                  }))
+                }
+                className="cursor-pointer"
+              />
+              General
+            </label>
 
-    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-      <input
-        type="radio"
-        name="category"
-        checked={payableForm.category === 'module'}
-        onChange={() => {
-          setPayableForm((prev) => ({
-            ...prev,
-            category: 'module',
-          }));
-          setModuleSelectorOpen(true);
-        }}
-        className="cursor-pointer"
-      />
-      Module
-    </label>
-  </div>
-</div>
+            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+              <input
+                type="radio"
+                name="category"
+                checked={payableForm.category === 'module'}
+                onChange={() => {
+                  setModuleSelectorContext('new');
+                  setPayableForm((prev) => ({
+                    ...prev,
+                    category: 'module',
+                  }));
+                  setModuleSelectorOpen(true);
+                }}
+                className="cursor-pointer"
+              />
+              Module
+            </label>
+          </div>
+        </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-3 ">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Course</label>
             <select
@@ -2784,42 +3048,45 @@ const renderSortIcon = (field) => {
       {studentPaymentModalOpen && selectedStudentForPayment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={closeStudentPaymentModal} aria-hidden="true" />
-          <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-lg max-h-[90vh] z-10 flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 sticky top-0 z-20 bg-blue-50 border-b border-gray-200">
-              <div>
-                <h4 className="text-lg font-bold">{selectedStudentForPayment.name}</h4>
-                <p className="text-xs text-slate-600">
-                  {selectedStudentForPayment.course || '-'} {selectedStudentForPayment.yearLevel}
-                  {selectedStudentForPayment.yearLevel === '1' && 'ST'}
-                  {selectedStudentForPayment.yearLevel === '2' && 'ND'}
-                  {selectedStudentForPayment.yearLevel === '3' && 'RD'}
-                  {selectedStudentForPayment.yearLevel === '4' && 'TH'} Year - Block {selectedStudentForPayment.block}
-                </p>
+          <div className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_24px_80px_-20px_rgba(15,23,42,0.35)]">
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-white">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-blue-100">Payment Center</p>
+                  <h4 className="mt-2 text-xl font-semibold">{selectedStudentForPayment.name}</h4>
+                  <p className="mt-1 text-sm text-blue-50/90">
+                    {selectedStudentForPayment.course || '-'} {selectedStudentForPayment.yearLevel}
+                    {selectedStudentForPayment.yearLevel === '1' && 'ST'}
+                    {selectedStudentForPayment.yearLevel === '2' && 'ND'}
+                    {selectedStudentForPayment.yearLevel === '3' && 'RD'}
+                    {selectedStudentForPayment.yearLevel === '4' && 'TH'} Year - Block {selectedStudentForPayment.block}
+                  </p>
+                </div>
+                <button
+                  className="inline-flex items-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50"
+                  onClick={() => openAddPreviousBalanceModal(selectedStudentForPayment)}
+                >
+                  + Add Prev. Balance
+                </button>
               </div>
-              <button
-                className="ml-4 px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-blue-50 font-medium shadow-sm"
-                onClick={() => openAddPreviousBalanceModal(selectedStudentForPayment)}
-              >
-                + Add Prev. Balance
-              </button>
             </div>
 
             <div className="space-y-4 px-6 py-4 overflow-y-auto flex-1 min-h-0">
-              <div className="flex flex-col md:flex-row gap-2 md:items-center md:justify-between">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="relative w-full md:max-w-sm">
                   <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    className="w-full pl-9 pr-3 py-1.5 border text-sm border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                     placeholder="Search payables by type..."
                     value={payablesSearch}
                     onChange={(event) => setPayablesSearch(event.target.value)}
                   />
                 </div>
-                <div className="flex items-center gap-2">
-                  <Funnel className="w-4 h-4 text-gray-600" />
+                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <Funnel className="w-4 h-4 text-slate-600" />
                   <select
-                    className="px-2 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    className="border-0 bg-transparent text-sm text-slate-700 focus:outline-none"
                     value={payablesFilter}
                     onChange={(event) => setPayablesFilter(event.target.value)}
                   >
@@ -2858,6 +3125,7 @@ const renderSortIcon = (field) => {
                       const status = getPayablePaymentStatus(selectedStudentForPayment.id, payable.id);
                       const payableAmount = numberOrZero(payable.amount);
                       const remaining = getStudentPayableBalance(selectedStudentForPayment.id, payable.id);
+                      const paidAmount = Math.max(0, payableAmount - remaining);
                       const payableTransactions = getStudentPayablePayments(selectedStudentForPayment.id, payable.id);
                       const latestTransaction = payableTransactions[0] || null;
                       const isSelected = paymentForm.payableId === payable.id;
@@ -2867,12 +3135,23 @@ const renderSortIcon = (field) => {
                       const enteredAmount = numberOrZero(per.amount || (isSelected ? paymentForm.amount : ''));
                       const enteredVoucher = numberOrZero(per.voucherAmount || (isSelected ? paymentForm.voucherAmount : ''));
                       const displayedRemaining = Math.max(0, remaining - enteredAmount - enteredVoucher);
+                      const isFullyPaid = status === 'fully_paid' || remaining <= 0;
+                      const maxPayment = Math.max(0, remaining - enteredVoucher);
+                      const maxVoucher = Math.max(0, remaining - enteredAmount);
+                      const requiresReference = selectedMode === 'gcash' || selectedMode.includes('bank');
 
                       return (
                         <div
                           key={payable.id}
-                          className="border rounded-xl shadow p-4 bg-white border-gray-300"
+                          className={`rounded-[24px] border p-4 shadow-sm transition ${
+                            isFullyPaid
+                              ? 'border-emerald-200 bg-emerald-50/40'
+                              : 'border-slate-200 bg-white'
+                          }`}
                           onClick={() => {
+                            if (isFullyPaid) {
+                              return;
+                            }
                             const per = paymentFormByPayable[payable.id] || {};
                             setPaymentForm((prev) => ({
                               ...prev,
@@ -2886,30 +3165,40 @@ const renderSortIcon = (field) => {
                             }));
                           }}
                         >
-                          <div className="flex items-center justify-between mb-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="flex-1">
-                              <h4 className="text-lg font-bold">{payable.title}</h4>
-                              <p className="text-sm text-gray-600">Total Amount: {formatPeso(payableAmount)}</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="text-base font-semibold text-slate-900">{payable.title}</h4>
+                                <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                                  isFullyPaid
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : status === 'partially_paid'
+                                      ? 'bg-amber-100 text-amber-800'
+                                      : 'bg-rose-100 text-rose-800'
+                                }`}>
+                                  {getPayableStatusLabel(status)}
+                                </span>
+                              </div>
+                              <p className="mt-2 text-sm text-slate-600">
+                                This fee currently has <span className="font-semibold text-slate-900">{formatPeso(remaining)}</span> remaining.
+                              </p>
                               {payable.targetCourse && (
-                                <p className="text-xs text-slate-500 mt-1">Target Course: {payable.targetCourse}</p>
+                                <p className="mt-2 text-xs text-slate-500">Target Course: {payable.targetCourse}</p>
                               )}
                               {payable.targetBlocks && (
-                                <p className="text-xs text-slate-500 mt-1">
+                                <p className="mt-1 text-xs text-slate-500">
                                   Blocks: {Array.isArray(payable.targetBlocks) ? payable.targetBlocks.join(', ') : payable.targetBlocks}
                                 </p>
                               )}
                             </div>
                             <div className="flex items-center gap-1">
-                              <span className={`inline-flex mr-1 items-center px-3 py-1 rounded-full text-xs font-medium ${getPayableStatusClasses(status)}`}>
-                                {getPayableStatusLabel(status)}
-                              </span>
                               <button
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   handleEditPayable(payable);
                                 }}
-                                className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
+                                className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
                                 title="Edit payable type"
                               >
                                 <Pencil className="w-4 h-4" />
@@ -2920,7 +3209,7 @@ const renderSortIcon = (field) => {
                                   event.stopPropagation();
                                   openPayableTransactionHistory(payable);
                                 }}
-                                className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
+                                className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
                                 title="View payment history"
                               >
                                 <History className="w-4 h-4" />
@@ -2935,7 +3224,7 @@ const renderSortIcon = (field) => {
                                   }
                                   handlePrintExistingPayment(latestTransaction);
                                 }}
-                                className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
+                                className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
                                 title="Print latest receipt"
                               >
                                 <Printer className="w-4 h-4" />
@@ -2948,7 +3237,7 @@ const renderSortIcon = (field) => {
                                   if (!confirmed) return;
                                   handleDeletePayable(payable.id);
                                 }}
-                                className="p-1.5 cursor-pointer rounded-full text-red-600 hover:bg-red-100"
+                                className="rounded-full p-1.5 text-rose-600 transition hover:bg-rose-50"
                                 title="Delete this payable"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -2956,169 +3245,248 @@ const renderSortIcon = (field) => {
                             </div>
                           </div>
 
-                          <div className="text-xs mb-1">
-                            <span className="mr-2">Mode of Payment:</span>
-                            <label className="mr-2 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`paymentMode-${payable.id}`}
-                                value="cash"
-                                checked={selectedMode === 'cash'}
-                                onChange={() => {
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [payable.id]: { ...(prev[payable.id] || {}), mode: 'cash' }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, mode: 'cash' }));
-                                  }
-                                }}
-                              /> Cash
-                            </label>
-                            <label className="mr-2 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`paymentMode-${payable.id}`}
-                                value="gcash"
-                                checked={selectedMode === 'gcash'}
-                                onChange={() => {
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [payable.id]: { ...(prev[payable.id] || {}), mode: 'gcash' }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, mode: 'gcash' }));
-                                  }
-                                }}
-                              /> GCash
-                            </label>
-                            <label className="mr-2 cursor-pointer">
-                              <input
-                                type="radio"
-                                name={`paymentMode-${payable.id}`}
-                                value="bank transfer"
-                                checked={selectedMode === 'bank transfer'}
-                                onChange={() => {
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [payable.id]: { ...(prev[payable.id] || {}), mode: 'bank transfer' }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, mode: 'bank transfer' }));
-                                  }
-                                }}
-                              /> Bank Transfer
-                            </label>
+                          <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                              <p className="text-slate-500">Total</p>
+                              <p className="mt-1 font-semibold text-slate-900">{formatPeso(payableAmount)}</p>
+                            </div>
+                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                              <p className="text-slate-500">Paid</p>
+                              <p className="mt-1 font-semibold text-emerald-700">{formatPeso(paidAmount)}</p>
+                            </div>
+                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                              <p className="text-slate-500">Remaining</p>
+                              <p className="mt-1 font-semibold text-rose-700">{formatPeso(remaining)}</p>
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-2 mt-2">
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              placeholder="New Payment Amount"
-                              value={(paymentFormByPayable[payable.id] && paymentFormByPayable[payable.id].amount) || (isSelected ? paymentForm.amount : '')}
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                setPaymentFormByPayable((prev) => ({
-                                  ...prev,
-                                  [payable.id]: { ...(prev[payable.id] || {}), amount: value }
-                                }));
-                                if (isSelected) {
-                                  setPaymentForm((prev) => ({ ...prev, amount: value }));
-                                }
-                              }}
-                              className="w-1/3 flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-lg"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Reference (e.g., receipt number)"
-                              value={(paymentFormByPayable[payable.id] && paymentFormByPayable[payable.id].reference) || (isSelected ? paymentForm.reference : '')}
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                setPaymentFormByPayable((prev) => ({
-                                  ...prev,
-                                  [payable.id]: { ...(prev[payable.id] || {}), reference: value }
-                                }));
-                                if (isSelected) {
-                                  setPaymentForm((prev) => ({ ...prev, reference: value }));
-                                }
-                              }}
-                              disabled={selectedMode === 'cash'}
-                              className={`w-2/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${selectedMode === 'cash' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            />
-                          </div>
+                          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="font-semibold text-slate-700">Mode of Payment</span>
+                                <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
+                                  <input
+                                    type="radio"
+                                    name={`paymentMode-${payable.id}`}
+                                    value="cash"
+                                    checked={selectedMode === 'cash'}
+                                    onChange={() => {
+                                      setPaymentFormByPayable((prev) => ({
+                                        ...prev,
+                                        [payable.id]: { ...(prev[payable.id] || {}), mode: 'cash' }
+                                      }));
+                                      if (isSelected) {
+                                        setPaymentForm((prev) => ({ ...prev, mode: 'cash' }));
+                                      }
+                                    }}
+                                    disabled={isFullyPaid}
+                                  />
+                                  Cash
+                                </label>
+                                <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
+                                  <input
+                                    type="radio"
+                                    name={`paymentMode-${payable.id}`}
+                                    value="gcash"
+                                    checked={selectedMode === 'gcash'}
+                                    onChange={() => {
+                                      setPaymentFormByPayable((prev) => ({
+                                        ...prev,
+                                        [payable.id]: { ...(prev[payable.id] || {}), mode: 'gcash' }
+                                      }));
+                                      if (isSelected) {
+                                        setPaymentForm((prev) => ({ ...prev, mode: 'gcash' }));
+                                      }
+                                    }}
+                                    disabled={isFullyPaid}
+                                  />
+                                  GCash
+                                </label>
+                                <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
+                                  <input
+                                    type="radio"
+                                    name={`paymentMode-${payable.id}`}
+                                    value="bank transfer"
+                                    checked={selectedMode === 'bank transfer'}
+                                    onChange={() => {
+                                      setPaymentFormByPayable((prev) => ({
+                                        ...prev,
+                                        [payable.id]: { ...(prev[payable.id] || {}), mode: 'bank transfer' }
+                                      }));
+                                      if (isSelected) {
+                                        setPaymentForm((prev) => ({ ...prev, mode: 'bank transfer' }));
+                                      }
+                                    }}
+                                    disabled={isFullyPaid}
+                                  />
+                                  Bank Transfer
+                                </label>
+                              </div>
+                              {isFullyPaid && (
+                                <span className="text-[11px] font-semibold text-emerald-700">This fee is fully paid and cannot be charged again.</span>
+                              )}
+                            </div>
 
-                          <div className="w-full mt-2">
-                            <div className="flex items-center gap-2 mb-1 text-xs">
-                              <span>Apply Voucher:</span>
-                              <input
-                                type="checkbox"
-                                checked={voucherEnabled}
-                                onChange={(event) => {
-                                  if (event.target.checked) {
+                            <div className="mt-3 grid gap-2 md:grid-cols-[1.1fr_1fr]">
+                              <div className="space-y-2">
+                                <label className="block text-xs font-semibold text-slate-700">Payment Amount</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  max={maxPayment.toString()}
+                                  placeholder="New Payment Amount"
+                                  value={(paymentFormByPayable[payable.id] && paymentFormByPayable[payable.id].amount) || (isSelected ? paymentForm.amount : '')}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
                                     setPaymentFormByPayable((prev) => ({
                                       ...prev,
-                                      [payable.id]: { ...(prev[payable.id] || {}), voucherAmount: (prev[payable.id] && prev[payable.id].voucherAmount) || '0' }
+                                      [payable.id]: { ...(prev[payable.id] || {}), amount: value }
                                     }));
                                     if (isSelected) {
-                                      setPaymentForm((prev) => ({ ...prev, voucherAmount: (prev.voucherAmount || '0') }));
+                                      setPaymentForm((prev) => ({ ...prev, amount: value }));
                                     }
-                                    return;
-                                  }
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [payable.id]: { ...(prev[payable.id] || {}), voucherAmount: '', voucherDescription: '' }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, voucherAmount: '', voucherDescription: '' }));
-                                  }
-                                }}
-                              />
+                                  }}
+                                  disabled={isFullyPaid}
+                                  className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                    isFullyPaid
+                                      ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                                      : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                  }`}
+                                />
+                                <p className="text-[11px] text-slate-500">
+                                  {isFullyPaid
+                                    ? 'No additional payment can be applied.'
+                                    : `Maximum allowed payment: ${formatPeso(maxPayment)}`}
+                                </p>
+                              </div>
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <label className="block text-xs font-semibold text-slate-700">Reference</label>
+                                  <span className="text-[11px] text-slate-500">{!requiresReference ? 'Optional for cash' : 'Required for non-cash'}</span>
+                                </div>
+                                <input
+                                  type="text"
+                                  placeholder="Reference (e.g., receipt number)"
+                                  value={(paymentFormByPayable[payable.id] && paymentFormByPayable[payable.id].reference) || (isSelected ? paymentForm.reference : '')}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setPaymentFormByPayable((prev) => ({
+                                      ...prev,
+                                      [payable.id]: { ...(prev[payable.id] || {}), reference: value }
+                                    }));
+                                    if (isSelected) {
+                                      setPaymentForm((prev) => ({ ...prev, reference: value }));
+                                    }
+                                  }}
+                                  disabled={!requiresReference || isFullyPaid}
+                                  className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                    !requiresReference || isFullyPaid
+                                      ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                                      : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                  }`}
+                                />
+                              </div>
                             </div>
-                            <div className="flex gap-2">
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                placeholder="Amount"
-                                value={(paymentFormByPayable[payable.id] && paymentFormByPayable[payable.id].voucherAmount) || (isSelected ? paymentForm.voucherAmount : '')}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [payable.id]: { ...(prev[payable.id] || {}), voucherAmount: value }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, voucherAmount: value }));
-                                  }
-                                }}
-                                disabled={!voucherEnabled}
-                                className={`w-1/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${!voucherEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              />
-                              <input
-                                type="text"
-                                placeholder="e.g. Scholarship, Promo"
-                                value={(paymentFormByPayable[payable.id] && paymentFormByPayable[payable.id].voucherDescription) || (isSelected ? paymentForm.voucherDescription : '')}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  setPaymentFormByPayable((prev) => ({
-                                    ...prev,
-                                    [payable.id]: { ...(prev[payable.id] || {}), voucherDescription: value }
-                                  }));
-                                  if (isSelected) {
-                                    setPaymentForm((prev) => ({ ...prev, voucherDescription: value }));
-                                  }
-                                }}
-                                disabled={!voucherEnabled}
-                                className={`w-2/3 px-2 py-1.5 text-sm border rounded-lg ${!voucherEnabled ? 'opacity-50 cursor-not-allowed border-gray-300' : 'border-gray-300'}`}
-                              />
+
+                            <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-xs font-semibold text-slate-700">Voucher</p>
+                                  <p className="text-[11px] text-slate-500">Keep voucher values within the current remaining balance.</p>
+                                </div>
+                                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                                  <input
+                                    type="checkbox"
+                                    checked={voucherEnabled}
+                                    onChange={(event) => {
+                                      if (event.target.checked) {
+                                        setPaymentFormByPayable((prev) => ({
+                                          ...prev,
+                                          [payable.id]: { ...(prev[payable.id] || {}), voucherAmount: (prev[payable.id] && prev[payable.id].voucherAmount) || '0' }
+                                        }));
+                                        if (isSelected) {
+                                          setPaymentForm((prev) => ({ ...prev, voucherAmount: (prev.voucherAmount || '0') }));
+                                        }
+                                        return;
+                                      }
+                                      setPaymentFormByPayable((prev) => ({
+                                        ...prev,
+                                        [payable.id]: { ...(prev[payable.id] || {}), voucherAmount: '', voucherDescription: '' }
+                                      }));
+                                      if (isSelected) {
+                                        setPaymentForm((prev) => ({ ...prev, voucherAmount: '', voucherDescription: '' }));
+                                      }
+                                    }}
+                                    disabled={isFullyPaid}
+                                  />
+                                  Apply voucher
+                                </label>
+                              </div>
+                              <div className="mt-3 grid gap-2 md:grid-cols-[0.8fr_1.2fr]">
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Voucher Amount</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    max={maxVoucher.toString()}
+                                    placeholder="Amount"
+                                    value={(paymentFormByPayable[payable.id] && paymentFormByPayable[payable.id].voucherAmount) || (isSelected ? paymentForm.voucherAmount : '')}
+                                    onChange={(event) => {
+                                      const value = event.target.value;
+                                      setPaymentFormByPayable((prev) => ({
+                                        ...prev,
+                                        [payable.id]: { ...(prev[payable.id] || {}), voucherAmount: value }
+                                      }));
+                                      if (isSelected) {
+                                        setPaymentForm((prev) => ({ ...prev, voucherAmount: value }));
+                                      }
+                                    }}
+                                    disabled={!voucherEnabled || isFullyPaid}
+                                    className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                      !voucherEnabled || isFullyPaid
+                                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                                        : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                    }`}
+                                  />
+                                  <p className="mt-1 text-[11px] text-slate-500">
+                                    {isFullyPaid
+                                      ? 'Voucher updates are disabled for fully paid fees.'
+                                      : `Maximum voucher value: ${formatPeso(maxVoucher)}`}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-[11px] font-semibold text-slate-700">Voucher Description</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Scholarship, Promo"
+                                    value={(paymentFormByPayable[payable.id] && paymentFormByPayable[payable.id].voucherDescription) || (isSelected ? paymentForm.voucherDescription : '')}
+                                    onChange={(event) => {
+                                      const value = event.target.value;
+                                      setPaymentFormByPayable((prev) => ({
+                                        ...prev,
+                                        [payable.id]: { ...(prev[payable.id] || {}), voucherDescription: value }
+                                      }));
+                                      if (isSelected) {
+                                        setPaymentForm((prev) => ({ ...prev, voucherDescription: value }));
+                                      }
+                                    }}
+                                    disabled={!voucherEnabled || isFullyPaid}
+                                    className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                      !voucherEnabled || isFullyPaid
+                                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                                        : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                    }`}
+                                  />
+                                </div>
+                              </div>
                             </div>
                           </div>
 
-                          <div className="flex items-center justify-between gap-1 mt-4">
-                            <p className="text-xs text-gray-600">Remaining: {formatPeso(displayedRemaining)}</p>
-                            <p className="text-xs text-gray-500">Last payment: {latestTransaction ? toDateLabel(latestTransaction.date || latestTransaction.createdAt) : '---'}</p>
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs text-slate-600">Remaining: {formatPeso(displayedRemaining)}</p>
+                            <p className="text-xs text-slate-500">Last payment: {latestTransaction ? toDateLabel(latestTransaction.date || latestTransaction.createdAt) : '---'}</p>
                           </div>
                         </div>
                       );
@@ -3635,6 +4003,14 @@ const renderSortIcon = (field) => {
           </div>
         </div>
       )}
+
+      <FilenameModal
+        isOpen={exportFilenameModalOpen}
+        onClose={() => setExportFilenameModalOpen(false)}
+        onConfirm={handleExportConfirm}
+        defaultName={getDefaultExportFilename()}
+        extension={pendingExportMode.includes('csv') ? 'csv' : 'xlsx'}
+      />
 
       <ReceiptModal
         open={receiptModalOpen}

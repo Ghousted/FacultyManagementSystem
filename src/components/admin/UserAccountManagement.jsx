@@ -347,8 +347,7 @@ const UserAccountManagement = ({ onChangeTerm }) => {
     };
 
     return (
-      <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${roleStyles[role] || roleStyles.admin}`}>
-        <Shield size={12} />
+      <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border ${roleStyles[role] || roleStyles.admin}`}>
         {roleLabels[role] || role}
       </span>
     );

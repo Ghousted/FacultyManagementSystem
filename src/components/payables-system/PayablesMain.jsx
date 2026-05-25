@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ArrowBigLeft, Building2, Laptop } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ArrowBigLeft, BadgePlus, Building2, Laptop, Package } from 'lucide-react';
 import PayablesSystem from './PayablesSystem';
 import OtherDepartmentPayables from './OtherDepartmentPayables';
 import { useAuth } from '../../contexts/AuthContext';
@@ -7,6 +7,19 @@ import { useAuth } from '../../contexts/AuthContext';
 const PayablesMain = ({ onBackToDashboard, initialDepartment = 'ccs' }) => {
   const { currentUser } = useAuth();
   const [selectedDepartmentType, setSelectedDepartmentType] = useState(initialDepartment || 'ccs');
+  const [headerActions, setHeaderActions] = useState({ ccs: null, other: null });
+
+  const registerToolbarActions = useCallback((departmentType, actions) => {
+    setHeaderActions((prev) => {
+      if (prev[departmentType] === actions) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [departmentType]: actions
+      };
+    });
+  }, []);
 
   useEffect(() => {
     setSelectedDepartmentType(initialDepartment || 'ccs');
@@ -39,53 +52,102 @@ const PayablesMain = ({ onBackToDashboard, initialDepartment = 'ccs' }) => {
         </div>
       )}
 
-      <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1 mt-2">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const active = selectedDepartmentType === tab.key;
+      <div className="mb-4 flex flex-nowrap justify-between items-center gap-3 overflow-x-auto">
+        <div className="flex flex-nowrap gap-1.5">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const active = selectedDepartmentType === tab.key;
 
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => {
-                    // If clicking the already-active tab, reset that department's selection
-                    if (selectedDepartmentType === tab.key) {
-                      if (tab.key === 'ccs') {
-                        window.dispatchEvent(new CustomEvent('payables-reset', { detail: { departmentType: 'ccs' } }));
-                        window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'ccs', selectedFolder: null } }));
-                      } else {
-                        window.dispatchEvent(new CustomEvent('payables-reset', { detail: { departmentType: 'other' } }));
-                        window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'other', departmentName: null, selectedFolder: null } }));
-                      }
-                      return;
-                    }
-
-                    setSelectedDepartmentType(tab.key);
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => {
+                  if (selectedDepartmentType === tab.key) {
                     if (tab.key === 'ccs') {
+                      window.dispatchEvent(new CustomEvent('payables-reset', { detail: { departmentType: 'ccs' } }));
                       window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'ccs', selectedFolder: null } }));
                     } else {
+                      window.dispatchEvent(new CustomEvent('payables-reset', { detail: { departmentType: 'other' } }));
                       window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'other', departmentName: null, selectedFolder: null } }));
                     }
-                  }}
-              className={`inline-flex items-center gap-2 rounded-lg px-4 py-1 text-sm font-medium transition-all ${
-                    active
-                      ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
+                    return;
+                  }
 
+                  setSelectedDepartmentType(tab.key);
+                  if (tab.key === 'ccs') {
+                    window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'ccs', selectedFolder: null } }));
+                  } else {
+                    window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'other', departmentName: null, selectedFolder: null } }));
+                  }
+                }}
+                className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
+                  active
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {selectedDepartmentType === 'ccs' && headerActions.ccs && (
+          <div className="flex flex-nowrap items-center gap-2">
+            <button
+              type="button"
+              className="px-3 py-1.5 bg-blue-500 cursor-pointer text-sm text-white rounded-lg hover:bg-blue-600"
+              onClick={headerActions.ccs.openModuleManagement}
+              title="Manage subjects offered as modules"
+            >
+              <Package className="w-4 h-4 inline-flex mr-1 mb-0.5" />
+              Modules
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1.5 bg-green-500 cursor-pointer text-sm text-white rounded-lg hover:bg-green-600"
+              onClick={headerActions.ccs.openAddPayable}
+            >
+              <BadgePlus className="w-4 h-4 inline-flex mr-1 mb-0.5" />
+              Add Payables
+            </button>
+          </div>
+        )}
+
+        {selectedDepartmentType === 'other' && headerActions.other && (
+          <div className="flex flex-nowrap items-center gap-2">
+            <button
+              type="button"
+              className="px-3 py-1.5 bg-blue-500 cursor-pointer text-sm text-white rounded-lg hover:bg-blue-600"
+              onClick={headerActions.other.openModuleManagement}
+              title="Manage subjects offered as modules"
+            >
+              <Package className="w-4 h-4 inline-flex mr-1 mb-0.5" />
+              Modules
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1.5 bg-green-500 cursor-pointer text-sm text-white rounded-lg hover:bg-green-600"
+              onClick={headerActions.other.openAddPayable}
+            >
+              <BadgePlus className="w-4 h-4 inline-flex mr-1 mb-0.5" />
+              Add Payables
+            </button>
+          </div>
+        )}
+      </div>
 
       {selectedDepartmentType === 'ccs' ? (
-        <PayablesSystem onBackToDashboard={onBackToDashboard} />
+        <PayablesSystem
+          onBackToDashboard={onBackToDashboard}
+          registerToolbarActions={registerToolbarActions}
+        />
       ) : (
-        <OtherDepartmentPayables onBackToPayablesMain={onBackToDashboard} />
+        <OtherDepartmentPayables
+          onBackToPayablesMain={onBackToDashboard}
+          registerToolbarActions={registerToolbarActions}
+        />
       )}
     </div>
   );

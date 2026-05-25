@@ -195,14 +195,14 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2">
-  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+<div className="flex flex-wrap gap-1.5">
             <button
               type="button"
               onClick={() => setTab('students')}
-              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
                 tab === 'students'
-                    ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                  ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
               }`}
             >
               Student Management
@@ -210,10 +210,10 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
             <button
               type="button"
               onClick={() => setTab('enrollment')}
-              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
                 tab === 'enrollment'
-                    ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                  ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
               }`}
             >
               Enrollment Management
@@ -221,10 +221,10 @@ const StudentEnrollmentHub = ({ initialTab = 'students', onBackToDashboard }) =>
             <button
               type="button"
               onClick={() => setTab('other')}
-              className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
                 tab === 'other'
-                    ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                    ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
               }`}
             >
               Other Departments

@@ -9,6 +9,7 @@ import {
   getAllStudentPayments,
   getOfferedModules
 } from '../../models/payablesModels';
+import { getActiveTerm } from '../../models/facultyModels';
 import { useAuth } from '../../contexts/AuthContext';
 import { BadgePlus,  Search, ChevronUp, ChevronDown, ChevronLeft, ChevronsUpDown, Funnel, X, Printer, Pencil, Delete, History, ArrowBigLeft, Settings2, Download, Receipt, Trash, Package, Folder } from 'lucide-react';
 import ModuleManagement from './ModuleManagement';
@@ -16,6 +17,7 @@ import Logo from '../../assets/logo.png';
 import ReceiptModal, { printReceiptDirect } from './ReceiptModal';
 import { db } from '../../firebase';
 import { getCurriculums, getStudents  } from '../../models/curriculumModels';
+import { exportCcsPayablesSpreadsheet } from '../../utils/ccsPayablesExport';
 
 const formatPeso = (value) => {
   const numberValue = Number(value);
@@ -26,10 +28,13 @@ const formatPeso = (value) => {
     maximumFractionDigits: 2
   }).format(Number.isFinite(numberValue) ? numberValue : 0);
 };
+
+const sanitizeExportText = (value) => String(value || '').replace(/[\\/?*\[\]:]/g, '-').trim() || 'payables';
+
 import { generateReceiptNumber, createReceiptRecord } from '../../utils/receiptService';
 import toast from 'react-hot-toast';
 
-const PayablesSystem = ({ onBackToDashboard }) => {
+const PayablesSystem = ({ onBackToDashboard, registerToolbarActions }) => {
   const { currentUser } = useAuth();
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -40,6 +45,27 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   const [viewMode, setViewMode] = useState('list');
   const [sortBy, setSortBy] = useState('name-asc');
   const [selectedFolder, setSelectedFolder] = useState(null);
+  const [activeTerm, setActiveTerm] = useState({ semester: null, schoolYear: '' });
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportFilenameModalOpen, setExportFilenameModalOpen] = useState(false);
+  const [pendingExportMode, setPendingExportMode] = useState('xlsx-current-folder');
+const formatTermDisplay = (term) => {
+  if (!term?.semester || !term?.schoolYear) return 'Not set';
+  const semesterLabel = Number(term.semester) === 1
+    ? '1st Semester'
+    : Number(term.semester) === 2
+      ? '2nd Semester'
+      : Number(term.semester) === 3
+        ? 'Summer'
+        : `Semester ${term.semester}`;
+  return `${semesterLabel} · S.Y. ${term.schoolYear}`;
+};
+
+const isSameTerm = (left, right) => {
+  if (!left?.semester || !left?.schoolYear || !right?.semester || !right?.schoolYear) return false;
+  return Number(left.semester) === Number(right.semester) && String(left.schoolYear || '').trim() === String(right.schoolYear || '').trim();
+};
+  const [exportFilename, setExportFilename] = useState('');
 
   // Move `offeredModules` state before any dependent logic
   const [offeredModules, setOfferedModules] = useState([]);
@@ -64,6 +90,16 @@ const PayablesSystem = ({ onBackToDashboard }) => {
   });
 
   useEffect(() => {
+    const loadActiveTerm = async () => {
+      if (!currentUser) return;
+      const result = await getActiveTerm();
+      if (result.success && result.data) {
+        setActiveTerm(result.data);
+      }
+    };
+
+    loadActiveTerm();
+
     const handlePayablesBreadcrumb = (event) => {
       const { departmentType, selectedFolder } = event.detail || {};
       if (departmentType === 'ccs' && selectedFolder === null) {
@@ -77,7 +113,7 @@ const PayablesSystem = ({ onBackToDashboard }) => {
     return () => {
       window.removeEventListener('payables-breadcrumb', handlePayablesBreadcrumb);
     };
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -105,6 +141,23 @@ useEffect(() => {
   loadCurriculums();
 }, []);
 
+  useEffect(() => {
+    if (!exportMenuOpen) {
+      return undefined;
+    }
+
+    const handleClickOutside = (event) => {
+      if (event.target.closest('.export-dropdown-container')) {
+        return;
+      }
+
+      setExportMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [exportMenuOpen]);
+
   const handleModuleSort = (key) => {
     let direction = 'ascending';
     if (moduleSortConfig.key === key && moduleSortConfig.direction === 'ascending') {
@@ -112,6 +165,10 @@ useEffect(() => {
     }
     setModuleSortConfig({ key, direction });
   };
+
+  const openModuleManagement = useCallback(() => {
+    setModuleManagementOpen(true);
+  }, []);
 
   // Now `filteredAndSortedModules` can safely use `offeredModules`
   const filteredAndSortedModules = useMemo(() => {
@@ -231,9 +288,9 @@ useEffect(() => {
   );
 
   const loadOfferedModules = useCallback(async () => {
-    const res = await getOfferedModules();
+    const res = await getOfferedModules(activeTerm);
     if (res.success) setOfferedModules(res.data);
-  }, []);
+  }, [activeTerm]);
 
   useEffect(() => { loadOfferedModules(); }, [loadOfferedModules]);
 
@@ -330,7 +387,7 @@ useEffect(() => {
     setLoading(true);
     setError('');
     try {
-      const result = await getPayables(currentUser.uid);
+      const result = await getPayables(currentUser.uid, activeTerm);
       if (result.success) {
         const yearSpecificPayables = {};
         (result.data || []).forEach((payable) => {
@@ -357,14 +414,14 @@ useEffect(() => {
     } finally {
       setLoading(false);
     }
-  }, [currentUser]);
+  }, [currentUser, activeTerm]);
 
   useEffect(() => {
     if (currentUser) {
       loadStudents();
       loadPayables();
     }
-  }, [currentUser, loadStudents, loadPayables]);
+  }, [currentUser, loadStudents, loadPayables, activeTerm]);
 
   useEffect(() => {
     if (success) {
@@ -442,8 +499,7 @@ useEffect(() => {
   }));
 };
 
-  const handleAddPayable = () => {
-    // Prefill yearLevel and block based on currently selected folder (if any)
+  const handleAddPayable = useCallback(() => {
     let defaultYearLevel = tabValue === 4 ? 'irregular' : (tabValue + 1).toString();
     let defaultBlock = 'all';
     if (selectedFolder) {
@@ -467,7 +523,21 @@ useEffect(() => {
     });
     loadOfferedModules();
     setAddPayableDialogOpen(true);
-  };
+  }, [loadOfferedModules, selectedFolder, tabValue]);
+
+  const openAddPayable = useCallback(() => {
+    handleAddPayable();
+  }, [handleAddPayable]);
+
+  const toolbarActions = useMemo(() => ({
+    openModuleManagement,
+    openAddPayable
+  }), [openAddPayable, openModuleManagement]);
+
+  useEffect(() => {
+    registerToolbarActions?.('ccs', toolbarActions);
+    return () => registerToolbarActions?.('ccs', null);
+  }, [registerToolbarActions, toolbarActions]);
 
 const handleAddIndividualPayable = () => {
   if (!selectedStudentModal) return;
@@ -485,6 +555,51 @@ const handleAddIndividualPayable = () => {
   });
   setIndividualPayableDialogOpen(true);
 };
+
+  const hasDuplicateModulePayable = useCallback((module, targetYear, targetBlock, studentId = '') => {
+    if (!module) return false;
+
+    const allPayables = Object.values(payables).flat();
+    const targetModuleId = String(module.id || '').trim();
+    const targetModuleCode = String(module.courseCode || module.moduleCode || '').trim().toUpperCase();
+    const normalizedTargetBlock = String(targetBlock || 'all').trim().toUpperCase() || 'ALL';
+    const normalizedTargetYear = targetYear === 'irregular' || targetYear === 'all'
+      ? String(targetYear)
+      : String(Number(targetYear) || targetYear);
+
+    return allPayables.some((payable) => {
+      if (String(payable.category || '').toLowerCase() !== 'module') return false;
+
+      const payableModuleId = String(payable.moduleId || '').trim();
+      const payableModuleCode = String(payable.moduleCode || payable.type || '').trim().toUpperCase();
+      const sameModule = targetModuleId
+        ? payableModuleId === targetModuleId
+        : Boolean(targetModuleCode && payableModuleCode && payableModuleCode === targetModuleCode);
+
+      if (!sameModule) return false;
+
+      const payableYear = payable.yearLevel === 'irregular' || payable.yearLevel === 'all'
+        ? String(payable.yearLevel)
+        : String(Number(payable.yearLevel) || payable.yearLevel);
+      const payableBlock = String(payable.block || 'all').trim().toUpperCase() || 'ALL';
+
+      if (normalizedTargetYear === 'all') {
+        if (normalizedTargetBlock !== 'ALL' && payableBlock !== normalizedTargetBlock) return false;
+      } else if (normalizedTargetYear === 'irregular') {
+        if (payableYear !== 'irregular') return false;
+        if (normalizedTargetBlock !== 'ALL' && payableBlock !== normalizedTargetBlock) return false;
+      } else {
+        if (payableYear !== normalizedTargetYear) return false;
+        if (normalizedTargetBlock !== 'ALL' && payableBlock !== normalizedTargetBlock) return false;
+      }
+
+      if (studentId && payable.studentId && payable.studentId !== studentId) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [payables]);
 
   const handleSaveNewPayable = async () => {
     const isModule = newPayableForm.category === 'module';
@@ -559,6 +674,14 @@ const handleAddIndividualPayable = () => {
             setLoading(false);
             return;
           }
+
+          const duplicateModule = selectedModules.find((module) => hasDuplicateModulePayable(module, targetYear, targetBlock));
+          if (duplicateModule) {
+            setError(`Module ${duplicateModule.courseCode || duplicateModule.courseTitle || duplicateModule.id} already exists for the selected target block.`);
+            setLoading(false);
+            return;
+          }
+
           const results = await Promise.all(selectedModules.map((module) => {
             const modulePayableData = {
               type: module.courseCode,
@@ -566,6 +689,7 @@ const handleAddIndividualPayable = () => {
               yearLevel: targetYear === 'irregular' || targetYear === 'all' ? targetYear : parseInt(targetYear),
               block: targetBlock || 'all',
               studentPayments,
+              createdTerm: activeTerm,
               category: 'module',
               moduleId: module.id,
               moduleCode: module.courseCode,
@@ -589,6 +713,7 @@ const handleAddIndividualPayable = () => {
             yearLevel: targetYear === 'irregular' || targetYear === 'all' ? targetYear : parseInt(targetYear),
             block: targetBlock || 'all',
             studentPayments: studentPayments,
+            createdTerm: activeTerm,
             category: 'general'
           };
           const result = await createPayable(newPayableData, currentUser.uid);
@@ -649,6 +774,14 @@ const handleAddIndividualPayable = () => {
           setLoading(false);
           return;
         }
+
+        const duplicateModule = offeredModules.find((module) => selected.includes(module.id) && hasDuplicateModulePayable(module, individualPayableForm.yearLevel, selectedStudentModal?.block || 'all', selectedStudentModal?.id || ''));
+        if (duplicateModule) {
+          setError(`Module ${duplicateModule.courseCode || duplicateModule.courseTitle || duplicateModule.id} already exists for this student or target block.`);
+          setLoading(false);
+          return;
+        }
+
         const results = await Promise.all(selected.map((mid) => {
           const module = offeredModules.find(m => m.id === mid);
           const modulePayableData = {
@@ -656,6 +789,7 @@ const handleAddIndividualPayable = () => {
             amount,
             yearLevel: parseInt(individualPayableForm.yearLevel),
             studentPayments,
+            createdTerm: activeTerm,
             isIndividual: true,
             studentId: selectedStudentModal.id,
             studentName: selectedStudentModal.name,
@@ -692,6 +826,7 @@ const handleAddIndividualPayable = () => {
           amount: parseFloat(individualPayableForm.amount),
           yearLevel: parseInt(individualPayableForm.yearLevel),
           studentPayments: studentPayments,
+          createdTerm: activeTerm,
           isIndividual: true,
           studentId: selectedStudentModal.id,
           studentName: selectedStudentModal.name,
@@ -725,6 +860,11 @@ const handleAddIndividualPayable = () => {
   };
 
   const handleSavePayment = async () => {
+      const currentTermLabel = formatTermDisplay(activeTerm);
+      const previousTermSource = selectedStudentModal?.createdTerm || selectedStudentModal?.enrolledTerm || null;
+      const previousTermLabel = previousTermSource && !isSameTerm(previousTermSource, activeTerm)
+        ? formatTermDisplay(previousTermSource)
+        : 'None';
     if (!selectedStudentModal || !paymentForm.amount || !paymentForm.description) {
       setError('Please fill in all required fields');
       return;
@@ -1174,6 +1314,42 @@ const handleAddIndividualPayable = () => {
     }
   };
 
+  const getDefaultExportFilename = useCallback((mode) => {
+    const scopeLabel = mode.includes('all-blocks') ? 'all-blocks' : 'current-folder';
+    const baseName = scopeLabel === 'all-blocks'
+      ? 'ccs-payables-all-blocks'
+      : (selectedFolder?.label || 'ccs-payables-current-folder');
+    return sanitizeExportText(`${baseName}-${scopeLabel}`);
+  }, [selectedFolder]);
+
+  const handleExportAction = useCallback((mode) => {
+    if (!selectedFolder) {
+      return;
+    }
+
+    setPendingExportMode(mode);
+    setExportFilename(getDefaultExportFilename(mode));
+    setExportMenuOpen(false);
+    setExportFilenameModalOpen(true);
+  }, [getDefaultExportFilename, selectedFolder]);
+
+  const handleExportConfirm = useCallback(() => {
+    const scope = pendingExportMode.includes('all-blocks') ? 'all-blocks' : 'current-folder';
+    const format = pendingExportMode.startsWith('csv') ? 'csv' : 'xlsx';
+
+    exportCcsPayablesSpreadsheet({
+      students,
+      payablesByYear: payables,
+      selectedFolder,
+      activeTerm,
+      scope,
+      format,
+      filename: sanitizeExportText(exportFilename)
+    });
+
+    setExportFilenameModalOpen(false);
+  }, [activeTerm, exportFilename, pendingExportMode, payables, selectedFolder, students]);
+
   const getFormattedDate = (dateValue) => {
     if (!dateValue) return '';
     const d = new Date(dateValue);
@@ -1352,7 +1528,7 @@ const handleAddIndividualPayable = () => {
       <div className="mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className='flex items-start gap-2'>
           {selectedFolder && (
-            <div className='flex items-start gap-2 mt-4'>
+            <div className='flex flex-wrap items-center gap-2 mt-4'>
               <button
                 type="button"
                 onClick={() => {
@@ -1373,37 +1549,62 @@ const handleAddIndividualPayable = () => {
                   className="w-full pl-10 pr-4 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+              <div className="relative export-dropdown-container">
+                <button
+                  type="button"
+                  onClick={() => setExportMenuOpen((current) => !current)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-sm"
+                >
+                  <Download className="h-4 w-4" />
+                  Export
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+
+                {exportMenuOpen && (
+                  <div className="absolute left-0 z-20 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                    <button
+                      type="button"
+                      onClick={() => handleExportAction('xlsx-current-folder')}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <span>Export as Excel (.xlsx)</span>
+                      <span className="text-xs text-slate-500">Current folder</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportAction('csv-current-folder')}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <span>Export as Google Sheet format</span>
+                      <span className="text-xs text-slate-500">Current folder</span>
+                    </button>
+                    <div className="my-2 h-px bg-slate-200" />
+                    <button
+                      type="button"
+                      onClick={() => handleExportAction('xlsx-current-folder')}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <span>Export Current Folder Only</span>
+                      <span className="text-xs text-slate-500">Excel</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportAction('xlsx-all-blocks')}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <span>Export All Blocks</span>
+                      <span className="text-xs text-slate-500">Excel</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
-        </div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
-          <button
-            className="px-3 py-1.5 bg-blue-500 cursor-pointer text-sm text-white rounded-lg hover:bg-blue-600"
-            onClick={() => setModuleManagementOpen(true)}
-            title="Manage subjects offered as modules"
-          >
-            <Package className="w-4 h-4 inline-flex mr-1 mb-0.5" />
-            Modules
-          </button>
-          <button
-            className="px-3 py-1.5 bg-green-500 cursor-pointer text-sm text-white rounded-lg hover:bg-green-600"
-            onClick={handleAddPayable}
-          >
-            <BadgePlus className='w-4 h-4 inline-flex mr-1 mb-0.5' />
-            Add Payables
-          </button>
         </div>
       </div>
 
       <div>
         {(() => {
-          let filteredStudents = students.slice();
-          if (searchTerm) {
-            filteredStudents = filteredStudents.filter(student =>
-              student.name.toLowerCase().includes(searchTerm.toLowerCase())
-            );
-          }
-
           const getYearLabel = (year) => {
             if (year === 1) return '1st';
             if (year === 2) return '2nd';
@@ -1412,79 +1613,171 @@ const handleAddIndividualPayable = () => {
             return `${year}th`;
           };
 
-          const folders = Array.from(filteredStudents.reduce((map, student) => {
-            const isIrregular = Boolean(student.isIrregular);
-            const year = isIrregular ? null : Number(student.yearLevel) || 1;
-            const block = (student.block || 'A').toString().trim().toUpperCase() || 'A';
-            const key = `${isIrregular ? 'irregular' : year}-${block}`;
+          const getTermLabel = (term) => {
+            if (!term) return 'Unspecified Term';
+            if (term.semester && term.schoolYear) {
+              return `Semester ${term.semester} · S.Y. ${term.schoolYear}`;
+            }
+            if (term.semester) return `Semester ${term.semester}`;
+            if (term.schoolYear) return `S.Y. ${term.schoolYear}`;
+            return 'Unspecified Term';
+          };
 
-            if (!map.has(key)) {
-              map.set(key, {
-                key,
-                year,
-                block,
-                isIrregular,
-                label: isIrregular ? `Irregular Students` : `${getYearLabel(year)} Year Block ${block}`,
-                students: []
+          const getStudentTerm = (student) => {
+            const term = student?.enrolledTerm || student?.createdTerm || null;
+            if (term && (term.semester || term.schoolYear)) {
+              return {
+                semester: Number(term.semester) || activeTerm.semester || null,
+                schoolYear: term.schoolYear || activeTerm.schoolYear || '',
+              };
+            }
+            return {
+              semester: activeTerm.semester || null,
+              schoolYear: activeTerm.schoolYear || ''
+            };
+          };
+
+          const getTermKey = (term) => `${term.semester || 'na'}|${term.schoolYear || ''}`;
+
+          const buildFolderGroups = (studentsInTerm) => {
+            const activeStudents = studentsInTerm.filter((student) => student?.active !== false);
+            const inactiveStudents = studentsInTerm.filter((student) => student?.active === false);
+
+            const foldersMap = activeStudents.reduce((map, student) => {
+              const isIrregular = Boolean(student.isIrregular);
+              const year = isIrregular ? null : Number(student.yearLevel) || 1;
+              const block = (student.block || 'A').toString().trim().toUpperCase() || 'A';
+              const key = `${isIrregular ? 'irregular' : year}-${block}`;
+
+              if (!map.has(key)) {
+                map.set(key, {
+                  key,
+                  year,
+                  block,
+                  isIrregular,
+                  isInactiveFolder: false,
+                  label: isIrregular ? 'Irregular Students' : `${getYearLabel(year)} Year Block ${block}`,
+                  students: []
+                });
+              }
+              map.get(key).students.push(student);
+              return map;
+            }, new Map());
+
+            if (inactiveStudents.length > 0) {
+              foldersMap.set('__inactive__', {
+                key: '__inactive__',
+                year: null,
+                block: null,
+                isIrregular: false,
+                isInactiveFolder: true,
+                label: 'Inactive Students',
+                students: inactiveStudents
               });
+            }
+
+            return Array.from(foldersMap.values()).sort((a, b) => {
+              if (a.isInactiveFolder && !b.isInactiveFolder) return 1;
+              if (!a.isInactiveFolder && b.isInactiveFolder) return -1;
+              if (a.isIrregular && !b.isIrregular) return 1;
+              if (!a.isIrregular && b.isIrregular) return -1;
+              if (!a.isIrregular && !b.isIrregular && a.year !== b.year) return a.year - b.year;
+              return (a.block || '').localeCompare(b.block || '');
+            });
+          };
+
+          const termGroups = Array.from(students.reduce((map, student) => {
+            const term = getStudentTerm(student);
+            const key = getTermKey(term);
+            if (!map.has(key)) {
+              map.set(key, { key, term, label: getTermLabel(term), students: [] });
             }
             map.get(key).students.push(student);
             return map;
           }, new Map()).values()).sort((a, b) => {
-            if (a.isIrregular && !b.isIrregular) return 1;
-            if (!a.isIrregular && b.isIrregular) return -1;
-            if (!a.isIrregular && !b.isIrregular && a.year !== b.year) return a.year - b.year;
-            return a.block.localeCompare(b.block);
+            if (a.key === getTermKey(activeTerm)) return -1;
+            if (b.key === getTermKey(activeTerm)) return 1;
+            return a.label.localeCompare(b.label);
           });
 
+          const selectedTermKey = selectedFolder?.termKey || '';
+          const selectedTermGroup = selectedTermKey ? termGroups.find((group) => group.key === selectedTermKey) : null;
+          const visibleTermGroups = selectedFolder && selectedTermGroup ? [selectedTermGroup] : termGroups;
+
           if (!selectedFolder) {
-            if (folders.length === 0) {
+            if (visibleTermGroups.length === 0) {
               return (
                 <div className="text-center py-8">
                   <h6 className="text-lg text-gray-600 mb-2">{searchTerm ? 'No folders found' : 'No student folders yet'}</h6>
                   <p className="text-sm text-gray-600">
-                    {searchTerm ? 'Try adjusting your search terms' : 'Students will appear here grouped by year level and block.'}
+                    {searchTerm ? 'Try adjusting your search terms' : 'Students will appear here grouped by term, year level, block, and inactive status.'}
                   </p>
                 </div>
               );
             }
 
             return (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                {folders.map((folder) => (
-                  <button
-                    key={folder.key}
-                    type="button"
-                    onClick={() => {
-                      setSelectedFolder(folder);
-                      setTabValue(folder.isIrregular ? 4 : Math.max(0, folder.year - 1));
-                      window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'ccs', selectedFolder: folder } }));
-                    }}
-                    className="rounded-lg cursor-pointer border border-slate-200 bg-white p-4 text-left transition hover:border-nlue-300 hover:shadow-lg"
-                  >
-                    <div className="flex items-start gap-4">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-<Folder className="h-5 w-5" />
-</div>
-                      <div>
-                        <div className="text-sm font-medium text-gray-800">{folder.label}</div>
-                        <div className="text-xs text-gray-500">
-                          {folder.students.length} student{folder.students.length === 1 ? '' : 's'}
+              <div className="space-y-6">
+                {visibleTermGroups.map((group) => {
+                  const folders = buildFolderGroups(group.students);
+                  return (
+                    <section key={group.key} className="space-y-3">
+                     
+                      {folders.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
+                          No students found for this term.
                         </div>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+                      ) : (
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+                          {folders.map((folder) => (
+                            <button
+                              key={`${group.key}-${folder.key}`}
+                              type="button"
+                              onClick={() => {
+                                setSelectedFolder({ ...folder, termKey: group.key, termLabel: group.label });
+                                setTabValue(folder.isIrregular ? 4 : Math.max(0, folder.year - 1));
+                                window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'ccs', selectedFolder: { ...folder, termKey: group.key, termLabel: group.label } } }));
+                              }}
+                              className={`rounded-lg cursor-pointer border bg-white p-4 text-left transition hover:shadow-lg ${folder.isInactiveFolder ? 'border-rose-200 hover:border-rose-400' : 'border-slate-200 hover:border-blue-300'}`}
+                            >
+                              <div className="flex items-start gap-4">
+                                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${folder.isInactiveFolder ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'}`}>
+                                  <Folder className="h-5 w-5" />
+                                </div>
+                                <div>
+                                  <div className={`text-sm font-medium ${folder.isInactiveFolder ? 'text-rose-700' : 'text-gray-800'}`}>{folder.label}</div>
+                                  <div className={`text-xs ${folder.isInactiveFolder ? 'text-rose-500' : 'text-gray-500'}`}>
+                                    {folder.students.length} student{folder.students.length === 1 ? '' : 's'}
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
               </div>
+            );
+          }
+
+          let filteredStudents = selectedTermGroup ? selectedTermGroup.students.slice() : students.slice();
+          if (searchTerm) {
+            filteredStudents = filteredStudents.filter(student =>
+              (student.name || '').toLowerCase().includes(searchTerm.toLowerCase())
             );
           }
 
           filteredStudents = filteredStudents.filter((student) => {
             const block = (student.block || 'A').toString().trim().toUpperCase() || 'A';
+            if (selectedFolder.isInactiveFolder) {
+              return student.active === false;
+            }
             if (selectedFolder.isIrregular) {
               return student.isIrregular && block === selectedFolder.block;
             }
-            return !student.isIrregular && Number(student.yearLevel) === Number(selectedFolder.year) && block === selectedFolder.block;
+            return student.active !== false && !student.isIrregular && Number(student.yearLevel) === Number(selectedFolder.year) && block === selectedFolder.block;
           });
 
           filteredStudents.sort((a, b) => {
@@ -1732,12 +2025,21 @@ const handleAddIndividualPayable = () => {
               selectedModuleIds: []
             });
           }}></div>
-          <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full overflow-y-auto relative z-10">
-            <h2 className="text-lg font-medium mb-4">
+          <div className="bg-white rounded-2xl shadow-lg  max-w-md w-full overflow-y-auto relative z-10">
+            <div className="px-8 py-4 border-b border-slate-200 bg-slate-100">
+                 <h2 className="text-lg font-medium">
               {editingMode ? 'Edit Payable' : 'Add New Payable'}
             </h2>
-            <div className="space-y-4">
-              <div>
+          <p className="text-xs text-slate-600">
+            {editingMode
+              ? 'Update the payable details and review the information before saving changes'
+              : 'Enter the payable details and complete the required information to create a new entry'}
+          </p>
+            </div>
+            <div className="space-y-4 px-8 py-4">
+
+              <div className='flex items-start gap-4'>
+                <div className='flex-1'>
                 <label className="block text-sm font-medium mb-1">Target Year Level</label>
                 <select
                   className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
@@ -1761,7 +2063,7 @@ const handleAddIndividualPayable = () => {
 
               {/* Block selector - only show for non-irregular year levels */}
               {newPayableForm.yearLevel !== 'irregular' && (
-                <div>
+                <div className='flex-1'>
                   <label className="block text-sm font-medium mb-1">Target Block</label>
                   <select
                     className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
@@ -1787,14 +2089,13 @@ const handleAddIndividualPayable = () => {
                       ));
                     })()}
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {newPayableForm.block === 'all' ? 'Will apply to all blocks in the selected year level' : `Will apply only to Block ${newPayableForm.block}`}
-                  </p>
+                
                 </div>
               )}
+              </div>
 
               <div className='flex items-center gap-4'>
-                <label className="block text-sm font-medium">Category:</label>
+                <label className="block font-medium text-sm ">Payable Category:</label>
                 <div className="flex items-center gap-4">
                   <label className="flex items-center gap-1 text-sm">
                     <input
@@ -1807,7 +2108,7 @@ const handleAddIndividualPayable = () => {
                         handleNewPayableInputChange('category', e.target.value);
                         setModuleSelectorOpen(false);
                       }}
-                      className="h-4 w-4 text-blue-600"
+                      className="h-3 w-3 text-blue-600"
                     />
                     <span>General</span>
                   </label>
@@ -1823,7 +2124,7 @@ const handleAddIndividualPayable = () => {
                         setModuleSelectorContext('new');
                         setModuleSelectorOpen(true);
                       }}
-                      className="h-4 w-4 text-blue-600"
+                      className="h-3 w-3 text-blue-600"
                     />
                     <span className="font-medium text-gray-700">Module</span>
                   </label>
@@ -1832,7 +2133,7 @@ const handleAddIndividualPayable = () => {
 
               {newPayableForm.category === 'module' ? (
                 <>
-                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="rounded-lg border border-slate-200 bg-white p-4">
                     <div className="mb-3 flex items-center justify-between">
                       <div>
                         <label className="text-sm font-semibold text-slate-800">Selected Modules</label>
@@ -1920,7 +2221,7 @@ const handleAddIndividualPayable = () => {
                 </div>
               )}
             </div>
-            <div className="flex justify-end gap-2 mt-8">
+            <div className="flex justify-end gap-2 px-8 py-4">
               <button
                 onClick={() => {
                   setAddPayableDialogOpen(false);
@@ -1947,7 +2248,7 @@ const handleAddIndividualPayable = () => {
               </button>
               <button
                 onClick={handleSaveNewPayable}
-                className="px-4 py-1.5 w-28 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-24 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 disabled={
                   !newPayableForm.amount ||
                   loading ||
@@ -2240,6 +2541,18 @@ const handleAddIndividualPayable = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black bg-opacity-50" onClick={() => setPaymentDialogOpen(false)}></div>
           <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-96 overflow-y-auto relative z-10">
+                        {selectedStudentModal && (
+                          <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                            <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-2">
+                              <span className="font-medium text-slate-600">Current Term</span>
+                              <span className="text-right font-semibold text-slate-900">{currentTermLabel}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-3 pt-2">
+                              <span className="font-medium text-slate-600">Previous Term</span>
+                              <span className="text-right font-semibold text-slate-900">{previousTermLabel}</span>
+                            </div>
+                          </div>
+                        )}
             <h2 className="text-xl font-bold mb-4">
               Create Payment Record
               {selectedStudentModal && (
@@ -2306,57 +2619,57 @@ const handleAddIndividualPayable = () => {
 
       {/* Student Details Modal */}
       {studentModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => {
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/25 backdrop-blur-[2px]" onClick={() => {
             setStudentModalOpen(false);
             setSelectedStudentModal(null);
             setStagedPayments({});
           }}></div>
-          <div className="bg-white rounded-2xl shadow-lg max-w-2xl w-full max-h-[70vh] relative z-10 flex flex-col overflow-hidden">
-            <div className="flex items-center px-6 py-4 justify-between shadow-b shadow-2xs sticky top-0 z-20 bg-blue-50">
-              <div>
-                <h2 className="text-lg font-medium">
-                  {selectedStudentModal?.name}
-                  {selectedStudentModal?.isIrregular && (
-                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 ml-2">
-                      Irregular
-                    </span>
-                  )}
-                </h2>
-                <p className="text-xs text-gray-600">
-                  {selectedStudentModal?.isIrregular
-                    ? `Irregular Student (${selectedStudentModal.yearLevel === 1 ? '1st' : selectedStudentModal.yearLevel === 2 ? '2nd' : selectedStudentModal.yearLevel === 3 ? '3rd' : '4th'} Year Level)`
-                    : `${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year`}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative z-10 flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_24px_80px_-20px_rgba(15,23,42,0.35)]">
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-white">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-blue-100">Payment Center</p>
+                  <h2 className="mt-2 text-xl font-semibold">
+                    {selectedStudentModal?.name}
+                    {selectedStudentModal?.isIrregular && (
+                      <span className="ml-2 inline-flex items-center rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-semibold text-blue-50">
+                        Irregular
+                      </span>
+                    )}
+                  </h2>
+                  <p className="mt-1 text-sm text-blue-50/90">
+                    {selectedStudentModal?.isIrregular
+                      ? `Irregular Student (${selectedStudentModal.yearLevel === 1 ? '1st' : selectedStudentModal.yearLevel === 2 ? '2nd' : selectedStudentModal.yearLevel === 3 ? '3rd' : '4th'} Year Level)`
+                      : `${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year`}
+                  </p>
+                </div>
                 <button
-                  className="px-2 py-1.5 text-sm bg-green-500 cursor-pointer text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
+                  className="inline-flex items-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
                   onClick={handleAddIndividualPayable}
                 >
-                  <BadgePlus className='w-4 h-4 inline-flex mr-1.5 mb-0.5' />
+                  <BadgePlus className='mr-2 h-4 w-4' />
                   Add Individual Charge
                 </button>
               </div>
             </div>
             <div className="space-y-4 px-6 py-4 overflow-y-auto flex-1 min-h-0">
               <div className="flex flex-col md:flex-row gap-2 md:items-center md:justify-between">
-                <div className="flex-1 flex items-center gap-2">
-                  <div className="relative w-full md:max-w-sm">
+                <div className="w-80 flex items-center gap-2">
+                  <div className="relative w-full ">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
                       type="text"
-                      className="w-full pl-9 pr-3 py-1.5 border text-sm border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                       placeholder="Search payables by type..."
                       value={payablesSearch}
                       onChange={(e) => setPayablesSearch(e.target.value)}
                     />
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Funnel className="w-4 h-4 text-gray-600" />
+                <div className="">
                   <select
-                    className="px-2 py-1.5 border border-gray-300 rounded-lg focus-outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     value={payablesFilter}
                     onChange={(e) => setPayablesFilter(e.target.value)}
                   >
@@ -2400,268 +2713,344 @@ const handleAddIndividualPayable = () => {
                   const voucherDescriptionInput = hasVoucherDescription
                     ? (stagedVoucher.description || '')
                     : (studentPayment.voucherDescription || '');
-                  const stagedPayment = stagedPayments?.[payable.id] || 0;
-                  const totalPaid = studentPayment.paidAmount + stagedPayment;
-                  const effectivePayableAmount = Math.max(0, Number(payable.amount || 0) - voucher.amount);
+                  const stagedPayment = Number(stagedPayments?.[payable.id] || 0);
+                  const currentPaid = Number(studentPayment.paidAmount || 0);
+                  const originalAmount = Number(payable.amount || 0);
+                  const currentVoucherAmount = Number(voucher.amount || 0);
+                  const effectivePayableAmount = Math.max(0, originalAmount - currentVoucherAmount);
+                  const totalPaid = currentPaid + stagedPayment;
                   const remaining = Math.max(0, effectivePayableAmount - totalPaid);
+                  const isFullyPaid = remaining <= 0 || studentPayment.status === 'fully_paid';
+                  const maxPayment = Math.max(0, effectivePayableAmount - currentPaid - stagedPayment);
+                  const maxVoucher = Math.max(0, originalAmount - currentPaid - stagedPayment);
+                  const selectedMode = String(stagedPaymentModes?.[payable.id] || 'cash').toLowerCase();
+                  const requiresReference = selectedMode === 'gcash' || selectedMode.includes('bank');
+                  const payableTerm = payable.createdTerm || (payable.semester || payable.schoolYear ? {
+                    semester: payable.semester,
+                    schoolYear: payable.schoolYear
+                  } : null);
+                  const payableTermLabel = payableTerm ? formatTermDisplay(payableTerm) : 'Not set';
+                  const payableTermTag = payableTerm
+                    ? (isSameTerm(payableTerm, activeTerm) ? 'Current Term' : 'Previous Term')
+                    : 'No term recorded';
 
                   return (
-                    <div key={payable.id} className="border border-gray-200 rounded-lg shadow p-4 bg-white">
-                      <div className="flex items-center justify-between mb-4">
+                    <div
+                      key={payable.id}
+                      className={`rounded-[24px] border p-4 shadow-sm transition ${
+                        isFullyPaid
+                          ? 'border-emerald-200 bg-emerald-50/40'
+                          : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="flex-1">
-                          <div className="flex items-center gap-1 mb-1">
-                            <h4 className="text-lg font-bold">{payable.type}</h4>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="text-base font-semibold text-slate-900">{payable.type}</h4>
                             {payable.isIndividual && (
-                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                              <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
                                 Individual Charge
                               </span>
                             )}
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                              isFullyPaid
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : studentPayment.status === 'partially_paid'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {isFullyPaid ? 'Fully Paid' : studentPayment.status === 'partially_paid' ? 'Partially Paid' : 'Unpaid'}
+                            </span>
                           </div>
-                          <p className="text-sm text-gray-600">
-                            Total Amount: ₱{Number(payable.amount || 0).toLocaleString()}
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                            <span className="font-medium text-slate-700">Created Term:</span>
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-800">
+                              {payableTermTag}
+                            </span>
+                            <span className="text-slate-500">{payableTermLabel}</span>
+                          </div>
+                          <p className="mt-2 text-sm text-slate-600">
+                            This fee has a current balance of <span className="font-semibold text-slate-900">₱{remaining.toLocaleString()}</span>.
                           </p>
-                          {voucher.amount > 0 && (
-                            <p className="text-xs text-emerald-700 font-medium">
-                              Voucher: -₱{voucher.amount.toLocaleString()} | Net Amount: ₱{effectivePayableAmount.toLocaleString()}
-                            </p>
-                          )}
                         </div>
-                        <span className={`inline-flex mr-1 items-center px-3 py-1 rounded-full text-xs font-medium ${
-                          getStatusColor(studentPayment.status) === 'success'
-                            ? 'bg-green-100 text-green-800 border border-green-300'
-                            : getStatusColor(studentPayment.status) === 'warning'
-                            ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
-                            : 'bg-red-100 text-red-800 border border-red-300'
-                        }`}>
-                          {getStatusLabel(studentPayment.status)}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenActionMenuId(null);
+                              handleStartEditPayables(payable.id);
+                            }}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              setOpenActionMenuId(null);
+                              setTransactionPayable(payable);
+                              setTransactionModalOpen(true);
+                              const result = await getStudentPayments(selectedStudentModal.id, payable.id);
+                              if (result.success) {
+                                setTransactionPayments(result.data);
+                              } else {
+                                setError(result.error);
+                              }
+                            }}
+                          >
+                            <History className="w-4 h-4" />
+                          </button>
+                          <button
+                            className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              setOpenActionMenuId(null);
+                              const result = await getStudentPayments(selectedStudentModal.id, payable.id);
+                              if (!result.success) {
+                                setError(result.error);
+                                return;
+                              }
+                              const latest = (result.data || [])[0];
+                              if (!latest) {
+                                setError('No transactions to print yet.');
+                                return;
+                              }
+                              const totalPrice = Number(payable.amount) || 0;
+                              const totalPaidSoFar = (result.data || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+                              const balanceAfter = Math.max(0, totalPrice - totalPaidSoFar);
+                              const previousPaid = Math.max(0, totalPaidSoFar - (Number(latest.amount) || 0));
+                              openReceiptForPayment(selectedStudentModal, payable, {
+                                ...latest,
+                                price: totalPrice,
+                                previousPaid,
+                                totalPaid: totalPaidSoFar,
+                                balanceAfter
+                              });
+                            }}
+                            title="Print latest receipt"
+                          >
+                            <Printer className="w-4 h-4" />
+                          </button>
+                          <button
+                            className="rounded-full p-1.5 text-rose-600 transition hover:bg-rose-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenActionMenuId(null);
+                              setDeleteTarget(payable);
+                              setDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                      <div>
-                        <div className='flex items-center justify-between mb-1'>
-                          <div className="flex items-center text-xs">
-                            <span className='mr-2'>Mode of Payment:</span>
-                            <div className="flex items-center">
+
+                      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                          <p className="text-slate-500">Total</p>
+                          <p className="mt-1 font-semibold text-slate-900">₱{originalAmount.toLocaleString()}</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                          <p className="text-slate-500">Paid</p>
+                          <p className="mt-1 font-semibold text-emerald-700">₱{Math.max(0, currentPaid).toLocaleString()}</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                          <p className="text-slate-500">Remaining</p>
+                          <p className="mt-1 font-semibold text-rose-700">₱{remaining.toLocaleString()}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <span className="font-medium text-slate-700">Mode of Payment</span>
+                            <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
                               <input
                                 id={`paymentMode-cash-${payable.id}`}
                                 name={`paymentMode-${payable.id}`}
                                 type="radio"
                                 value="cash"
-                                checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'cash'}
+                                checked={selectedMode === 'cash'}
                                 onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'cash' }))}
+                                disabled={isFullyPaid}
                               />
-                              <label htmlFor={`paymentMode-cash-${payable.id}`} className="text-xs cursor-pointer ml-1 mr-2">
-                                Cash
-                              </label>
+                              Cash
+                            </label>
+                            <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
                               <input
                                 id={`paymentMode-gcash-${payable.id}`}
                                 name={`paymentMode-${payable.id}`}
                                 type="radio"
                                 value="gcash"
-                                checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'gcash'}
+                                checked={selectedMode === 'gcash'}
                                 onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'gcash' }))}
+                                disabled={isFullyPaid}
                               />
-                              <label htmlFor={`paymentMode-gcash-${payable.id}`} className="text-xs cursor-pointer ml-1 mr-2">
-                                GCash
-                              </label>
+                              GCash
+                            </label>
+                            <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
                               <input
                                 id={`paymentMode-bank-${payable.id}`}
                                 name={`paymentMode-${payable.id}`}
                                 type="radio"
                                 value="bank"
-                                checked={(stagedPaymentModes?.[payable.id] || 'cash') === 'bank'}
+                                checked={selectedMode === 'bank'}
                                 onChange={() => setStagedPaymentModes(prev => ({ ...prev, [payable.id]: 'bank' }))}
+                                disabled={isFullyPaid}
                               />
-                              <label htmlFor={`paymentMode-bank-${payable.id}`} className="text-xs cursor-pointer ml-1">
-                                Bank Transfer
-                              </label>
-                            </div>
+                              Bank Transfer
+                            </label>
                           </div>
-                          <div className="flex items-center gap-0.5">
-                            <button
-                              className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenActionMenuId(null);
-                                handleStartEditPayables(payable.id);
-                              }}
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button
-                              className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                setOpenActionMenuId(null);
-                                setTransactionPayable(payable);
-                                setTransactionModalOpen(true);
-                                const result = await getStudentPayments(selectedStudentModal.id, payable.id);
-                                if (result.success) {
-                                  setTransactionPayments(result.data);
-                                } else {
-                                  setError(result.error);
-                                }
-                              }}
-                            >
-                              <History className="w-4 h-4" />
-                            </button>
-                            <button
-                              className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                setOpenActionMenuId(null);
-                                const result = await getStudentPayments(selectedStudentModal.id, payable.id);
-                                if (!result.success) {
-                                  setError(result.error);
-                                  return;
-                                }
-                                const latest = (result.data || [])[0];
-                                if (!latest) {
-                                  setError('No transactions to print yet.');
-                                  return;
-                                }
-                                const totalPrice = Number(payable.amount) || 0;
-                                const totalPaidSoFar = (result.data || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
-                                const balanceAfter = Math.max(0, totalPrice - totalPaidSoFar);
-                                const previousPaid = Math.max(0, totalPaidSoFar - (Number(latest.amount) || 0));
-                                openReceiptForPayment(selectedStudentModal, payable, {
-                                  ...latest,
-                                  price: totalPrice,
-                                  previousPaid,
-                                  totalPaid: totalPaidSoFar,
-                                  balanceAfter
-                                });
-                              }}
-                              title="Print latest receipt"
-                            >
-                              <Printer className="w-4 h-4" />
-                            </button>
-                            <button
-                              className="p-1.5 cursor-pointer rounded-full text-gray-700 hover:bg-gray-200"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenActionMenuId(null);
-                                setDeleteTarget(payable);
-                                setDeleteDialogOpen(true);
-                              }}
-                            >
-                              <Trash className="w-4 h-4" />
-                            </button>
-                          </div>
+                          {isFullyPaid && (
+                            <span className="text-[11px] font-semibold text-emerald-700">No additional payment is required for this item.</span>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            step="0.01"
-                            className="w-1/3 flex-1 px-2 py-1.5 text-sm border border-gray-300 rounded-lg show-spinner"
-                            placeholder="New Payment Amount"
-                            value={stagedPayments?.[payable.id] ?? ''}
-                            onChange={(e) => selectedStudentModal && handleStagedPaidAmountChange(payable.id, e.target.value)}
-                            onWheel={(e) => e.currentTarget.blur()}
-                            onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
-                          />
-                          {(() => {
-                            const modeVal = String(stagedPaymentModes?.[payable.id] || 'cash').toLowerCase();
-                            const requiresReference = modeVal === 'gcash' || modeVal.includes('bank');
-                            return (
-                              <input
-                                type="text"
-                                className={`w-2/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg ${
-                                  !requiresReference ? 'opacity-50 cursor-not-allowed' : ''
-                                }`}
-                                placeholder="Reference (e.g., receipt number)"
-                                value={stagedPaymentReferences?.[payable.id] || ''}
-                                onChange={(e) => setStagedPaymentReferences(prev => ({ ...prev, [payable.id]: e.target.value }))}
-                                disabled={!requiresReference}
-                              />
-                            );
-                          })()}
-                        </div>
-                        <div className="w-full mt-2">
-                          <div className='flex items-center gap-2 mb-1'>
-                            <span className='text-xs'>Apply Voucher:</span>
-                            <input
-                              type="checkbox"
-                              checked={voucherEnabled}
-                              onChange={(e) => {
-                                const checked = e.target.checked;
-                                if (!checked) {
-                                  setStagedVouchers(prev => ({
-                                    ...prev,
-                                    [payable.id]: { enabled: false, amount: '', description: '' }
-                                  }));
-                                  return;
-                                }
-                                setStagedVouchers(prev => ({
-                                  ...prev,
-                                  [payable.id]: {
-                                    enabled: true,
-                                    amount: hasVoucherAmount ? stagedVoucher.amount : (studentPayment.voucherAmount ? String(studentPayment.voucherAmount) : ''),
-                                    description: hasVoucherDescription ? (stagedVoucher.description || '') : (studentPayment.voucherDescription || '')
-                                  }
-                                }));
-                              }}
-                            />
-                          </div>
-                          <div className="flex gap-2">
+
+                        <div className="mt-3 grid gap-2 md:grid-cols-[1.1fr_1fr]">
+                          <div className="space-y-2">
+                            <label className="block text-xs font-semibold text-slate-700">Payment Amount</label>
                             <input
                               type="number"
-                              placeholder="Amount"
-                              className={`w-1/3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg show-spinner ${
-                                !voucherEnabled ? 'opacity-50 cursor-not-allowed' : ''
-                              }`}
-                              value={voucherAmountInput}
-                              onChange={(e) => {
-                                const raw = e.target.value;
-                                setStagedVouchers(prev => ({
-                                  ...prev,
-                                  [payable.id]: {
-                                    ...(prev[payable.id] || {}),
-                                    enabled: true,
-                                    amount: raw
-                                  }
-                                }));
-                              }}
                               inputMode="decimal"
                               min="0"
                               step="0.01"
-                              disabled={!voucherEnabled}
+                              max={maxPayment.toString()}
+                              className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                isFullyPaid
+                                  ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                                  : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                              }`}
+                              placeholder="Enter payment"
+                              value={stagedPayments?.[payable.id] ?? ''}
+                              onChange={(e) => selectedStudentModal && handleStagedPaidAmountChange(payable.id, e.target.value)}
+                              onWheel={(e) => e.currentTarget.blur()}
+                              onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
+                              disabled={isFullyPaid}
                             />
+                            <p className="text-[11px] text-slate-500">
+                              {isFullyPaid
+                                ? 'This fee is already fully paid.'
+                                : `Maximum allowed payment: ₱${maxPayment.toLocaleString()}`}
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <label className="block text-xs font-semibold text-slate-700">Reference</label>
+                              <span className="text-[11px] text-slate-500">{!requiresReference ? 'Optional for cash' : 'Required for non-cash'}</span>
+                            </div>
                             <input
                               type="text"
-                              placeholder="e.g. Scholarship, Promo"
-                              className={`w-2/3 px-2 py-1.5 text-sm border rounded-lg show-spinner ${
-                                voucherEnabled && Number(voucherAmountInput || 0) > 0 && !(voucherDescriptionInput || '').trim()
-                                  ? 'border-red-400'
-                                  : 'border-gray-300'
-                              } ${
-                                !voucherEnabled ? 'opacity-50 cursor-not-allowed' : ''
+                              className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                !requiresReference
+                                  ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                                  : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
                               }`}
-                              value={voucherDescriptionInput}
-                              onChange={(e) => {
-                                const raw = e.target.value;
-                                setStagedVouchers(prev => ({
-                                  ...prev,
-                                  [payable.id]: {
-                                    ...(prev[payable.id] || {}),
-                                    enabled: true,
-                                    description: raw
-                                  }
-                                }));
-                              }}
-                              required={voucherEnabled && Number(voucherAmountInput || 0) > 0}
-                              disabled={!voucherEnabled}
+                              placeholder="Receipt or reference number"
+                              value={stagedPaymentReferences?.[payable.id] || ''}
+                              onChange={(e) => setStagedPaymentReferences(prev => ({ ...prev, [payable.id]: e.target.value }))}
+                              disabled={!requiresReference || isFullyPaid}
                             />
                           </div>
                         </div>
-                        <div className="flex items-center justify-between gap-1 mt-4">
-                          <p className="text-xs text-gray-600">
-                            Remaining: ₱{remaining.toLocaleString()}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            Last updated: {getFormattedDate(new Date())}
-                          </p>
+
+                        <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="text-xs font-semibold text-slate-700">Voucher</p>
+                              <p className="text-[11px] text-slate-500">Apply or update a voucher without exceeding the remaining balance.</p>
+                            </div>
+                            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={voucherEnabled}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  if (!checked) {
+                                    setStagedVouchers(prev => ({
+                                      ...prev,
+                                      [payable.id]: { enabled: false, amount: '', description: '' }
+                                    }));
+                                    return;
+                                  }
+                                  setStagedVouchers(prev => ({
+                                    ...prev,
+                                    [payable.id]: {
+                                      enabled: true,
+                                      amount: hasVoucherAmount ? stagedVoucher.amount : (studentPayment.voucherAmount ? String(studentPayment.voucherAmount) : ''),
+                                      description: hasVoucherDescription ? (stagedVoucher.description || '') : (studentPayment.voucherDescription || '')
+                                    }
+                                  }));
+                                }}
+                                disabled={isFullyPaid}
+                              />
+                              Apply voucher
+                            </label>
+                          </div>
+                          <div className="mt-3 grid gap-2 md:grid-cols-[0.8fr_1.2fr]">
+                            <div>
+                              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Voucher Amount</label>
+                              <input
+                                type="number"
+                                placeholder="Amount"
+                                className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                  !voucherEnabled || isFullyPaid
+                                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                                    : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                }`}
+                                value={voucherAmountInput}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  setStagedVouchers(prev => ({
+                                    ...prev,
+                                    [payable.id]: {
+                                      ...(prev[payable.id] || {}),
+                                      enabled: true,
+                                      amount: raw
+                                    }
+                                  }));
+                                }}
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                max={maxVoucher.toString()}
+                                disabled={!voucherEnabled || isFullyPaid}
+                              />
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                {isFullyPaid
+                                  ? 'Voucher updates are disabled for fully paid fees.'
+                                  : `Maximum voucher value: ₱${maxVoucher.toLocaleString()}`}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-[11px] font-semibold text-slate-700">Voucher Description</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. Scholarship, Promo"
+                                className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                  !voucherEnabled || isFullyPaid
+                                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                                    : voucherEnabled && Number(voucherAmountInput || 0) > 0 && !(voucherDescriptionInput || '').trim()
+                                      ? 'border-rose-300 bg-white focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100'
+                                      : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                }`}
+                                value={voucherDescriptionInput}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  setStagedVouchers(prev => ({
+                                    ...prev,
+                                    [payable.id]: {
+                                      ...(prev[payable.id] || {}),
+                                      enabled: true,
+                                      description: raw
+                                    }
+                                  }));
+                                }}
+                                required={voucherEnabled && Number(voucherAmountInput || 0) > 0}
+                                disabled={!voucherEnabled || isFullyPaid}
+                              />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2695,16 +3084,16 @@ const handleAddIndividualPayable = () => {
                     setStagedPayments({});
                     setStagedVouchers({});
                   }}
-                  className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
                 >
                   Close
                 </button>
                 <button
                   onClick={handleShowSummary}
-                  className="px-4 py-1.5 rounded-lg text-sm cursor-pointer bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
                   disabled={(Object.keys(stagedPayments).length === 0 && Object.keys(stagedVouchers).length === 0) || confirmLoading}
                 >
-                  {confirmLoading ? 'Confirming...' : 'Confirm Changes'}
+                  {confirmLoading ? 'Confirming...' : 'Confirm '}
                 </button>
               </div>
             </div>
@@ -3029,6 +3418,44 @@ const handleAddIndividualPayable = () => {
     </div>
   </div>
 )}
+
+      {/* Export Filename Modal */}
+      {exportFilenameModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50"
+            onClick={() => setExportFilenameModalOpen(false)}
+          ></div>
+          <div className="bg-white rounded-2xl shadow-lg p-6 max-w-md w-full relative z-10">
+            <h2 className="text-xl font-bold mb-2">Export File Name</h2>
+            <p className="text-sm text-gray-600 mb-4">Enter the file name before exporting.</p>
+            <input
+              type="text"
+              value={exportFilename}
+              onChange={(event) => setExportFilename(event.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="payables-export"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                type="button"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                onClick={() => setExportFilenameModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-4 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
+                onClick={handleExportConfirm}
+              >
+                Export
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Payable Confirmation Modal */}
       {deleteDialogOpen && (

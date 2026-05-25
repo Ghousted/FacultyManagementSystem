@@ -64,8 +64,10 @@ const isModuleStudentFullyPaid = (payable, studentPaymentEntry) => {
   // Payables Model Functions
   export const createPayable = async (payableData, userId) => {
     try {
+      const createdTerm = payableData?.createdTerm || null;
       const docRef = await addDoc(collection(db, 'payables'), {
         ...payableData,
+        ...(createdTerm ? { createdTerm } : {}),
         userId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -135,17 +137,34 @@ const isModuleStudentFullyPaid = (payable, studentPaymentEntry) => {
     }
   };
   
-  export const getPayables = async (userId) => {
+  export const getPayables = async (userId, activeTerm = null) => {
     try {
       const payablesRef = collection(db, 'payables');
       // For payable role, show all payables (remove userId filter)
       // This allows payable role to see same data as admin in CCS and other departments
       const q = query(payablesRef, orderBy('createdAt', 'desc'));
       const querySnapshot = await getDocs(q);
-      const payables = querySnapshot.docs.map(doc => ({
+      let payables = querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+
+      if (activeTerm?.semester) {
+        payables = payables.filter((payable) => {
+          const matchesSemester = !payable.semester || Number(payable.semester) === Number(activeTerm.semester);
+          const matchesSchoolYear =
+            !activeTerm.schoolYear ||
+            !payable.schoolYear ||
+            String(payable.schoolYear || '') === String(activeTerm.schoolYear || '');
+          const createdTerm = payable.createdTerm || null;
+          const matchesCreatedTerm = !createdTerm || (
+            (!createdTerm.semester || Number(createdTerm.semester) === Number(activeTerm.semester)) &&
+            (!activeTerm.schoolYear || !createdTerm.schoolYear || String(createdTerm.schoolYear || '') === String(activeTerm.schoolYear || ''))
+          );
+          return matchesSemester && matchesSchoolYear && matchesCreatedTerm;
+        });
+      }
+
       return { success: true, data: payables };
     } catch (error) {
       console.error('Error getting payables:', error);
@@ -400,6 +419,130 @@ const isModuleStudentFullyPaid = (payable, studentPaymentEntry) => {
     }
   };
 
+  // Assign existing payables to a newly created CCS student when the payable was
+  // created for the same term the student is enrolled in.
+  export const assignPayablesToStudent = async (student) => {
+    try {
+      if (!student || !student.id) return { success: false, error: 'Invalid student' };
+      const term = student.enrolledTerm || student.createdTerm || null;
+      if (!term || !term.semester || !term.schoolYear) {
+        return { success: true, assigned: 0 };
+      }
+
+      const payablesRef = collection(db, 'payables');
+      const snap = await getDocs(payablesRef);
+      let assigned = 0;
+      const updates = [];
+
+      snap.docs.forEach((d) => {
+        const p = { id: d.id, ...d.data() };
+        if (p.isIndividual) return; // skip individual payables
+        const created = p.createdTerm || null;
+        if (!created || Number(created.semester) !== Number(term.semester) || (created.schoolYear || '') !== (term.schoolYear || '')) return;
+
+        // Year match
+        if (p.yearLevel !== 'all' && p.yearLevel !== 'irregular' && Number(p.yearLevel) !== Number(student.yearLevel)) return;
+        if (p.yearLevel === 'irregular' && !student.isIrregular) return;
+
+        // Block match
+        if (p.block && p.block !== 'all') {
+          const studBlock = (student.block || '').toString().trim().toUpperCase() || 'A';
+          if (studBlock !== (p.block || '').toString().trim().toUpperCase()) return;
+        }
+
+        // If student already present, skip
+        const existingPayments = p.studentPayments || {};
+        if (existingPayments && existingPayments[student.id]) return;
+
+        updates.push({ payableId: p.id });
+      });
+
+      // Apply updates
+      for (const u of updates) {
+        await updateDoc(doc(db, 'payables', u.payableId), {
+          [`studentPayments.${student.id}`]: { status: 'unpaid', paidAmount: 0 },
+          updatedAt: new Date().toISOString()
+        });
+        assigned += 1;
+      }
+
+      if (assigned > 0) {
+        await logSystemAction({
+          action: 'Assigned Payables To New Student',
+          module: 'Payables System',
+          entityType: 'student',
+          entityId: student.id,
+          description: `Assigned ${assigned} payable(s) to new student ${student.id}`,
+          details: { studentId: student.id, assigned }
+        });
+      }
+
+      return { success: true, assigned };
+    } catch (error) {
+      console.error('Error assigning payables to student:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  // Assign existing other-department payables to a newly created other-department student
+  export const assignOtherDeptPayablesToStudent = async (student) => {
+    try {
+      if (!student || !student.id || !student.departmentId) return { success: false, error: 'Invalid student' };
+      const term = student.createdTerm || null;
+      if (!term || !term.semester || !term.schoolYear) return { success: true, assigned: 0 };
+
+      const payablesRef = collection(db, 'otherDept-payables');
+      const snap = await getDocs(payablesRef);
+      let assigned = 0;
+      const updates = [];
+
+      snap.docs.forEach((d) => {
+        const p = { id: d.id, ...d.data() };
+        if (p.isIndividual) return;
+        if ((p.departmentId || '') !== (student.departmentId || '')) return;
+        const created = p.createdTerm || null;
+        if (!created || Number(created.semester) !== Number(term.semester) || (created.schoolYear || '') !== (term.schoolYear || '')) return;
+
+        // Year / block matching similar rules
+        if (p.yearLevel !== 'all' && p.yearLevel !== 'irregular' && Number(p.yearLevel) !== Number(student.yearLevel)) return;
+        if (p.yearLevel === 'irregular' && !student.isIrregular) return;
+        if (p.block && p.block !== 'all') {
+          const studBlock = (student.block || '').toString().trim().toUpperCase() || 'A';
+          if (studBlock !== (p.block || '').toString().trim().toUpperCase()) return;
+        }
+
+        const existingPayments = p.studentPayments || {};
+        if (existingPayments && existingPayments[student.id]) return;
+
+        updates.push({ payableId: p.id });
+      });
+
+      for (const u of updates) {
+        await updateDoc(doc(db, 'otherDept-payables', u.payableId), {
+          [`studentPayments.${student.id}`]: { status: 'unpaid', paidAmount: 0 },
+          updatedAt: new Date().toISOString()
+        });
+        assigned += 1;
+      }
+
+      if (assigned > 0) {
+        await logSystemAction({
+          action: 'Assigned Other-Dept Payables To New Student',
+          module: 'Payables System',
+          entityType: 'otherDepartmentStudent',
+          entityId: student.id,
+          description: `Assigned ${assigned} other-dept payable(s) to new student ${student.id}`,
+          details: { studentId: student.id, assigned }
+        });
+      }
+
+      return { success: true, assigned };
+    } catch (error) {
+      console.error('Error assigning other-dept payables to student:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
    // Configurable deadline for module payments to count toward the professor cutback.
   // Stored as an ISO date string ('YYYY-MM-DD') in the same settings doc. Empty string
   // means no deadline (every fully-paid student counts).
@@ -609,7 +752,7 @@ const isModuleStudentFullyPaid = (payable, studentPaymentEntry) => {
     try {
       const snap = await getDocs(collection(db, 'payables'));
       let data = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
+        .map(d => ({ id: d.id, ...d.data(), source: 'ccs' }))
         .filter(p => p.category === 'module' && !p.deleted);
       
       // Filter by term if provided. Older module payables were created without
@@ -626,6 +769,40 @@ const isModuleStudentFullyPaid = (payable, studentPaymentEntry) => {
       return { success: true, data };
     } catch (error) {
       console.error('Error getting module payables:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  export const getAllModulePayablesIncludingOtherDept = async (activeTerm = null) => {
+    try {
+      const [ccsRes, otherSnap] = await Promise.all([
+        getAllModulePayables(activeTerm),
+        getDocs(collection(db, 'otherDept-payables'))
+      ]);
+
+      if (!ccsRes.success) return ccsRes;
+
+      let otherData = otherSnap.docs
+        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data(), source: 'other-department' }))
+        .filter((payable) => payable.category === 'module' && !payable.deleted);
+
+      if (activeTerm?.semester) {
+        otherData = otherData.filter((payable) => {
+          const matchesSemester = !payable.semester || Number(payable.semester) === Number(activeTerm.semester);
+          const matchesSchoolYear =
+            !activeTerm.schoolYear ||
+            !payable.schoolYear ||
+            String(payable.schoolYear || '') === String(activeTerm.schoolYear || '');
+          return matchesSemester && matchesSchoolYear;
+        });
+      }
+
+      return {
+        success: true,
+        data: [...(ccsRes.data || []), ...otherData]
+      };
+    } catch (error) {
+      console.error('Error getting combined module payables:', error);
       return { success: false, error: error.message };
     }
   };

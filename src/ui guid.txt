@@ -5,24 +5,41 @@ action tab -
 
 
 tabs
-<div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
-{['1', '2', '3', '4'].map((y) => (
-<button
-key={y}
-type="button"
-onClick={() => setModuleYearLevelFilter(y)}
-className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
-moduleYearLevelFilter === y
-? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-: 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
-}`}
->
-{y === 'all'
-? 'All Years'
-: `${y}${['1', '2', '3'].includes(y) ? getOrdinalSuffix(y) : 'th'} Year`}
-</button>
-))}
-</div>
+  <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setTab('students')}
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
+                tab === 'students'
+                  ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
+              }`}
+            >
+              Student Management
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('enrollment')}
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
+                tab === 'enrollment'
+                  ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer'
+              }`}
+            >
+              Enrollment Management
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('other')}
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
+                tab === 'other'
+                    ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer'
+              }`}
+            >
+              Other Departments
+            </button>
+          </div>
 
 
 
@@ -67,9 +84,9 @@ className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor
 
 
 cancel
-                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
 confirm
-                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
 
 
 
@@ -97,3 +114,15 @@ modal header
  <div className='px-8 py-4 border-b border-slate-300'>
           <h3 className="text-xl font-medium text-slate-800 ">Configure Dean's List Criteria</h3>
         </div>
+
+
+
+close modal
+  <button
+                  type="button"
+                  onClick={() => setSubjectPickerOpen(false)}
+                  className="rounded-full bg-white p-1 cursor-pointer text-slate-500 hover:text-red-600 transition"
+                  aria-label="Close"
+                >
+                  <X className="h-5 w-5 " />
+                </button>

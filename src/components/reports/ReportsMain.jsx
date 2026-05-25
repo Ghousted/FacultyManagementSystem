@@ -4,7 +4,7 @@ import Breadcrumbs from '../common/Breadcrumbs';
 
 const ReportsModule = lazy(() => import('./DeansListReport'));
 const ArchivedClasses = lazy(() => import('./ArchivedClasses'));
-const ModulePaymentsReport = lazy(() => import('./ModulePaymentsReport'));
+const ModulePaymentsReport = lazy(() => import('./ModulePaymentsGroupedReport'));
 const CutBackReports = lazy(() => import('./CutBackReports'));
 
 const ReportsLoadingSkeleton = () => (

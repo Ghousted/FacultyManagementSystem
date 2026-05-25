@@ -1,50 +1,24 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'react-hot-toast';
 import { addDoc, collection, deleteDoc, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import { BadgePlus, Pencil, MoreVertical, Trash, Search, ChevronLeft, RefreshCcw, Folder, ChevronUp, ChevronDown, ChevronsUpDown, Square } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getActiveTerm, getOtherDepartments } from '../../models/facultyModels';
 import { db } from '../../firebase';
+import {
+  compareStudentsActiveTermFirst,
+  getActiveTermLabel,
+  getYearLevelLabel,
+  isActiveTermConfigured,
 
-const SEMESTER_LABELS = {
-  1: '1st Semester',
-  2: '2nd Semester',
-  3: 'Summer'
-};
-
-const formatSchoolYear = (schoolYear) => {
-  const normalized = (schoolYear || '').toString().trim();
-  if (!normalized) return '';
-  return normalized.replace(/-/g, '–');
-};
-
-const getYearLevelLabel = (year) => {
-  const normalizedYear = Number(year);
-  if (normalizedYear === 1) return '1st Year';
-  if (normalizedYear === 2) return '2nd Year';
-  if (normalizedYear === 3) return '3rd Year';
-  if (normalizedYear === 4) return '4th Year';
-  return year ? `${year} Year` : '';
-};
-
-const getStudentTermKey = (student) => {
-  const term = student?.createdTerm || {};
-  if (!term.semester || !term.schoolYear) return 'legacy::';
-  return `${Number(term.semester)}::${term.schoolYear}`;
-};
-
-const getTermLabelFromKey = (termKey) => {
-  if (!termKey || termKey.startsWith('legacy')) {
-    return 'Earlier Records (No Term)';
-  }
-  const [semester, schoolYear] = termKey.split('::');
-  return `${SEMESTER_LABELS[Number(semester)] || `Sem ${semester}`} · S.Y. ${formatSchoolYear(schoolYear)}`;
-};
-
-const getActiveTermLabel = (term) => {
-  if (!term?.semester || !term?.schoolYear) return '';
-  return `${SEMESTER_LABELS[Number(term.semester)] || `Sem ${term.semester}`} · S.Y. ${formatSchoolYear(term.schoolYear)}`;
-};
+} from '../../utils/termHelpers';
+import {
+  buildOtherDeptComboFolders,
+  compareOtherDeptComboFolders,
+  getOtherDeptFolderStudentCounts,
+  groupOtherDeptFoldersByTerm,
+  studentMatchesOtherDeptCombo
+} from '../../utils/studentFolderUtils';
 
 const DepartmentCardSkeleton = () => (
   <div className="rounded-xl border border-slate-200 bg-white p-4 animate-pulse">
@@ -267,7 +241,7 @@ const OtherDepartmentManagement = () => {
       const block = event.detail?.block;
       if (!course || year === undefined || block === undefined) return;
       setOpenCourse(course);
-      setOpenCombo({ course, year, block });
+      setOpenCombo({ course, year, block, termKey: event.detail?.termKey });
       setOtherStudentSearch('');
       setSelectMode(false);
       setSelectedIds([]);
@@ -433,7 +407,7 @@ const OtherDepartmentManagement = () => {
         name: otherStudentForm.name.trim(),
         course: otherStudentForm.course.trim(),
         yearLevel: Number(otherStudentForm.yearLevel),
-        block: otherStudentForm.block.trim(),
+        block: otherStudentForm.block.trim().toUpperCase(),
         updatedAt: new Date().toISOString()
       };
 
@@ -503,8 +477,22 @@ const OtherDepartmentManagement = () => {
     }
   };
 
-  const otherStudentCourses = Array.from(new Set(otherDeptStudents.map((student) => (student.course || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
-  const otherStudentBlocks = Array.from(new Set(otherDeptStudents.map((student) => (student.block || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const otherStudentCourses = useMemo(
+    () =>
+      Array.from(
+        new Set(otherDeptStudents.map((student) => (student.course || '').trim()).filter(Boolean))
+      ).sort((a, b) => a.localeCompare(b)),
+    [otherDeptStudents]
+  );
+
+  const otherStudentBlocks = useMemo(
+    () =>
+      Array.from(
+        new Set(otherDeptStudents.map((student) => (student.block || '').trim()).filter(Boolean))
+      ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    [otherDeptStudents]
+  );
+
   const filteredOtherDeptStudents = otherDeptStudents.filter((student) => {
     const term = otherStudentSearch.trim().toLowerCase();
     const matchesYear = Number(student.yearLevel || 0) === Number(otherStudentYearTab);
@@ -514,6 +502,9 @@ const OtherDepartmentManagement = () => {
     return matchesYear && matchesCourse && matchesBlock && matchesSearch;
   });
   const sortedOtherDeptStudents = [...filteredOtherDeptStudents].sort((a, b) => {
+    const termCompare = compareStudentsActiveTermFirst(a, b, activeTerm);
+    if (termCompare !== 0) return termCompare;
+
     const direction = otherStudentSort.direction === 'desc' ? -1 : 1;
     const key = otherStudentSort.key;
     const aValue = key === 'yearLevel' ? Number(a.yearLevel || 0) : (a[key] || '').toString();
@@ -606,14 +597,142 @@ const OtherDepartmentManagement = () => {
   const visibleStudentsForYear = openYearFolder
     ? sortedOtherDeptStudents.filter(s => Number(s.yearLevel) === Number(openYearFolder))
     : [];
-  const hasCourse = visibleStudentsForYear.some(s => (s.course || '').toString().trim() !== '');
-  const hasYear = visibleStudentsForYear.some(s => s.yearLevel !== undefined && s.yearLevel !== null && String(s.yearLevel).trim() !== '');
-  const hasBlock = visibleStudentsForYear.some(s => (s.block || '').toString().trim() !== '');
+  const deleteFolderAndStudents = async (folder) => {
+    if (!currentUser) {
+      toast.error('Please sign in to delete folders and students.');
+      return;
+    }
+
+    setConfirmDialog({
+      open: true,
+      title: 'Delete Folder?',
+      message: `Are you sure you want to delete the folder "${folder.label}" and all its students?`,
+      confirmLabel: 'Delete',
+      confirmTone: 'danger',
+      onConfirm: async () => {
+        setLoading(true);
+        setError('');
+        try {
+          const studentsToDelete = otherDeptStudents.filter((student) =>
+            studentMatchesOtherDeptCombo(student, folder)
+          );
+
+          const deletePromises = studentsToDelete.map((student) =>
+            deleteDoc(doc(db, 'otherDept-Students', student.id))
+          );
+
+          await Promise.all(deletePromises);
+          toast.success(`Deleted folder "${folder.label}" and ${studentsToDelete.length} students.`);
+          await loadOtherDeptStudents(selectedOtherDeptId);
+        } catch (err) {
+          toast.error('Failed to delete folder and students: ' + err.message);
+        }
+        setLoading(false);
+      },
+    });
+  };
+
+  const sortFoldersForDisplay = (folders) =>
+    [...folders].sort((left, right) => {
+      const leftCourse = String(left.course || '').trim().toLowerCase();
+      const rightCourse = String(right.course || '').trim().toLowerCase();
+      const leftIsBsa = leftCourse.startsWith('bsa');
+      const rightIsBsa = rightCourse.startsWith('bsa');
+
+      if (leftIsBsa !== rightIsBsa) {
+        return leftIsBsa ? -1 : 1;
+      }
+
+      const courseCompare = leftCourse.localeCompare(rightCourse, undefined, { sensitivity: 'base' });
+      if (courseCompare !== 0) {
+        return courseCompare;
+      }
+
+      const leftYear = Number.isFinite(Number(left.year)) ? Number(left.year) : Number.MAX_SAFE_INTEGER;
+      const rightYear = Number.isFinite(Number(right.year)) ? Number(right.year) : Number.MAX_SAFE_INTEGER;
+      if (leftYear !== rightYear) {
+        return leftYear - rightYear;
+      }
+
+      const leftBlock = String(left.block || '').trim().toUpperCase();
+      const rightBlock = String(right.block || '').trim().toUpperCase();
+      return leftBlock.localeCompare(rightBlock, undefined, { sensitivity: 'base' });
+    });
+
+  const renderAllFolders = () => {
+    const termGroups = groupOtherDeptFoldersByTerm(buildOtherDeptComboFolders(otherDeptStudents, { activeTerm }), activeTerm);
+
+    if (termGroups.length === 0) {
+      return (
+        <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
+          No students found for this department.
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {termGroups.map((group, index) => (
+          <section
+            key={group.termKey}
+            className={index === 0 ? '' : 'border-t border-slate-200 pt-4'}
+          >
+            <div className="mb-3 text-sm font-semibold text-slate-700">{group.termLabel}</div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {sortFoldersForDisplay(group.folders).map((folder) => {
+                const counts = getOtherDeptFolderStudentCounts(folder, activeTerm);
+                return (
+                  <div
+                    key={folder.key}
+                    className="rounded-xl border border-slate-200 bg-white p-4 transition hover:border-blue-400 hover:shadow-sm"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenCourse(null);
+                          setOpenCombo({
+                            course: folder.course,
+                            year: folder.year,
+                            block: folder.block,
+                            termKey: folder.termKey
+                          });
+                        }}
+                        className="flex flex-1 items-start gap-4 text-left"
+                      >
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                          <Folder className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-medium text-slate-900">{folder.label}</div>
+                          <div className="text-xs text-slate-500">
+                            {counts.total} student{counts.total !== 1 ? 's' : ''}
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deleteFolderAndStudents(folder);
+                        }}
+                        className="rounded-lg bg-slate-50 p-1 text-slate-500 shadow-sm transition hover:bg-slate-100"
+                      >
+                        <Trash className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div>
-      {/* messages shown via toast notifications */}
-
       {!selectedOtherDeptId ? (
         <>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -622,66 +741,63 @@ const OtherDepartmentManagement = () => {
                   <DepartmentCardSkeleton key={`other-dept-skeleton-${index}`} />
                 ))
               : filteredOtherDepartments.map((department) => (
-              <div
-                key={department.id}
-                className="group relative cursor-pointer rounded-xl border border-slate-200 bg-white p-4 transition hover:border-blue-400 hover:shadow-sm"
-                onClick={() => setSelectedOtherDeptId(department.id)}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-start gap-4">
-                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                      <Folder className="h-5 w-5" />
-                    </div>
-
-                    <div className="h-10">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {department.name || 'Unnamed department'}
-                      </p>
-                     
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setOpenOtherDepartmentMenuId((prev) =>
-                        prev === department.id ? '' : department.id
-                      );
-                    }}
-                    className="rounded-lg cursor-pointer bg-slate-50 p-1 text-slate-500 shadow-sm transition hover:bg-slate-100"
+                  <div
+                    key={department.id}
+                    className="group relative cursor-pointer rounded-xl border border-slate-200 bg-white p-4 transition hover:border-blue-400 hover:shadow-sm"
+                    onClick={() => setSelectedOtherDeptId(department.id)}
                   >
-                    <MoreVertical className="h-4 w-4" />
-                  </button>
-                </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-start gap-4">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                          <Folder className="h-5 w-5" />
+                        </div>
+                        <div className="h-10">
+                          <p className="text-sm font-semibold text-slate-900">
+                            {department.name || 'Unnamed department'}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setOpenOtherDepartmentMenuId((prev) =>
+                            prev === department.id ? '' : department.id
+                          );
+                        }}
+                        className="rounded-lg cursor-pointer bg-slate-50 p-1 text-slate-500 shadow-sm transition hover:bg-slate-100"
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                      </button>
+                    </div>
 
-                {openOtherDepartmentMenuId === department.id && (
-                  <div className="absolute right-4 top-14 z-10 w-36 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleEditDepartment(department);
-                      }}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                    >
-                      <Pencil className="h-3.5 w-3.5" /> Edit
-                    </button>
+                    {openOtherDepartmentMenuId === department.id && (
+                      <div className="absolute right-4 top-14 z-10 w-36 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleEditDepartment(department);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleDeleteDepartment(department);
-                      }}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
-                    >
-                      <Trash className="h-3.5 w-3.5" /> Delete
-                    </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDeleteDepartment(department);
+                          }}
+                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
+                        >
+                          <Trash className="h-3.5 w-3.5" /> Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                ))}
             {!loading && filteredOtherDepartments.length === 0 && (
               <div className="col-span-full rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
                 No departments found. Use the Add Department button to create one.
@@ -694,41 +810,17 @@ const OtherDepartmentManagement = () => {
           <div className="flex w-full flex-1 items-center justify-between gap-3">
 
             {!openCourse && !openCombo && (
-            <div className="mb-4 flex-1 space-y-6">
-           
+            <div className="mb-4 flex-1">
               {(() => {
-                const comboMap = new Map();
-                (otherDeptStudents || []).forEach((student) => {
-                  const course = (student.course || '').toString().trim();
-                  const year = student.yearLevel || '';
-                  const block = (student.block || '—').toString().trim() || '—';
-                  const termKey = getStudentTermKey(student);
-                  const comboKey = `${termKey}::${course}::${year}::${block}`;
-                  if (!comboMap.has(comboKey)) {
-                    comboMap.set(comboKey, { termKey, course, year, block, students: [] });
-                  }
-                  comboMap.get(comboKey).students.push(student);
-                });
+                if (!isActiveTermConfigured(activeTerm)) {
+                  return (
+                    <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
+                      Loading active term configuration...
+                    </div>
+                  );
+                }
 
-                const termGroups = new Map();
-                Array.from(comboMap.values()).forEach((combo) => {
-                  if (!termGroups.has(combo.termKey)) {
-                    termGroups.set(combo.termKey, []);
-                  }
-                  termGroups.get(combo.termKey).push(combo);
-                });
-
-                const sortedTermKeys = Array.from(termGroups.keys()).sort((a, b) => {
-                  if (a.startsWith('legacy')) return 1;
-                  if (b.startsWith('legacy')) return -1;
-                  const [semA, syA] = a.split('::');
-                  const [semB, syB] = b.split('::');
-                  const yearCompare = String(syB).localeCompare(String(syA));
-                  if (yearCompare !== 0) return yearCompare;
-                  return Number(semB) - Number(semA);
-                });
-
-                if (sortedTermKeys.length === 0) {
+                if (otherDeptStudents.length === 0) {
                   return (
                     <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
                       No students found for this department.
@@ -736,48 +828,7 @@ const OtherDepartmentManagement = () => {
                   );
                 }
 
-                return sortedTermKeys.map((termKey) => {
-                  const combos = termGroups.get(termKey).sort((a, b) => {
-                    const courseCompare = (a.course || '').localeCompare(b.course || '', undefined, { sensitivity: 'base', numeric: true });
-                    if (courseCompare !== 0) return courseCompare;
-                    const yearCompare = Number(a.year || 0) - Number(b.year || 0);
-                    if (yearCompare !== 0) return yearCompare;
-                    return String(a.block || '').localeCompare(String(b.block || ''), undefined, { sensitivity: 'base', numeric: true });
-                  });
-
-                  return (
-                    <section key={termKey}>
-                      <div className="mb-3 flex items-center gap-3">
-                        <h3 className="text-sm font-semibold text-slate-800">{getTermLabelFromKey(termKey)}</h3>
-                        <div className="h-px flex-1 bg-slate-200" />
-                      </div>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                        {combos.map((combo) => {
-                          const { course, year, block, students } = combo;
-                          const key = `${termKey}::${course}::${year}::${block}`;
-                          return (
-                            <button
-                              key={key}
-                              type="button"
-                              onClick={() => { setOpenCombo({ course, year, block }); setOpenCourse(null); }}
-                              className="group relative cursor-pointer rounded-lg border border-gray-300 bg-white p-4 text-left transition hover:border-blue-400 hover:shadow-md"
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                                  <Folder className="h-5 w-5" />
-                                </div>
-                                <div>
-                                  <div className="text-sm font-semibold text-slate-900">{`${course} ${getYearLevelLabel(year)} ${block}`}</div>
-                                  <div className="text-xs text-slate-500">{students.length} student{students.length !== 1 ? 's' : ''}</div>
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </section>
-                  );
-                });
+                return renderAllFolders();
               })()}
             </div>
             )}
@@ -822,7 +873,7 @@ const OtherDepartmentManagement = () => {
                     }`}
                 >
                   <Square className="h-4 w-4" />
-                  {selectMode ? 'Selecting' : 'Select'}
+                  Select
                 </button>
 
           
@@ -860,12 +911,16 @@ const OtherDepartmentManagement = () => {
             ) : (() => {
               // If a specific Course·Year·Block combo is opened, show its students
               if (openCombo) {
-                const comboStudents = (otherDeptStudents || []).filter(s => (s.course || '').toString().trim() === (openCombo.course || '').toString().trim() && String(s.yearLevel) === String(openCombo.year) && ((s.block || '—').toString().trim() === (openCombo.block || '—').toString().trim()));
+                const comboStudents = (otherDeptStudents || []).filter((student) =>
+                  studentMatchesOtherDeptCombo(student, openCombo)
+                );
                 const term = otherStudentSearch.trim().toLowerCase();
                 const comboStudentsFiltered = comboStudents.filter((student) => {
                   return !term || (student.name || '').toLowerCase().includes(term) || (student.course || '').toLowerCase().includes(term) || String(student.yearLevel || '').toLowerCase().includes(term) || (student.block || '').toLowerCase().includes(term);
                 });
-                const comboStudentsSorted = [...comboStudentsFiltered].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                const comboStudentsSorted = [...comboStudentsFiltered].sort((a, b) =>
+                  compareStudentsActiveTermFirst(a, b, activeTerm)
+                );
                 return (
                   <div>
                   
@@ -883,7 +938,7 @@ const OtherDepartmentManagement = () => {
                                     if (e.target.checked) setSelectedIds(comboStudentsSorted.map((student) => student.id));
                                     else setSelectedIds([]);
                                   }}
-                                  className="h-4 w-4 text-white"
+                                  className="h-3 w-3 text-white rounded"
                                 />
                               </th>
                             ) : (
@@ -907,7 +962,7 @@ const OtherDepartmentManagement = () => {
                                     type="checkbox"
                                     checked={selectedIds.includes(st.id)}
                                     onChange={() => toggleSelectStudent(st.id)}
-                                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                    className="h-3 w-3 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                                   />
                                 </td>
                               ) : (
@@ -949,7 +1004,9 @@ const OtherDepartmentManagement = () => {
                   const term = otherStudentSearch.trim().toLowerCase();
                   return !term || (s.name || '').toLowerCase().includes(term) || (s.block || '').toLowerCase().includes(term) || (s.course || '').toLowerCase().includes(term) || String(s.yearLevel || '').toLowerCase().includes(term);
                 });
-                const courseStudents = [...filtered].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                const courseStudents = [...filtered].sort((a, b) =>
+                  compareStudentsActiveTermFirst(a, b, activeTerm)
+                );
 
                 return (
                   <div>
@@ -1049,7 +1106,6 @@ const OtherDepartmentManagement = () => {
                 return <div className="p-8 text-center text-sm text-slate-500">No students found for this department.</div>;
               }
 
-             
             })()}
           </div>
         </div>

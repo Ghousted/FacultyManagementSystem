@@ -30,7 +30,7 @@ const STUDENT_MODAL_YEAR_TABS = [
   { key: 2, label: '2nd Year' },
   { key: 3, label: '3rd Year' },
   { key: 4, label: '4th Year' },
-  { key: 'irregular', label: 'All Irregular' }
+  { key: 'irregular', label: 'Irregular' }
 ];
 
 const getSurnameKey = (name = '') => {
@@ -287,7 +287,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
     enrolled: { label: 'Enrolled Students', count: statusCounts.enrolled || 0 },
     active: { label: 'Active Students', count: statusCounts.active || 0 },
     inactive: { label: 'Inactive Students', count: statusCounts.inactive || 0 },
-    'not-enrolled': { label: 'Not Enrolled Students', count: statusCounts['not-enrolled'] || 0 }
+    'not-enrolled': { label: 'Not Enrolled Students', count: statusCounts['not-enrolled'] || 0 },
   };
 
   const openStatusModal = (type) => {
@@ -1632,7 +1632,6 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
       return `${courseCode} (not yet completed or passed)`;
     });
 
-    return `Cannot add subject. Complete these prerequisite subjects first: ${parts.join(', ')}.`;
   };
 
   const isCourseCompleted = (courseCode) =>
@@ -2244,20 +2243,27 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
             </div>
 
             <div className="px-6 pt-4">
-              <div className="flex flex-wrap gap-2 items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+  <div className="flex flex-wrap gap-1.5">
                 {STUDENT_MODAL_YEAR_TABS.map((tab) => (
                   <button
                     key={tab.key}
                     type="button"
                     onClick={() => setStatusModalYearTab(tab.key)}
-                    className={`rounded-lg px-4 py-1 text-sm font-medium transition-all ${
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
                       statusModalYearTab === tab.key
-                        ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                        : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+                       ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
                     }`}
                   >
                     {tab.label}
-                    <span className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${statusModalYearTab === tab.key ? 'bg-blue-100 text-blue-500' : 'bg-gray-200 text-gray-600'}`}>
+                    <span 
+                      className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 ${
+                        statusModalYearTab === tab.key 
+                          ? 'bg-blue-100 text-blue-500' 
+                          : 'bg-slate-100 text-slate-600'
+                        }
+                      `}
+                    >
                       {statusModalTabCounts[tab.key] || 0}
                     </span>
                   </button>
@@ -2375,17 +2381,9 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
               <div className="flex-1 overflow-y-auto min-h-0 space-y-2 pr-1">
                 {academicActiveTab === 0 && (
                   <div className="flex flex-col gap-3">
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                      Dean's List rules are shared with the reports module and are evaluated automatically in the student eligibility summary.
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-4">
-                      <div className="mb-4 flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-slate-800">Dean's Lister criteria</p>
-                          <p className="text-xs text-slate-500">Same configuration used by the Dean's List Report module.</p>
-                        </div>
-                        <span className="rounded-full bg-blue-50 px-3 py-1 text-[11px] font-medium text-blue-700">Shared settings</span>
-                      </div>
+                 
+                    <div className="">
+                     
                       <DeanListCriteriaFields
                         criteria={academicConfig?.deanList || {}}
                         onChange={(nextCriteria) => setAcademicConfig(prev => ({
@@ -2415,31 +2413,31 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                     
                      <div className="flex items-center gap-2">
                        <div>
-                        <label className="text-sm">Major cutoff</label>
+                        <label className="block text-xs text-gray-700 mb-1">Major cutoff</label>
                         <input type="number" step="0.01" value={academicConfig?.scholarship?.tier100?.major ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier100:{...(prev.scholarship?.tier100||{}), major: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
                       </div>
                       <div>
-                        <label className="text-sm">Minor cutoff</label>
+                        <label className="block text-xs text-gray-700 mb-1">Minor cutoff</label>
                         <input type="number" step="0.01" value={academicConfig?.scholarship?.tier100?.minor ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier100:{...(prev.scholarship?.tier100||{}), minor: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
                       </div>
                       </div>
                         <div>
-                        <label className="text-sm">GWA cutoff</label>
+                        <label className="block text-xs text-gray-700 mb-1">GWA cutoff</label>
                         <input type="number" step="0.01" value={academicConfig?.scholarship?.tier100?.gwa ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier100:{...(prev.scholarship?.tier100||{}), gwa: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
                       </div>
                       <div>
-                        <label className="text-sm">Minimum units</label>
+                        <label className="block text-xs text-gray-700 mb-1">Minimum units</label>
                         <input type="number" value={academicConfig?.scholarship?.tier100?.minUnits ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier100:{...(prev.scholarship?.tier100||{}), minUnits: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow" />
                       </div>
                       <div>
-                        <label className="text-sm">Apply minimum units for</label>
+                        <label className="block text-xs text-gray-700 mb-1">Apply minimum units for</label>
                         <select value={academicConfig?.scholarship?.tier100?.applyMinUnitsFor || 'both'} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier100:{...(prev.scholarship?.tier100||{}), applyMinUnitsFor: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow">
                           <option value="regular">Regular students only</option>
                           <option value="irregular">Irregular students only</option>
                           <option value="both">Both</option>
                         </select>
                       </div>
-                     <div className="flex items-center gap-4">
+                     <div className="flex items-center gap-4 mt-1">
                         <label className="text-sm whitespace-nowrap">Computation method</label>
 
                         <div className="flex items-center gap-3">
@@ -2501,32 +2499,32 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                     
                   <div className="flex items-center gap-2">
                       <div>
-                        <label className="text-sm">Major cutoff</label>
+                        <label className="block text-xs text-gray-700 mb-1">Major cutoff</label>
                         <input type="number" step="0.01" value={academicConfig?.scholarship?.tier50?.major ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier50:{...(prev.scholarship?.tier50||{}), major: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-500 transition-shadow" />
                       </div>
                       <div>
-                        <label className="text-sm">Minor cutoff</label>
+                        <label className="block text-xs text-gray-700 mb-1">Minor cutoff</label>
                         <input type="number" step="0.01" value={academicConfig?.scholarship?.tier50?.minor ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier50:{...(prev.scholarship?.tier50||{}), minor: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-500 transition-shadow" />
                       </div>
                       </div>
                         <div>
-                        <label className="text-sm">GWA cutoff</label>
+                        <label className="block text-xs text-gray-700 mb-1">GWA cutoff</label>
                         <input type="number" step="0.01" value={academicConfig?.scholarship?.tier50?.gwa ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier50:{...(prev.scholarship?.tier50||{}), gwa: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-500 transition-shadow" />
                       </div>
                       <div>
-                        <label className="text-sm">Minimum units</label>
+                        <label className="block text-xs text-gray-700 mb-1">Minimum units</label>
                         <input type="number" value={academicConfig?.scholarship?.tier50?.minUnits ?? ''} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier50:{...(prev.scholarship?.tier50||{}), minUnits: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-500 transition-shadow" />
                       </div>
                       <div>
-                        <label className="text-sm">Apply minimum units for</label>
+                        <label className="block text-xs text-gray-700 mb-1">Apply minimum units for</label>
                         <select value={academicConfig?.scholarship?.tier50?.applyMinUnitsFor || 'both'} onChange={(e)=> setAcademicConfig(prev=> ({...prev, scholarship:{...prev.scholarship, tier50:{...(prev.scholarship?.tier50||{}), applyMinUnitsFor: e.target.value}}}))} className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-500 transition-shadow">
                           <option value="regular">Regular students only</option>
                           <option value="irregular">Irregular students only</option>
                           <option value="both">Both</option>
                         </select>
                       </div>
-                     <div className="flex items-center gap-4">
-                      <label className="text-sm whitespace-nowrap">Computation method</label>
+                     <div className="flex items-center gap-4 mt-1">
+                      <label className="text-sm whitespace-nowrap">Computation Method:</label>
 
                       <div className="flex items-center gap-3">
                         <label className="inline-flex text-sm items-center gap-2 cursor-pointer">
@@ -2574,7 +2572,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                     </div>
                     </div>
 
-                       <div className="mt-4 border-slate-300 p-4 rounded-lg border bg-slate-50 text-xs text-slate-600">
+                       <div className="mt-2 text-xs border border-blue-300 bg-blue-50 text-slate-500 rounded-md px-4 py-2">
                       Weighted: (sum of grade × units) / total units <br/> Simple: sum of grades / number of subjects
                     </div>
                     
@@ -2584,7 +2582,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                 {academicActiveTab === 2 && (
                   <div>
                     {/* Units limits */}
-                    <div className="flex flex-col gap-6">
+                    <div className="flex flex-col gap-4">
                       <div>
                         <label className="text-sm">Regular Students max units</label>
                         <input 
@@ -2646,7 +2644,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                 </button>
                 <button 
                   onClick={async () => { const res = await saveAcademicConfig(academicConfig||{}); if (res.success) { toast.success('Saved'); setAcademicModalOpen(false); } else { toast.error(res.error || 'Failed to save'); } }} 
-                  className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                  className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   Save
                 </button>
@@ -4381,7 +4379,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
               <button
                 onClick={() => handleSaveEdit(editingData.id)}
                 disabled={loading || !editingData.name}
-                className="px-4 py-2 W-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 w-24 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
                 Update
               </button>
@@ -4745,7 +4743,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
         const renderEquivalentOtherCurricula = (course) => {
           const equivalents = getEquivalentCoursesFromOtherCurricula(course);
           if (equivalents.length === 0) {
-            return <span className="text-xs text-slate-400">—</span>;
+            return <span className="text-xs text-slate-400"> </span>;
           }
 
           return (
@@ -4759,7 +4757,6 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                   <p className="text-[11px] font-medium text-violet-700">
                     {getCurriculumName(equivalent.curriculumId) || 'Other curriculum'}
                   </p>
-                  <p className="truncate text-[11px] text-slate-600">{equivalent.courseTitle}</p>
                 </div>
               ))}
             </div>
@@ -4790,11 +4787,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                     }`}
                   >
                     <div className="flex items-start gap-1.5">
-                      {met ? (
-                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                      ) : (
-                        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600" />
-                      )}
+                     
                       <div className="min-w-0">
                         <p className={`text-xs font-semibold ${met ? 'text-emerald-800' : 'text-red-800'}`}>
                           {fulfillment.courseCode}
@@ -4840,7 +4833,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
             return (
               <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
                 <AlertCircle className="w-3.5 h-3.5" />
-                Unit limit
+                Limit
               </span>
             );
           }
@@ -4864,69 +4857,78 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
             <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" onClick={() => setSubjectPickerOpen(false)} />
             <div className="relative z-10 flex h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-              <div className="border-b border-blue-100 bg-gradient-to-r from-blue-600 via-blue-600 to-indigo-600 px-5 py-4 text-white sm:px-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <div className="rounded-lg bg-white/15 p-2">
-                        <BookOpen className="h-5 w-5" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold tracking-tight sm:text-xl">Add Irregular Subject</h3>
-                        <p className="truncate text-sm text-blue-100">{selectedStudent.name || 'Student'}</p>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium">
-                        <GraduationCap className="h-3.5 w-3.5" />
-                        {targetYearLabel} Year · {targetSemLabel} Semester
-                      </span>
-                      {term.semester && term.schoolYear && (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium">
-                          <Calendar className="h-3.5 w-3.5" />
-                          Active: {SEMESTER_LABELS[term.semester] || `Sem ${term.semester}`} · S.Y. {term.schoolYear}
-                        </span>
-                      )}
-                    </div>
+             <div className="border-b border-slate-200 px-8 py-4 bg-slate-100">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                
+                {/* Left Content */}
+                <div className="min-w-0 flex-1">
+                  
+                  {/* Title Section */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xl font-medium text-slate-800">
+                      Add Irregular Subject
+                    </h3>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setSubjectPickerOpen(false)}
-                    className="rounded-full bg-white/15 p-2 text-white transition hover:bg-white/25"
-                    aria-label="Close"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
+
+                  {/* Tags */}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+                      <User className="h-4 w-4 text-blue-600" />
+                       {selectedStudent.name || 'Student'}
+                    </span>
+
+
+                    <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+                      <GraduationCap className="h-4 w-4 text-blue-600" />
+                      {targetYearLabel} Year · {targetSemLabel} Semester
+                    </span>
+
+                    {term.semester && term.schoolYear && (
+                      <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+                        <Calendar className="h-4 w-4 text-blue-600" />
+                        Active Term: {SEMESTER_LABELS[term.semester] || `Sem ${term.semester}`} · S.Y. {term.schoolYear}
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {/* Close Button */}
+                <button
+                  type="button"
+                  onClick={() => setSubjectPickerOpen(false)}
+                  className="rounded-full bg-white p-1 cursor-pointer text-slate-500 hover:text-red-600 transition"
+                  aria-label="Close"
+                >
+                  <X className="h-5 w-5 " />
+                </button>
               </div>
+            </div>
 
               <div className="grid shrink-0 gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-3 sm:grid-cols-2 sm:px-5">
                 <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Enrollment term</p>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     <button
                       type="button"
                       onClick={() => setIrregularAddTermMode('previous')}
-                      className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
+                      className={`rounded-lg px-3 py-2 text-xs w-fit font-medium transition ${
                         irregularAddTermMode === 'previous'
-                          ? 'border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-100'
-                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                      }`}
+                          ? 'bg-blue-500 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer'
+                      }`}  
                     >
                       <span className="font-semibold">Previous Term</span>
-                      <span className="mt-0.5 block text-[11px] text-slate-500">Backfill — no block required</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setIrregularAddTermMode('current')}
-                      className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
+                      className={`rounded-lg px-3 py-2 text-xs w-fit font-medium transition ${
                         irregularAddTermMode === 'current'
-                          ? 'border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-100'
-                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                          ? 'bg-blue-500 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer'
                       }`}
                     >
                       <span className="font-semibold">Current Term</span>
-                      <span className="mt-0.5 block text-[11px] text-slate-500">Join a class block</span>
                     </button>
                   </div>
                 </div>
@@ -4939,10 +4941,10 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                         key={yearKey}
                         type="button"
                         onClick={() => setSubjectPickerYearFilter(yearKey)}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                        className={`rounded-lg px-3 py-2 text-xs flex-1 font-medium transition ${
                           subjectPickerYearFilter === yearKey
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            ? 'bg-blue-500 text-white shadow-sm'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer'
                         }`}
                       >
                         {yearKey === 'all' ? 'All' : `${yearKey === '1' ? '1st' : yearKey === '2' ? '2nd' : yearKey === '3' ? '3rd' : '4th'} Year`}
@@ -4955,13 +4957,12 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
               <div className="shrink-0 space-y-3 border-b border-slate-100 px-4 py-3 sm:px-5">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5">
-                      <Funnel className="h-4 w-4 text-slate-400" />
+                    <div className="">
                       <select
                         id="subject-picker-curriculum"
                         value={subjectPickerCurriculumFilter}
                         onChange={(e) => setSubjectPickerCurriculumFilter(e.target.value)}
-                        className="min-w-[10rem] border-0 bg-transparent text-sm focus:outline-none focus:ring-0"
+                        className="w-fit border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                       >
                         {curriculums.map((curriculum) => (
                           <option key={curriculum.id} value={curriculum.id}>
@@ -4975,7 +4976,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                       id="subject-picker-semester"
                       value={subjectPickerSemesterFilter}
                       onChange={(e) => setSubjectPickerSemesterFilter(e.target.value)}
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-fit border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     >
                       <option value="all">All semesters</option>
                       <option value="1">1st semester</option>
@@ -4988,12 +4989,12 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                         value={subjectPickerSearch}
                         onChange={(e) => setSubjectPickerSearch(e.target.value)}
                         placeholder="Search code, title, or curriculum…"
-                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                       />
                     </div>
                   </div>
 
-                  <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
+                  <div className="inline-flex gap-2 rounded-lg border border-slate-200 bg-white p-1">
                     {[
                       { key: 'all', label: `All (${irregularSubjectPickerStats.total})` },
                       { key: 'addable', label: `Ready (${irregularSubjectPickerStats.addable})` },
@@ -5003,10 +5004,10 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                         key={tab.key}
                         type="button"
                         onClick={() => setSubjectPickerStatusFilter(tab.key)}
-                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                        className={`rounded-lg px-3 py-2 text-xs  font-medium transition ${
                           subjectPickerStatusFilter === tab.key
-                            ? 'bg-blue-600 text-white'
-                            : 'text-slate-600 hover:bg-slate-100'
+                            ? 'bg-blue-500 text-white shadow-sm'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer'
                         }`}
                       >
                         {tab.label}
@@ -5031,7 +5032,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                   {irregularSubjectPickerStats.withEquivalentsInOther > 0 && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 font-medium text-violet-700">
                       <Link2 className="h-3.5 w-3.5" />
-                      {irregularSubjectPickerStats.withEquivalentsInOther} with equivalents in other curricula
+                      {irregularSubjectPickerStats.withEquivalentsInOther} equivalent subjects in other curriculum
                     </span>
                   )}
                   <span className="ml-auto flex min-w-[12rem] items-center gap-2">
@@ -5054,125 +5055,164 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
               <div className="min-h-0 flex-1 overflow-hidden px-4 pb-3 pt-2 sm:px-5">
                 <div className="h-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
                   <div className="h-full overflow-auto">
-                    <table className="min-w-full text-sm">
-                      <thead className="sticky top-0 z-10 bg-slate-800 text-xs uppercase tracking-wide text-white">
+                   <table className="min-w-full table-fixed text-sm">
+                    <thead className="sticky top-0 z-10 bg-blue-500 text-xs uppercase tracking-wide text-white">
+                      <tr>
+                        <th className="w-[10%] px-3 py-2.5 text-left">Status</th>
+
+                        <th
+                          className="w-[10%] cursor-pointer px-3 py-2.5 text-left select-none"
+                          onClick={() => {
+                            if (subjectPickerSortBy === 'courseCode') {
+                              setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                            } else {
+                              setSubjectPickerSortBy('courseCode');
+                              setSubjectPickerSortOrder('asc');
+                            }
+                          }}
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            Code
+                            {subjectPickerSortBy === 'courseCode' && subjectPickerSortOrder === 'asc' ? (
+                              <ChevronUp className="h-3.5 w-3.5" />
+                            ) : subjectPickerSortBy === 'courseCode' ? (
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            ) : (
+                              <ChevronsUpDown className="h-3.5 w-3.5 opacity-60" />
+                            )}
+                          </span>
+                        </th>
+
+                        <th
+                          className="w-[24%] cursor-pointer px-3 py-2.5 text-left select-none"
+                          onClick={() => {
+                            if (subjectPickerSortBy === 'courseTitle') {
+                              setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+                            } else {
+                              setSubjectPickerSortBy('courseTitle');
+                              setSubjectPickerSortOrder('asc');
+                            }
+                          }}
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            Description
+                            {subjectPickerSortBy === 'courseTitle' && subjectPickerSortOrder === 'asc' ? (
+                              <ChevronUp className="h-3.5 w-3.5" />
+                            ) : subjectPickerSortBy === 'courseTitle' ? (
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            ) : (
+                              <ChevronsUpDown className="h-3.5 w-3.5 opacity-60" />
+                            )}
+                          </span>
+                        </th>
+
+                        <th className="w-[6%] px-3 py-2.5 text-center">Units</th>
+
+                        <th className="w-[7%] px-3 py-2.5 text-center">Type</th>
+
+                        <th className="w-[23%] px-3 py-2.5 text-left">
+                          Prerequisites
+                        </th>
+
+                        <th className="w-[15%] px-3 py-2.5 text-left">
+                          Equivalent Subjects
+                        </th>
+
+                        <th className="w-[5%] px-3 py-2.5 text-right">Action</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {filteredIrregularSubjectPickerRows.length === 0 ? (
                         <tr>
-                          <th className="px-3 py-2.5 text-left">Status</th>
-                          <th
-                            className="cursor-pointer px-3 py-2.5 text-left select-none"
-                            onClick={() => {
-                              if (subjectPickerSortBy === 'courseCode') {
-                                setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-                              } else {
-                                setSubjectPickerSortBy('courseCode');
-                                setSubjectPickerSortOrder('asc');
-                              }
-                            }}
-                          >
-                            <span className="inline-flex items-center gap-1">
-                              Code
-                              {subjectPickerSortBy === 'courseCode' && subjectPickerSortOrder === 'asc' ? (
-                                <ChevronUp className="h-3.5 w-3.5" />
-                              ) : subjectPickerSortBy === 'courseCode' ? (
-                                <ChevronDown className="h-3.5 w-3.5" />
-                              ) : (
-                                <ChevronsUpDown className="h-3.5 w-3.5 opacity-60" />
-                              )}
-                            </span>
-                          </th>
-                          <th
-                            className="cursor-pointer px-3 py-2.5 text-left select-none"
-                            onClick={() => {
-                              if (subjectPickerSortBy === 'courseTitle') {
-                                setSubjectPickerSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-                              } else {
-                                setSubjectPickerSortBy('courseTitle');
-                                setSubjectPickerSortOrder('asc');
-                              }
-                            }}
-                          >
-                            <span className="inline-flex items-center gap-1">
-                              Description
-                              {subjectPickerSortBy === 'courseTitle' && subjectPickerSortOrder === 'asc' ? (
-                                <ChevronUp className="h-3.5 w-3.5" />
-                              ) : subjectPickerSortBy === 'courseTitle' ? (
-                                <ChevronDown className="h-3.5 w-3.5" />
-                              ) : (
-                                <ChevronsUpDown className="h-3.5 w-3.5 opacity-60" />
-                              )}
-                            </span>
-                          </th>
-                          <th className="px-3 py-2.5 text-center">Units</th>
-                          <th className="px-3 py-2.5 text-left">Type</th>
-                          <th className="min-w-[14rem] px-3 py-2.5 text-left">Prerequisites</th>
-                          <th className="min-w-[12rem] px-3 py-2.5 text-left">Equivalents (Other Curr.)</th>
-                          <th className="px-3 py-2.5 text-right">Action</th>
+                          <td colSpan={8} className="px-4 py-12 text-center">
+                            <div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-slate-500">
+                              <Info className="h-8 w-8 text-slate-300" />
+                              <p className="text-sm font-medium text-slate-700">
+                                No subjects match your filters
+                              </p>
+                              <p className="text-xs">
+                                Try another search term, semester, or switch to “All” subjects.
+                              </p>
+                            </div>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {filteredIrregularSubjectPickerRows.length === 0 ? (
-                          <tr>
-                            <td colSpan={8} className="px-4 py-12 text-center">
-                              <div className="mx-auto flex max-w-sm flex-col items-center gap-2 text-slate-500">
-                                <Info className="h-8 w-8 text-slate-300" />
-                                <p className="text-sm font-medium text-slate-700">No subjects match your filters</p>
-                                <p className="text-xs">Try another search term, semester, or switch to “All” subjects.</p>
+                      ) : (
+                        filteredIrregularSubjectPickerRows.map(({ course, rowState }, index) => (
+                          <tr
+                            key={course.id}
+                            className={`border-t border-slate-100 transition hover:bg-blue-50/40 ${
+                              index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
+                            }`}
+                          >
+                            <td className="w-[10%] px-3 py-3 align-top">
+                              {renderRowStatus(rowState)}
+                            </td>
+
+                            <td className="w-[10%] px-3 py-3 align-top">
+                              <span className="font-semibold text-blue-700">
+                                {course.courseCode}
+                              </span>
+
+                          
+                            </td>
+
+                            <td className="w-[24%] px-3 py-3 align-top text-slate-700">
+                              <div className="break-words">
+                                {course.courseTitle}
                               </div>
                             </td>
-                          </tr>
-                        ) : (
-                          filteredIrregularSubjectPickerRows.map(({ course, rowState }, index) => (
-                            <tr
-                              key={course.id}
-                              className={`border-t border-slate-100 transition hover:bg-blue-50/40 ${
-                                index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
-                              }`}
-                            >
-                              <td className="px-3 py-3 align-top">{renderRowStatus(rowState)}</td>
-                              <td className="px-3 py-3 align-top">
-                                <span className="font-semibold text-blue-700">{course.courseCode}</span>
-                                <p className="mt-0.5 text-[11px] text-slate-500">
-                                  {getCurriculumName(course.curriculumId) || 'Unknown'}
-                                </p>
-                              </td>
-                              <td className="px-3 py-3 align-top text-slate-700">{course.courseTitle}</td>
-                              <td className="px-3 py-3 text-center align-top text-slate-600">{course.units}</td>
-                              <td className="px-3 py-3 align-top">
-                                {course.isMajor ? (
-                                  <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
-                                    Major
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                                    Minor
-                                  </span>
-                                )}
-                              </td>
-                              <td className="min-w-[14rem] px-3 py-3 align-top">
+
+                            <td className="w-[6%] px-3 py-3 text-center align-top text-slate-600">
+                              {course.units}
+                            </td>
+
+                            <td className="w-[7%] px-3 py-3 align-top">
+                              {course.isMajor ? (
+                                <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                                  Major
+                                </span>
+                              ) : (
+                                <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                                  Minor
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="w-[23%] px-3 py-3 align-top">
+                              <div className="overflow-hidden">
                                 {renderPrerequisiteChips(course, rowState)}
-                              </td>
-                              <td className="min-w-[12rem] px-3 py-3 align-top">
+                              </div>
+                            </td>
+
+                            <td className="w-[15%] px-3 py-3 align-top">
+                              <div className="overflow-hidden">
                                 {renderEquivalentOtherCurricula(course)}
-                              </td>
-                              <td className="px-3 py-3 text-right align-top">
-                                {rowState.canAdd ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRequestAddIrregularSubject(course)}
-                                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-                                  >
-                                    <Plus className="h-3.5 w-3.5" />
-                                    Add
-                                  </button>
-                                ) : (
-                                  <span className="text-xs text-slate-400">—</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                              </div>
+                            </td>
+
+                            <button
+                              type="button"
+                              disabled={!rowState.canAdd}
+                              onClick={() => {
+                                if (rowState.canAdd) {
+                                  handleRequestAddIrregularSubject(course);
+                                }
+                              }}
+                              className={`inline-flex w-full  text-center  justify-center items-center mt-3 gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition
+                                ${
+                                  rowState.canAdd
+                                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                    : 'cursor-not-allowed bg-slate-100 text-slate-400'
+                                }`}
+                            >
+                              Add
+                            </button>
+                                                      </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
                   </div>
                 </div>
               </div>
@@ -5184,7 +5224,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                 <button
                   type="button"
                   onClick={() => setSubjectPickerOpen(false)}
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
                 >
                   Done
                 </button>
