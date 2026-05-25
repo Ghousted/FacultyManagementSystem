@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   collection,
+  deleteDoc,
+  getDoc,
   getDocs,
   doc,
   setDoc,
   serverTimestamp,
   query,
+  writeBatch,
   where,
   orderBy,
 } from 'firebase/firestore';
@@ -21,7 +24,8 @@ import {
   X,
   Square,
   Search,
-  RefreshCcw
+  RefreshCcw,
+  Trash2,
 } from 'lucide-react';
 import { logSystemAction } from '../../utils/auditLogger';
 import Breadcrumbs from '../common/Breadcrumbs';
@@ -65,16 +69,23 @@ const ItemCard = ({
   type,
   isSelected,
   onClick,
+  onDelete,
 }) => {
   const isBatch = type === 'batch';
 
   return (
- <button
+ <div
+  role="button"
+  tabIndex={0}
   onClick={onClick}
+  onKeyDown={(event) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') onClick();
+  }}
   className="group relative cursor-pointer rounded-lg border border-gray-300 bg-white p-4 text-left shadow-sm transition  hover:border-blue-400 hover:shadow-md"
 
 >
-  <div className="flex items-center gap-3">
+  <div className="flex items-center gap-3 pr-8">
     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
 <Folder className="h-5 w-5" />
 </div>
@@ -92,7 +103,18 @@ const ItemCard = ({
      
     </div>
   </div>
-</button>
+  <button
+    type="button"
+    onClick={(event) => {
+      event.stopPropagation();
+      onDelete(item);
+    }}
+    className="absolute right-3 top-3 rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
+    title={`Delete ${isBatch ? 'batch' : 'folder'}`}
+  >
+    <Trash2 className="h-4 w-4" />
+  </button>
+</div>
   );
 };
 
@@ -113,6 +135,7 @@ const StudentList = ({
   onSort,
   onViewStudent,
   onUnarchiveStudent,
+  onDeleteStudent,
   selectMode,
   selectedIds,
   onToggleSelect,
@@ -237,8 +260,19 @@ const StudentList = ({
                       onUnarchiveStudent(student);
                     }}
 className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gray-500"
+                    title="Unarchive student"
                   >
                     <ArchiveRestore className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteStudent(student);
+                    }}
+                    className="ml-2 rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-red-50 text-gray-500 hover:text-red-600"
+                    title="Delete archived record"
+                  >
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 </td>
               </tr>
@@ -640,6 +674,93 @@ const UnarchiveModal = ({
   );
 };
 
+const DeleteArchiveModal = ({ target, saving, onClose, onConfirm }) => {
+  if (!target) return null;
+
+  const isStudents = target.type === 'students';
+  const count = target.students?.length || 0;
+  const title = isStudents
+    ? `Delete ${count} archived record${count === 1 ? '' : 's'}?`
+    : `Delete archived ${target.item?.type === 'batch' ? 'batch' : 'folder'}?`;
+  const name = isStudents
+    ? target.students.map((student) => student.name || student.studentNumber || 'Archived student').join(', ')
+    : target.item?.name || target.item?.id || 'this archive';
+
+  return (
+    <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-lg">
+        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+        <p className="mt-2 text-sm text-gray-600">
+          This will permanently remove <span className="font-medium text-gray-900">{name}</span> from archived classes. This action cannot be undone.
+        </p>
+
+        <div className="flex justify-end gap-2 mt-6">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-3 py-2 text-sm border rounded-lg disabled:opacity-50"
+          >
+            Cancel
+          </button>
+
+          <button
+            onClick={onConfirm}
+            disabled={saving}
+            className="px-3 py-2 text-sm bg-red-600 text-white rounded-lg disabled:opacity-50"
+          >
+            {saving ? 'Deleting...' : 'Delete Permanently'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const commitBatchedDeletes = async (refs) => {
+  for (let index = 0; index < refs.length; index += 450) {
+    const batch = writeBatch(db);
+    refs.slice(index, index + 450).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+};
+
+const deleteArchivedPaymentsForStudents = async (studentIds) => {
+  const paymentRefs = [];
+
+  for (const studentId of studentIds) {
+    const paymentsQuery = query(
+      collection(db, 'archivedStudentPayments'),
+      where('studentId', '==', studentId)
+    );
+    const snapshot = await getDocs(paymentsQuery);
+    snapshot.docs.forEach((docSnap) => {
+      paymentRefs.push(doc(db, 'archivedStudentPayments', docSnap.id));
+    });
+  }
+
+  await commitBatchedDeletes(paymentRefs);
+};
+
+const removeStudentsFromArchivedPayables = async (archiveId, studentIds) => {
+  const payablesRef = doc(db, 'archivedPayables', archiveId);
+  const payablesSnap = await getDoc(payablesRef);
+
+  if (!payablesSnap.exists()) return;
+
+  const data = payablesSnap.data();
+  const nextStudents = { ...(data.students || {}) };
+  studentIds.forEach((studentId) => {
+    delete nextStudents[studentId];
+  });
+
+  if (Object.keys(nextStudents).length === 0) {
+    await deleteDoc(payablesRef);
+    return;
+  }
+
+  await setDoc(payablesRef, { ...data, students: nextStudents }, { merge: false });
+};
+
 /* ---------------- MAIN ---------------- */
 const ArchivedClasses = ({ onBackToReportsMain }) => {
   const [archives, setArchives] = useState([]);
@@ -667,6 +788,8 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [success, setSuccess] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   /* ---------------- FETCH ---------------- */
   const fetchData = async (showRefreshLoading = false) => {
@@ -829,6 +952,94 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
       setSelectedIds(idOrArray);
     } else {
       toggleSelectId(idOrArray);
+    }
+  };
+
+  const openDeleteArchiveModal = (item) => {
+    setDeleteTarget({ type: 'archive', item });
+  };
+
+  const openDeleteStudentModal = (student) => {
+    setDeleteTarget({ type: 'students', archive: selectedItem, students: [student] });
+  };
+
+  const openDeleteSelectedModal = () => {
+    const students = (selectedItem?.students || []).filter((student) => selectedIds.includes(student.id));
+    if (students.length === 0) return;
+    setDeleteTarget({ type: 'students', archive: selectedItem, students });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+
+    setDeleting(true);
+    try {
+      if (deleteTarget.type === 'archive') {
+        const archive = deleteTarget.item;
+        const studentIds = (archive.students || []).map((student) => student.id).filter(Boolean);
+
+        await deleteArchivedPaymentsForStudents(studentIds);
+        await deleteDoc(doc(db, 'archivedPayables', archive.id)).catch(() => {});
+        await deleteDoc(doc(db, 'archives', archive.id));
+
+        await logSystemAction({
+          action: 'Deleted archived class folder',
+          module: 'Reports',
+          entityType: 'archive',
+          entityId: '',
+          description: `Deleted archived ${archive.type === 'batch' ? 'batch' : 'folder'}: ${archive.name || formatBatchLabel(archive.id)}`,
+          details: {
+            name: archive.name || formatBatchLabel(archive.id),
+            recordCount: studentIds.length,
+          },
+        });
+
+        setArchives((prev) => prev.filter((archiveItem) => archiveItem.id !== archive.id));
+        if (selectedItem?.id === archive.id) setSelectedItem(null);
+        setSuccess('Archived folder deleted permanently.');
+      } else {
+        const archive = deleteTarget.archive;
+        const studentIds = (deleteTarget.students || []).map((student) => student.id).filter(Boolean);
+        const nextStudents = (archive.students || []).filter((student) => !studentIds.includes(student.id));
+
+        await setDoc(
+          doc(db, 'archives', archive.id),
+          {
+            students: nextStudents,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+        await removeStudentsFromArchivedPayables(archive.id, studentIds);
+        await deleteArchivedPaymentsForStudents(studentIds);
+
+        await logSystemAction({
+          action: 'Deleted archived class records',
+          module: 'Reports',
+          entityType: 'archive',
+          entityId: '',
+          description: `Deleted ${studentIds.length} archived class record${studentIds.length === 1 ? '' : 's'} from ${archive.name || formatBatchLabel(archive.id)}`,
+          details: {
+            archiveName: archive.name || formatBatchLabel(archive.id),
+            recordCount: studentIds.length,
+          },
+        });
+
+        setArchives((prev) =>
+          prev.map((archiveItem) =>
+            archiveItem.id === archive.id ? { ...archiveItem, students: nextStudents } : archiveItem
+          )
+        );
+        setSelectedItem((prev) => (prev ? { ...prev, students: nextStudents } : prev));
+        setSelectedIds([]);
+        setSuccess(`${studentIds.length} archived record${studentIds.length === 1 ? '' : 's'} deleted permanently.`);
+      }
+
+      setDeleteTarget(null);
+    } catch (err) {
+      alert(`Failed to delete archived data: ${err.message}`);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1052,14 +1263,24 @@ ${selectMode
                 </button>
 
                 {selectMode && selectedIds.length > 0 && (
-                  <button
-                    onClick={handleBulkUnarchive}
-                    disabled={unarchiving}
-                    className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gray-500"
-                    title={`Unarchive ${selectedIds.length} selected student${selectedIds.length > 1 ? 's' : ''}`}
-                  >
-                    <ArchiveRestore className="w-4 h-4" />
-                  </button>
+                  <>
+                    <button
+                      onClick={handleBulkUnarchive}
+                      disabled={unarchiving}
+                      className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gray-500"
+                      title={`Unarchive ${selectedIds.length} selected student${selectedIds.length > 1 ? 's' : ''}`}
+                    >
+                      <ArchiveRestore className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={openDeleteSelectedModal}
+                      disabled={deleting}
+                      className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-red-50 text-gray-500 hover:text-red-600"
+                      title={`Delete ${selectedIds.length} selected archived record${selectedIds.length > 1 ? 's' : ''}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
                 )}
                 
                  </div>
@@ -1107,6 +1328,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                 item={item}
                 type={item.type}
                 isSelected={false}
+                onDelete={openDeleteArchiveModal}
                 onClick={() =>
                   setSelectedItem({
                     ...item,
@@ -1134,6 +1356,7 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
             onSort={handleSort}
             onViewStudent={openStudentModal}
             onUnarchiveStudent={openUnarchiveModal}
+            onDeleteStudent={openDeleteStudentModal}
             selectMode={selectMode}
             selectedIds={selectedIds}
             onToggleSelect={handleToggleSelect}
@@ -1168,6 +1391,12 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
         onClose={() => setUnarchiveTarget(null)}
         onConfirm={handleUnarchive}
         saving={unarchiving}
+      />
+      <DeleteArchiveModal
+        target={deleteTarget}
+        saving={deleting}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
       />
     </div>
   );

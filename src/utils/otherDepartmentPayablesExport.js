@@ -7,10 +7,10 @@ const numberOrZero = (value) => {
 };
 
 const formatExportDate = (rawValue) => {
-  if (!rawValue) return 'No payment yet';
+  if (!rawValue) return 'None';
 
   const parsed = new Date(rawValue);
-  if (Number.isNaN(parsed.getTime())) return 'No payment yet';
+  if (Number.isNaN(parsed.getTime())) return 'None';
 
   return parsed.toLocaleString('en-PH', {
     year: 'numeric',
@@ -147,16 +147,30 @@ const buildStudentPayableSummary = (student, payables, payments, paymentTotalsBy
   };
 };
 
-const buildBlockGroups = (students) => {
+const getCourseLabel = (student) => String(student?.course || 'Unspecified Course').trim() || 'Unspecified Course';
+
+const getYearLevelLabel = (yearLevel) => {
+  const year = Number(yearLevel);
+  if (!Number.isFinite(year)) return 'Year Level Not Set';
+  if (year === 1) return '1st Year';
+  if (year === 2) return '2nd Year';
+  if (year === 3) return '3rd Year';
+  if (year === 4) return '4th Year';
+  return `${year}th Year`;
+};
+
+const buildCourseYearBlockGroups = (students) => {
   const grouped = new Map();
 
   (students || []).forEach((student) => {
+    const normalizedCourse = getCourseLabel(student);
     const normalizedYear = String(student?.yearLevel || '').trim() || '0';
     const normalizedBlock = String(student?.block || '').trim().toUpperCase() || 'A';
-    const key = `${normalizedYear}::${normalizedBlock}`;
+    const key = `${normalizedCourse.toLowerCase()}::${normalizedYear}::${normalizedBlock}`;
 
     if (!grouped.has(key)) {
       grouped.set(key, {
+        course: normalizedCourse,
         yearLevel: normalizedYear,
         block: normalizedBlock,
         students: []
@@ -168,6 +182,8 @@ const buildBlockGroups = (students) => {
 
   return Array.from(grouped.values())
     .sort((left, right) => {
+      const courseDiff = String(left.course || '').localeCompare(String(right.course || ''), undefined, { sensitivity: 'base', numeric: true });
+      if (courseDiff !== 0) return courseDiff;
       const yearDiff = Number(left.yearLevel || 0) - Number(right.yearLevel || 0);
       if (yearDiff !== 0) return yearDiff;
       return String(left.block || '').localeCompare(String(right.block || ''), undefined, { sensitivity: 'base', numeric: true });
@@ -186,7 +202,7 @@ const buildAllBlocksWorksheet = ({
   selectedDepartment,
   activeTerm
 }) => {
-  const groups = buildBlockGroups(students);
+  const groups = buildCourseYearBlockGroups(students);
   const departmentCode = String(selectedDepartment?.code || selectedDepartment?.name || 'DEPARTMENT').trim().toUpperCase();
   const termLabel = getTermLabel(activeTerm);
 
@@ -287,7 +303,7 @@ const buildAllBlocksWorksheet = ({
 
     bandGroups.forEach((group, index) => {
       const colOffset = index * (tableWidth + gapWidth);
-      const blockTitle = `${departmentCode}-${group.block}`;
+      const blockTitle = `${group.course} ${getYearLevelLabel(group.yearLevel)} ${group.block}`.toUpperCase();
       const blockRows = [
         [blockTitle, '', '', ''],
         [`Students: ${group.students.length}`, '', '', ''],
@@ -404,6 +420,261 @@ const buildAllBlocksWorksheet = ({
   return worksheet;
 };
 
+const getPayableLabel = (payable) =>
+  String(payable?.moduleCode || payable?.type || payable?.title || payable?.category || 'Payable').trim() || 'Payable';
+
+const getLatestPaymentDateForPayable = (studentId, payableId, payments) => {
+  const latestPayment = (payments || [])
+    .filter((payment) => payment.studentId === studentId && payment.payableId === payableId)
+    .sort((left, right) => new Date(right.createdAt || right.date || 0).getTime() - new Date(left.createdAt || left.date || 0).getTime())[0];
+
+  return formatExportDate(latestPayment?.createdAt || latestPayment?.date);
+};
+
+const getRelevantPayablesForGroup = (students, payables) => {
+  const relevant = new Map();
+
+  (students || []).forEach((student) => {
+    (payables || []).forEach((payable) => {
+      if (isPayableRelevantToStudent(payable, student)) {
+        relevant.set(payable.id, payable);
+      }
+    });
+  });
+
+  return Array.from(relevant.values())
+    .sort((left, right) => getPayableLabel(left).localeCompare(getPayableLabel(right), undefined, { sensitivity: 'base', numeric: true }));
+};
+
+const buildAllBlocksWorksheetFormatted = ({
+  students,
+  payables,
+  payments,
+  paymentTotalsByStudentPayable,
+  selectedDepartment,
+  activeTerm
+}) => {
+  const groups = buildCourseYearBlockGroups(students);
+  const rows = [[]];
+  const merges = [];
+  const styles = {};
+
+  const ensureRow = (rowIndex) => {
+    while (rows.length <= rowIndex) rows.push([]);
+  };
+
+  const setCell = (rowIndex, colIndex, value, style) => {
+    ensureRow(rowIndex);
+    rows[rowIndex][colIndex] = value;
+    if (!style) return;
+    const cellAddress = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+    styles[cellAddress] = { ...(styles[cellAddress] || {}), ...style };
+  };
+
+  const merge = (startRow, startCol, endRow, endCol) => {
+    if (startRow === endRow && startCol === endCol) return;
+    merges.push({ s: { r: startRow, c: startCol }, e: { r: endRow, c: endCol } });
+  };
+
+  const border = {
+    top: { style: 'thin' },
+    bottom: { style: 'thin' },
+    left: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+  const titleStyle = {
+    font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 13 },
+    fill: { patternType: 'solid', fgColor: { rgb: '1F2937' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border
+  };
+  const metaStyle = {
+    alignment: { horizontal: 'left', vertical: 'center' },
+    border
+  };
+  const summaryHeaderStyle = {
+    font: { bold: true, color: { rgb: '111827' } },
+    fill: { patternType: 'solid', fgColor: { rgb: 'E5E7EB' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border
+  };
+  const payableHeaderStyle = {
+    font: { bold: true, color: { rgb: 'FFFFFF' } },
+    fill: { patternType: 'solid', fgColor: { rgb: '2563EB' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border
+  };
+  const subHeaderStyle = {
+    font: { bold: true, color: { rgb: '374151' }, sz: 10 },
+    fill: { patternType: 'solid', fgColor: { rgb: 'DBEAFE' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border
+  };
+  const textStyle = {
+    alignment: { horizontal: 'left', vertical: 'center' },
+    border
+  };
+  const indexStyle = {
+    alignment: { horizontal: 'center', vertical: 'center' },
+    border
+  };
+  const amountStyle = {
+    numFmt: 'â‚±#,##0.00',
+    alignment: { horizontal: 'right', vertical: 'center' },
+    border
+  };
+  const dateStyle = {
+    alignment: { horizontal: 'center', vertical: 'center' },
+    border
+  };
+  const footerLabelStyle = {
+    font: { bold: true, color: { rgb: '1E3A8A' } },
+    fill: { patternType: 'solid', fgColor: { rgb: 'DBEAFE' } },
+    alignment: { horizontal: 'center', vertical: 'center' },
+    border
+  };
+  const footerAmountStyle = {
+    ...amountStyle,
+    font: { bold: true },
+    fill: { patternType: 'solid', fgColor: { rgb: 'EFF6FF' } }
+  };
+
+  let rowIndex = 1;
+  let maxColumnCount = 10;
+  const columnWidths = [];
+
+  const setColumnWidths = (colOffset, groupPayablesCount) => {
+    columnWidths[colOffset] = { wch: 6 };
+    columnWidths[colOffset + 1] = { wch: 28 };
+
+    for (let index = 0; index < groupPayablesCount; index += 1) {
+      columnWidths[colOffset + 2 + (index * 2)] = { wch: 14 };
+      columnWidths[colOffset + 3 + (index * 2)] = { wch: 16 };
+    }
+
+    columnWidths[colOffset + 2 + (groupPayablesCount * 2)] = { wch: 16 };
+  };
+
+  const tableStartRow = rowIndex;
+  let nextTableCol = 0;
+  let maxTableHeight = 0;
+
+  groups.forEach((group) => {
+    const groupPayables = getRelevantPayablesForGroup(group.students, payables);
+    const baseColumns = 2;
+    const totalColumn = baseColumns + (groupPayables.length * 2);
+    const columnCount = totalColumn + 1;
+    const colOffset = nextTableCol;
+    const col = (columnIndex) => colOffset + columnIndex;
+    maxColumnCount = Math.max(maxColumnCount, colOffset + columnCount);
+    setColumnWidths(colOffset, groupPayables.length);
+
+    setCell(tableStartRow, col(0), `${group.course} ${getYearLevelLabel(group.yearLevel)} ${group.block}`.toUpperCase(), titleStyle);
+    merge(tableStartRow, col(0), tableStartRow, col(totalColumn));
+
+    const headerTopRow = tableStartRow + 1;
+    setCell(headerTopRow, col(0), 'No.', summaryHeaderStyle);
+    setCell(headerTopRow, col(1), 'Student Name', summaryHeaderStyle);
+    [0, 1].forEach((columnIndex) => merge(headerTopRow, col(columnIndex), headerTopRow + 1, col(columnIndex)));
+
+    groupPayables.forEach((payable, payableIndex) => {
+      const amountCol = baseColumns + (payableIndex * 2);
+      const dateCol = amountCol + 1;
+      setCell(headerTopRow, col(amountCol), getPayableLabel(payable).toUpperCase(), payableHeaderStyle);
+      setCell(headerTopRow, col(dateCol), '', payableHeaderStyle);
+      merge(headerTopRow, col(amountCol), headerTopRow, col(dateCol));
+      setCell(headerTopRow + 1, col(amountCol), 'Amount', subHeaderStyle);
+      setCell(headerTopRow + 1, col(dateCol), 'Date', subHeaderStyle);
+    });
+
+    setCell(headerTopRow, col(totalColumn), 'TOTAL BALANCE', summaryHeaderStyle);
+    merge(headerTopRow, col(totalColumn), headerTopRow + 1, col(totalColumn));
+
+    const totals = {
+      payableAmounts: Array.from({ length: groupPayables.length }, () => 0),
+      totalBalance: 0
+    };
+
+    let dataRowIndex = headerTopRow + 2;
+
+    group.students.forEach((student, studentIndex) => {
+      const summary = buildStudentPayableSummary(student, payables, payments, paymentTotalsByStudentPayable);
+      totals.totalBalance += summary.remainingBalance;
+
+      setCell(dataRowIndex, col(0), studentIndex + 1, indexStyle);
+      setCell(dataRowIndex, col(1), student.name || 'Unknown Student', textStyle);
+
+      groupPayables.forEach((payable, payableIndex) => {
+        const amountCol = baseColumns + (payableIndex * 2);
+        const dateCol = amountCol + 1;
+        const hasPayable = isPayableRelevantToStudent(payable, student);
+        const amount = hasPayable ? numberOrZero(payable.amount) : '';
+        if (hasPayable) totals.payableAmounts[payableIndex] += numberOrZero(payable.amount);
+
+        setCell(dataRowIndex, col(amountCol), amount, amountStyle);
+        setCell(dataRowIndex, col(dateCol), hasPayable ? getLatestPaymentDateForPayable(student.id, payable.id, payments) : 'None', dateStyle);
+      });
+
+      setCell(dataRowIndex, col(totalColumn), summary.remainingBalance, footerAmountStyle);
+      dataRowIndex += 1;
+    });
+
+    const footerRow = dataRowIndex + 1;
+    setCell(footerRow, col(0), 'TOTAL PAID', footerLabelStyle);
+    merge(footerRow, col(0), footerRow, col(1));
+
+    groupPayables.forEach((payable, payableIndex) => {
+      const amountCol = baseColumns + (payableIndex * 2);
+      const dateCol = amountCol + 1;
+      setCell(footerRow, col(amountCol), totals.payableAmounts[payableIndex], footerAmountStyle);
+      setCell(footerRow, col(dateCol), 'None', footerLabelStyle);
+    });
+
+    setCell(footerRow, col(totalColumn), totals.totalBalance, footerAmountStyle);
+
+    maxTableHeight = Math.max(maxTableHeight, footerRow - tableStartRow + 1);
+    nextTableCol += columnCount + 1;
+  });
+
+  rowIndex = tableStartRow + maxTableHeight + 1;
+
+  const worksheet = XLSX.utils.aoa_to_sheet(rows);
+  worksheet['!merges'] = merges;
+  worksheet['!cols'] = Array.from({ length: maxColumnCount }, (_, colIndex) => columnWidths[colIndex] || { wch: 3 });
+  worksheet['!pageSetup'] = {
+    orientation: 'landscape',
+    fitToWidth: 1,
+    fitToHeight: 0
+  };
+
+  Object.keys(styles).forEach((cellAddress) => {
+    if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' };
+    worksheet[cellAddress].s = { ...(worksheet[cellAddress].s || {}), ...styles[cellAddress] };
+  });
+
+  merges.forEach((mergeRange) => {
+    const topLeft = XLSX.utils.encode_cell({ r: mergeRange.s.r, c: mergeRange.s.c });
+    const topLeftStyle = styles[topLeft] || {};
+
+    for (let row = mergeRange.s.r; row <= mergeRange.e.r; row += 1) {
+      for (let col = mergeRange.s.c; col <= mergeRange.e.c; col += 1) {
+        const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+        if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' };
+        worksheet[cellAddress].s = { ...(worksheet[cellAddress].s || {}), ...topLeftStyle };
+      }
+    }
+  });
+
+  return worksheet;
+};
+
+const getSafeSheetName = (department, fallbackIndex) => {
+  const rawName = String(department?.code || department?.name || `DEPT ${fallbackIndex + 1}`)
+    .replace(/[\\/?*[\]:]/g, '-')
+    .trim() || `DEPT ${fallbackIndex + 1}`;
+  return rawName.toUpperCase().slice(0, 31);
+};
+
 export const exportOtherDepartmentPayablesToExcel = ({
   students,
   payables,
@@ -413,7 +684,8 @@ export const exportOtherDepartmentPayablesToExcel = ({
   selectedFolder,
   scope,
   activeTerm,
-  filename
+  filename,
+  departmentGroups
 }) => {
   const exportData = buildOtherDepartmentPayablesExportRows({
     students,
@@ -437,16 +709,29 @@ export const exportOtherDepartmentPayablesToExcel = ({
 
   if (scope === 'all-blocks') {
     const workbook = XLSX.utils.book_new();
-    const worksheet = buildAllBlocksWorksheet({
-      students,
-      payables,
-      payments,
-      paymentTotalsByStudentPayable,
-      selectedDepartment,
-      activeTerm
+    const groups = Array.isArray(departmentGroups) && departmentGroups.length
+      ? departmentGroups
+      : [{
+          department: selectedDepartment,
+          students,
+          payables,
+          payments,
+          paymentTotalsByStudentPayable
+        }];
+
+    groups.forEach((group, index) => {
+      const worksheet = buildAllBlocksWorksheetFormatted({
+        students: group.students || [],
+        payables: group.payables || [],
+        payments: group.payments || [],
+        paymentTotalsByStudentPayable: group.paymentTotalsByStudentPayable || {},
+        selectedDepartment: group.department || selectedDepartment,
+        activeTerm
+      });
+
+      XLSX.utils.book_append_sheet(workbook, worksheet, getSafeSheetName(group.department || selectedDepartment, index));
     });
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'All Blocks');
     const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array', cellStyles: true });
     saveAs(new Blob([buffer], { type: 'application/octet-stream' }), `${finalFilename}.xlsx`);
     return;

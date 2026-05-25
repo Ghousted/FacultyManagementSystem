@@ -105,6 +105,7 @@ const getShortDetails = (log, entityMap = {}) => {
 
   text = resolveUidsInText(text, entityMap);
   text = cleanUntitledPayable(text, log);
+  text = text.replace(UID_PATTERN, 'record');
 
   return text.length > 72 ? `${text.slice(0, 69)}...` : text;
 };
@@ -158,7 +159,7 @@ const LogsPlaceholder = () => {
       const logsQuery = query(
         collection(db, 'systemLogs'),
         orderBy('timestamp', 'desc'),
-        limit(200)
+        limit(50)
       );
       const snapshot = await getDocs(logsQuery);
       setLogs(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
@@ -187,7 +188,6 @@ const LogsPlaceholder = () => {
       log.userName,
       log.userEmail,
       log.entityType,
-      log.entityId,
       entityMap[log.userId] || '',
       entityMap[log.entityId] || '',
     ].some((value) => (value || '').toString().toLowerCase().includes(term)));

@@ -266,31 +266,31 @@ const autoFitColumns = (rows, payableColumnsCount) => {
   });
 };
 
-const buildPayableColumns = (students, payablesByYear, selectedFolder, activeTerm, scope) => {
-  const ordered = [];
+const buildPayableGroups = (students, payablesByYear, selectedFolder, activeTerm, scope) => {
   const seen = new Set();
   const exportStudents = scope === 'all-blocks'
     ? (students || []).filter((student) => student.active !== false && isStudentEnrolledForTerm(student, activeTerm) && getStudentTermKey(student, activeTerm) === (selectedFolder?.termKey || getTermKey(activeTerm)))
     : (students || []).filter((student) => isStudentEnrolledForTerm(student, activeTerm));
 
+  const allPayables = [];
   exportStudents.forEach((student) => {
     getRelevantPayablesForStudent(student, payablesByYear).forEach((payable) => {
       if (!isPayableInActiveTerm(payable, activeTerm)) return;
       if (!payable || seen.has(payable.id)) return;
       seen.add(payable.id);
-      ordered.push(payable);
+      allPayables.push(payable);
     });
   });
 
-  return ordered.sort((left, right) => {
-    const categoryA = String(left.category || '').toLowerCase() === 'module' ? 1 : 0;
-    const categoryB = String(right.category || '').toLowerCase() === 'module' ? 1 : 0;
-    if (categoryA !== categoryB) return categoryA - categoryB;
-
-    const codeA = String(left.moduleCode || left.type || left.moduleTitle || left.title || '').toLowerCase();
-    const codeB = String(right.moduleCode || right.type || right.moduleTitle || right.title || '').toLowerCase();
-    return codeA.localeCompare(codeB, undefined, { sensitivity: 'base', numeric: true });
+  const groups = new Map();
+  allPayables.forEach((payable) => {
+    const key = String(payable.type || payable.category || 'OTHER').trim();
+    const groupKey = key || 'OTHER';
+    if (!groups.has(groupKey)) groups.set(groupKey, { key: groupKey, label: groupKey.toUpperCase(), payables: [] });
+    groups.get(groupKey).payables.push(payable);
   });
+
+  return Array.from(groups.values()).sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, { sensitivity: 'base', numeric: true }));
 };
 
 const buildWorksheet = ({ students, payablesByYear, selectedFolder, activeTerm, scope, sheetTitle }) => {
@@ -298,7 +298,7 @@ const buildWorksheet = ({ students, payablesByYear, selectedFolder, activeTerm, 
   const styles = {};
   const merges = [];
   const filteredStudents = sortExportStudents(students, scope);
-  const payableColumns = buildPayableColumns(filteredStudents, payablesByYear, selectedFolder, activeTerm, scope);
+  const payableGroups = buildPayableGroups(filteredStudents, payablesByYear, selectedFolder, activeTerm, scope);
 
   const summary = filteredStudents.reduce((accumulator, student) => {
     const studentSummary = summarizeStudent(student, payablesByYear, activeTerm);
@@ -330,21 +330,21 @@ const buildWorksheet = ({ students, payablesByYear, selectedFolder, activeTerm, 
 
   const summaryHeaderStyle = {
     font: { bold: true, color: { rgb: '1F2937' } },
-    fill: { patternType: 'solid', fgColor: { rgb: 'F8E8A4' } },
+    fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFF' } },
     alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
     border
   };
 
   const payableHeaderStyle = {
-    font: { bold: true, color: { rgb: '1F2937' } },
-    fill: { patternType: 'solid', fgColor: { rgb: 'F6DD87' } },
+    font: { bold: true, color: { rgb: 'FFFFFF' } },
+    fill: { patternType: 'solid', fgColor: { rgb: '1F6FEB' } },
     alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
     border
   };
 
   const subHeaderStyle = {
     font: { bold: true, color: { rgb: '374151' }, sz: 10 },
-    fill: { patternType: 'solid', fgColor: { rgb: 'F9EFB5' } },
+    fill: { patternType: 'solid', fgColor: { rgb: 'EBF4FF' } },
     alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
     border
   };
@@ -406,39 +406,33 @@ const buildWorksheet = ({ students, payablesByYear, selectedFolder, activeTerm, 
   };
 
   const baseColumnCount = 5;
-  const totalColumnIndex = baseColumnCount + (payableColumns.length * 2);
+  const totalColumnIndex = baseColumnCount + (payableGroups.length * 2);
 
-  setCell(0, 0, sheetTitle, titleStyle);
-  mergeRow(0, 0, totalColumnIndex);
+  setCell(0, 0, 'No.', summaryHeaderStyle);
+  mergeRow(0, 0, 1);
+  setCell(0, 1, 'Student Name', summaryHeaderStyle);
+  mergeRow(0, 1, 1);
+  setCell(0, 2, 'Previous Balance', summaryHeaderStyle);
+  mergeRow(0, 2, 2);
+  setCell(0, 3, 'Paid Amount', summaryHeaderStyle);
+  mergeRow(0, 3, 3);
+  setCell(0, 4, 'Remaining Balance', summaryHeaderStyle);
+  mergeRow(0, 4, 4);
 
-  setCell(1, 0, `Students: ${filteredStudents.length}`, footerLabelStyle);
-  mergeRow(1, 0, totalColumnIndex);
-
-  setCell(2, 0, 'No.', summaryHeaderStyle);
-  mergeRow(2, 0, 1);
-  setCell(2, 1, 'Student Name', summaryHeaderStyle);
-  mergeRow(2, 1, 1);
-  setCell(2, 2, 'Previous Balance', summaryHeaderStyle);
-  mergeRow(2, 2, 2);
-  setCell(2, 3, 'Paid Amount', summaryHeaderStyle);
-  mergeRow(2, 3, 3);
-  setCell(2, 4, 'Remaining Balance', summaryHeaderStyle);
-  mergeRow(2, 4, 4);
-
-  payableColumns.forEach((payable, index) => {
+  payableGroups.forEach((group, index) => {
     const amountColumn = baseColumnCount + (index * 2);
     const dateColumn = amountColumn + 1;
-    const payableLabel = String(payable.moduleCode || payable.moduleTitle || payable.type || payable.title || 'Payable').trim();
-    setCell(2, amountColumn, payableLabel, payableHeaderStyle);
-    mergeRow(2, amountColumn, dateColumn);
-    setCell(3, amountColumn, 'Amount', subHeaderStyle);
-    setCell(3, dateColumn, 'Payment Date', subHeaderStyle);
+    const payableLabel = String(group.label || 'PAYABLE').trim();
+    setCell(0, amountColumn, payableLabel, payableHeaderStyle);
+    mergeRow(0, amountColumn, dateColumn);
+    setCell(1, amountColumn, 'Amount', subHeaderStyle);
+    setCell(1, dateColumn, 'Payment Date', subHeaderStyle);
   });
 
-  setCell(2, totalColumnIndex, 'Total Balance', summaryHeaderStyle);
-  mergeRow(2, totalColumnIndex, totalColumnIndex);
+  setCell(0, totalColumnIndex, 'Total Balance', summaryHeaderStyle);
+  mergeRow(0, totalColumnIndex, totalColumnIndex);
 
-  let currentRow = 4;
+  let currentRow = 2;
 
   filteredStudents.forEach((student, index) => {
     const studentSummary = summarizeStudent(student, payablesByYear, activeTerm);
@@ -450,16 +444,36 @@ const buildWorksheet = ({ students, payablesByYear, selectedFolder, activeTerm, 
     setCell(currentRow, 3, studentSummary.paidAmount, amountStyle);
     setCell(currentRow, 4, studentSummary.remainingBalance, totalStyle);
 
-    payableColumns.forEach((payable, payableIndex) => {
-      const amountColumn = baseColumnCount + (payableIndex * 2);
-      const dateColumn = amountColumn + 1;
-      const paymentEntry = payable.studentPayments?.[student.id] || {};
-      const hasPayable = studentPayableIds.has(payable.id);
-      const payableAmount = hasPayable ? Math.max(0, numberOrZero(payable.amount)) : '';
-      const paymentDate = formatDateLabel(paymentEntry.lastPaymentDate || paymentEntry.paymentDate || paymentEntry.date || paymentEntry.createdAt || paymentEntry.updatedAt);
-      setCell(currentRow, amountColumn, payableAmount, amountStyle);
-      setCell(currentRow, dateColumn, hasPayable ? paymentDate : '', textStyle);
-    });
+      payableGroups.forEach((group, payableIndex) => {
+        const amountColumn = baseColumnCount + (payableIndex * 2);
+        const dateColumn = amountColumn + 1;
+        let groupAmount = 0;
+        let latestDate = '';
+
+        group.payables.forEach((payable) => {
+          const paymentEntry = payable.studentPayments?.[student.id] || {};
+          const hasPayable = studentPayableIds.has(payable.id);
+          if (hasPayable) {
+            groupAmount += Math.max(0, numberOrZero(payable.amount));
+            const paymentDate = paymentEntry.lastPaymentDate || paymentEntry.paymentDate || paymentEntry.date || paymentEntry.createdAt || paymentEntry.updatedAt;
+            if (paymentDate) {
+              const currentDate = new Date(paymentDate);
+              const latest = latestDate ? new Date(latestDate) : null;
+              if (!Number.isNaN(currentDate.getTime()) && (!latest || currentDate.getTime() > latest.getTime())) {
+                latestDate = paymentDate;
+              }
+            }
+          } else if (payable.isIndividual) {
+            groupAmount += 0;
+          } else if (student.isIrregular) {
+            groupAmount += 0;
+          }
+        });
+
+        const amountValue = groupAmount === 0 ? (student.isIrregular ? 0 : (group.payables.some(p => p.isIndividual) ? 0 : '')) : groupAmount;
+        setCell(currentRow, amountColumn, amountValue, amountStyle);
+        setCell(currentRow, dateColumn, latestDate ? formatDateLabel(latestDate) : '', textStyle);
+      });
 
     setCell(currentRow, totalColumnIndex, studentSummary.remainingBalance, totalStyle);
     currentRow += 1;
@@ -472,15 +486,20 @@ const buildWorksheet = ({ students, payablesByYear, selectedFolder, activeTerm, 
   setCell(footerRowIndex, 3, summary.paidAmount, footerAmountStyle);
   setCell(footerRowIndex, 4, summary.remainingBalance, footerAmountStyle);
 
-  payableColumns.forEach((payable, payableIndex) => {
+  payableGroups.forEach((group, payableIndex) => {
     const amountColumn = baseColumnCount + (payableIndex * 2);
     const dateColumn = amountColumn + 1;
-    const totalDueForPayable = filteredStudents.reduce((sum, student) => {
+    const totalDueForGroup = filteredStudents.reduce((sum, student) => {
       const studentPayables = getRelevantPayablesForStudent(student, payablesByYear);
-      const hasPayable = studentPayables.some((studentPayable) => studentPayable.id === payable.id);
-      return sum + (hasPayable ? Math.max(0, numberOrZero(payable.amount)) : 0);
+      const sumForStudent = group.payables.reduce((subSum, payable) => {
+        const hasPayable = studentPayables.some((studentPayable) => studentPayable.id === payable.id);
+        if (hasPayable) return subSum + Math.max(0, numberOrZero(payable.amount));
+        if (payable.isIndividual) return subSum + 0;
+        return subSum;
+      }, 0);
+      return sum + sumForStudent;
     }, 0);
-    setCell(footerRowIndex, amountColumn, totalDueForPayable, footerAmountStyle);
+    setCell(footerRowIndex, amountColumn, totalDueForGroup, footerAmountStyle);
     setCell(footerRowIndex, dateColumn, '', footerLabelStyle);
   });
 
@@ -488,7 +507,7 @@ const buildWorksheet = ({ students, payablesByYear, selectedFolder, activeTerm, 
 
   const worksheet = XLSX.utils.aoa_to_sheet(rows);
   worksheet['!merges'] = merges;
-  worksheet['!cols'] = autoFitColumns(rows, payableColumns.length);
+  worksheet['!cols'] = autoFitColumns(rows, payableGroups.length);
   worksheet['!pageSetup'] = {
     orientation: 'landscape',
     fitToWidth: 1,
@@ -523,7 +542,7 @@ const buildWorksheet = ({ students, payablesByYear, selectedFolder, activeTerm, 
     }
   });
 
-  return { worksheet, filteredStudents, summary, payableColumns };
+  return { worksheet, filteredStudents, summary, payableGroups };
 };
 
 const buildAllBlockSheetGroups = (students, activeTerm) => {
@@ -602,6 +621,7 @@ export const exportCcsPayablesSpreadsheet = ({
     const workbook = XLSX.utils.book_new();
     const groups = buildAllBlockSheetGroups(exportStudents, activeTerm);
 
+    const defaultSheetName = 'CS PAYABLES';
     if (groups.length === 0) {
       const emptyWorksheet = buildWorksheet({
         students: [],
@@ -611,7 +631,7 @@ export const exportCcsPayablesSpreadsheet = ({
         scope,
         sheetTitle: buildSheetTitle('ALL BLOCKS', activeTerm)
       }).worksheet;
-      XLSX.utils.book_append_sheet(workbook, emptyWorksheet, 'CS Payables');
+      XLSX.utils.book_append_sheet(workbook, emptyWorksheet, defaultSheetName);
     } else {
       groups.forEach((group) => {
         const worksheet = buildWorksheet({
@@ -622,7 +642,9 @@ export const exportCcsPayablesSpreadsheet = ({
           scope,
           sheetTitle: group.title
         }).worksheet;
-        XLSX.utils.book_append_sheet(workbook, worksheet, group.sheetName || 'CS Payables');
+        const rawName = group.sheetName || defaultSheetName;
+        const sheetName = String(rawName).toUpperCase().slice(0, 31);
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
       });
     }
 
@@ -647,7 +669,7 @@ export const exportCcsPayablesSpreadsheet = ({
   }
 
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'CS Payables');
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'CS PAYABLES');
   const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array', cellStyles: true });
   saveAs(new Blob([buffer], { type: 'application/octet-stream' }), `${finalFilename}.xlsx`);
 };

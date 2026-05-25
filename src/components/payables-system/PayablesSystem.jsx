@@ -11,7 +11,7 @@ import {
 } from '../../models/payablesModels';
 import { getActiveTerm } from '../../models/facultyModels';
 import { useAuth } from '../../contexts/AuthContext';
-import { BadgePlus,  Search, ChevronUp, ChevronDown, ChevronLeft, ChevronsUpDown, Funnel, X, Printer, Pencil, Delete, History, ArrowBigLeft, Settings2, Download, Receipt, Trash, Package, Folder } from 'lucide-react';
+import { BadgePlus,  Search, ChevronUp, ChevronDown, ChevronLeft, ChevronsUpDown, Funnel, X, Printer, Pencil, Delete, History, ArrowBigLeft, Settings2, Receipt, Trash, Package, Folder } from 'lucide-react';
 import ModuleManagement from './ModuleManagement';
 import Logo from '../../assets/logo.png';
 import ReceiptModal, { printReceiptDirect } from './ReceiptModal';
@@ -535,16 +535,6 @@ useEffect(() => {
   const openAddPayable = useCallback(() => {
     handleAddPayable();
   }, [handleAddPayable]);
-
-  const toolbarActions = useMemo(() => ({
-    openModuleManagement,
-    openAddPayable
-  }), [openAddPayable, openModuleManagement]);
-
-  useEffect(() => {
-    registerToolbarActions?.('ccs', toolbarActions);
-    return () => registerToolbarActions?.('ccs', null);
-  }, [registerToolbarActions, toolbarActions]);
 
 const handleAddIndividualPayable = () => {
   if (!selectedStudentModal) return;
@@ -1330,15 +1320,27 @@ const handleAddIndividualPayable = () => {
   }, [selectedFolder]);
 
   const handleExportAction = useCallback((mode) => {
-    if (!selectedFolder) {
-      return;
-    }
-
     setPendingExportMode(mode);
     setExportFilename(getDefaultExportFilename(mode));
     setExportMenuOpen(false);
     setExportFilenameModalOpen(true);
   }, [getDefaultExportFilename, selectedFolder]);
+
+  const openExportPayables = useCallback(() => {
+    handleExportAction('xlsx-all-blocks');
+  }, [handleExportAction]);
+
+  const toolbarActions = useMemo(() => ({
+    openModuleManagement,
+    openAddPayable,
+    openExportPayables,
+    canExport: true
+  }), [openAddPayable, openExportPayables, openModuleManagement]);
+
+  useEffect(() => {
+    registerToolbarActions?.('ccs', toolbarActions);
+    return () => registerToolbarActions?.('ccs', null);
+  }, [registerToolbarActions, toolbarActions]);
 
   const handleExportConfirm = useCallback(() => {
     const scope = pendingExportMode.includes('all-blocks') ? 'all-blocks' : 'current-folder';
@@ -1451,7 +1453,7 @@ const handleAddIndividualPayable = () => {
     const paymentDate = new Date(paymentDateRaw);
     const safeDate = Number.isNaN(paymentDate.getTime()) ? new Date() : paymentDate;
 
-    setReceiptData({
+    const nextReceiptData = {
       receiptNumber: receiptNumber || '—',
       studentName: student?.name || '—',
       date: formatDateFull(safeDate),
@@ -1469,8 +1471,9 @@ const handleAddIndividualPayable = () => {
       otherPayables,
       totalOtherBalance,
       receivedBy:  ''
-    });
-    setReceiptModalOpen(true);
+    };
+
+    await printReceiptDirect(nextReceiptData);
   }, [getStudentPayables, payables]);
 
   const handleStagedPaidAmountChange = useCallback((payableId, newValue) => {
@@ -1532,84 +1535,23 @@ const handleAddIndividualPayable = () => {
 
   const renderStudentList = () => (
     <div>
-      <div className="mb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className='flex items-start gap-2'>
-          {selectedFolder && (
-            <div className='flex flex-wrap items-center gap-2 mt-4'>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedFolder(null);
-                  window.dispatchEvent(new CustomEvent('payables-breadcrumb', { detail: { departmentType: 'ccs', selectedFolder: null } }));
-                }}
-                className="p-2 rounded-lg bg-blue-500 text-white cursor-pointer hover:bg-blue-600 transition"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search students by name..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div className="relative export-dropdown-container">
-                <button
-                  type="button"
-                  onClick={() => setExportMenuOpen((current) => !current)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50 hover:shadow-sm"
-                >
-                  <Download className="h-4 w-4" />
-                  Export
-                  <ChevronDown className="h-4 w-4" />
-                </button>
+      <div className="mb-4">
+        {selectedFolder && (
+       <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
-                {exportMenuOpen && (
-                  <div className="absolute left-0 z-20 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-                    <button
-                      type="button"
-                      onClick={() => handleExportAction('xlsx-current-folder')}
-                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                    >
-                      <span>Export as Excel (.xlsx)</span>
-                      <span className="text-xs text-slate-500">Current folder</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleExportAction('csv-current-folder')}
-                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                    >
-                      <span>Export as Google Sheet format</span>
-                      <span className="text-xs text-slate-500">Current folder</span>
-                    </button>
-                    <div className="my-2 h-px bg-slate-200" />
-                    <button
-                      type="button"
-                      onClick={() => handleExportAction('xlsx-current-folder')}
-                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                    >
-                      <span>Export Current Folder Only</span>
-                      <span className="text-xs text-slate-500">Excel</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleExportAction('xlsx-all-blocks')}
-                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                    >
-                      <span>Export All Blocks</span>
-                      <span className="text-xs text-slate-500">Excel</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+            <input
+              type="text"
+              placeholder="Search students..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+            />
+          </div>
         </div>
+        )}
       </div>
-
       <div>
         {(() => {
           const getYearLabel = (year) => {
@@ -1878,10 +1820,15 @@ const handleAddIndividualPayable = () => {
             return (
               <div className="bg-white border border-gray-300 rounded-xl shadow-lg overflow-hidden">
                 <table className="w-full table-auto">
-                  <thead className="bg-blue-600 text-white text-sm">
+                  <thead className="bg-blue-500 text-xs uppercase text-white text-sm">
                     <tr>
+                      <th 
+                        className="p-4 text-left cursor-pointer  transition-colors select-none w-[5%]"
+                        >
+                          No.
+                        </th>
                       <th
-                        className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[20%]"
+                        className="p-4 text-left cursor-pointer  transition-colors select-none w-[20%]"
                         onClick={() => setSortBy(sortBy === 'id-asc' ? 'id-desc' : 'id-asc')}
                       >
                         <div className="flex items-center gap-2">
@@ -1896,7 +1843,7 @@ const handleAddIndividualPayable = () => {
                         </div>
                       </th>
                       <th
-                        className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[40%]"
+                        className="p-4 text-left cursor-pointer  transition-colors select-none w-[35%]"
                         onClick={() => setSortBy(sortBy === 'name-asc' ? 'name-desc' : 'name-asc')}
                       >
                         <div className="flex items-center gap-2">
@@ -1911,7 +1858,7 @@ const handleAddIndividualPayable = () => {
                         </div>
                       </th>
                       <th
-                        className="p-3 text-left cursor-pointer hover:bg-blue-700 transition-colors select-none w-[20%]"
+                        className="p-4 text-left cursor-pointer  transition-colors select-none w-[20%]"
                         onClick={() => setSortBy(sortBy === 'balance-asc' ? 'balance-desc' : 'balance-asc')}
                       >
                         <div className="flex items-center gap-2">
@@ -1925,7 +1872,7 @@ const handleAddIndividualPayable = () => {
                           )}
                         </div>
                       </th>
-                      <th className="p-3 text-center w-[20%]">Status</th>
+                      <th className="p-4 text-center w-[20%]">Status</th>
                     </tr>
                   </thead>
                   <tbody className='text-sm'>
@@ -1945,18 +1892,19 @@ const handleAddIndividualPayable = () => {
                             setPayablesSearch('');
                           }}
                         >
-                          <td className="p-2">{student.studentNumber}</td>
-                          <td className="p-2">
+                          <td className="p-4 text-center">{index + 1}.</td>
+                          <td className="p-4">{student.studentNumber}</td>
+                          <td className="p-4">
                             <div className="flex items-center gap-1">
                               {student.name}
                             </div>
                           </td>
-                          <td className="p-2">
+                          <td className="p-4">
                             <span className={`font-bold ${totalBalance > 0 ? 'text-red-700' : 'text-green-700'}`}>
                               ₱{totalBalance.toLocaleString()}
                             </span>
                           </td>
-                          <td className="p-2 text-center">
+                          <td className="p-4 text-center">
                             <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${totalBalance > 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
                               {totalBalance > 0 ? 'Outstanding' : 'Paid'}
                             </span>
@@ -1964,8 +1912,8 @@ const handleAddIndividualPayable = () => {
                         </tr>
                       );
                     })}
-                    <tr className="bg-blue-50 font-semibold text-blue-900 border-t-2 border-blue-200">
-                      <td colSpan={2} className="py-1.5 x-3 text-right w-[60%]">Total Outstanding Balance</td>
+                    <tr className="bg-blue-50 font-semibold text-blue-900 border-t border-blue-200">
+                      <td colSpan={3} className="py-1.5 x-3 text-right w-[60%]">Total Outstanding Balance</td>
                       <td className="px-2 py-3 text-left font-bold">
                         ₱{filteredStudents.reduce((sum, student) => sum + calculateTotalBalance(student.id), 0).toLocaleString()}
                       </td>
@@ -2013,8 +1961,8 @@ const handleAddIndividualPayable = () => {
 
       {/* Add Payable Dialog */}
       {addPayableDialogOpen && (
-        <div className="fixed inset-0 z-1000 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => {
+        <div className="fixed inset-0 z-1000 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => {
             setAddPayableDialogOpen(false);
             setEditingMode(false);
             setNewPayableForm({
@@ -2032,24 +1980,24 @@ const handleAddIndividualPayable = () => {
               selectedModuleIds: []
             });
           }}></div>
-          <div className="bg-white rounded-2xl shadow-lg  max-w-md w-full overflow-y-auto relative z-10">
-            <div className="px-8 py-4 border-b border-slate-200 bg-slate-100">
-                 <h2 className="text-lg font-medium">
+          <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
+              <h2 className="text-lg font-semibold text-slate-900">
               {editingMode ? 'Edit Payable' : 'Add New Payable'}
             </h2>
-          <p className="text-xs text-slate-600">
+          <p className="mt-1 text-sm text-slate-500">
             {editingMode
               ? 'Update the payable details and review the information before saving changes'
               : 'Enter the payable details and complete the required information to create a new entry'}
           </p>
             </div>
-            <div className="space-y-4 px-8 py-4">
+            <div className="max-h-[70vh] space-y-4 overflow-y-auto px-6 py-5">
 
               <div className='flex items-start gap-4'>
                 <div className='flex-1'>
-                <label className="block text-sm font-medium mb-1">Target Year Level</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Target Year Level</label>
                 <select
-                  className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                  className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow disabled:cursor-not-allowed disabled:bg-slate-100"
                   value={newPayableForm.yearLevel}
                   onChange={(e) => {
                     handleNewPayableInputChange('yearLevel', e.target.value);
@@ -2071,9 +2019,9 @@ const handleAddIndividualPayable = () => {
               {/* Block selector - only show for non-irregular year levels */}
               {newPayableForm.yearLevel !== 'irregular' && (
                 <div className='flex-1'>
-                  <label className="block text-sm font-medium mb-1">Target Block</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Target Block</label>
                   <select
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                    className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow disabled:cursor-not-allowed disabled:bg-slate-100"
                     value={newPayableForm.block}
                     onChange={(e) => handleNewPayableInputChange('block', e.target.value)}
                     disabled={editingMode}
@@ -2102,9 +2050,9 @@ const handleAddIndividualPayable = () => {
               </div>
 
               <div className='flex items-center gap-4'>
-                <label className="block font-medium text-sm ">Payable Category:</label>
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-1 text-sm">
+                <label className="block font-semibold text-sm text-slate-700">Payable Category:</label>
+                <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-1">
+                  <label className={`flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${newPayableForm.category === 'general' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>
                     <input
                       type="radio"
                       name="newPayableCategory"
@@ -2119,7 +2067,7 @@ const handleAddIndividualPayable = () => {
                     />
                     <span>General</span>
                   </label>
-                  <label className="flex items-center gap-1 text-sm">
+                  <label className={`flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${newPayableForm.category === 'module' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>
                     <input
                       type="radio"
                       name="newPayableCategory"
@@ -2188,19 +2136,19 @@ const handleAddIndividualPayable = () => {
                       No subjects are marked as offered yet. Click <span className="font-medium">Modules</span> in the toolbar to mark some.
                     </p>
                   )}
-                  <label className="block text-sm font-medium mb-1">Amount per module</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Amount per module</label>
                 </>
               ) : (
                 <>
-                  <label className="block text-sm font-medium mb-1">Payable Type</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Payable Type</label>
                   <input
                     type="text"
-                    className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                    className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     placeholder="Type (e.g., Tuition Fee, Miscellaneous)"
                     value={newPayableForm.type}
                     onChange={(e) => handleNewPayableInputChange('type', e.target.value)}
                   />
-                  <label className="block text-sm font-medium mb-1 mt-4">Amount</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1 mt-4">Amount</label>
                 </>
               )}
               <input
@@ -2208,7 +2156,7 @@ const handleAddIndividualPayable = () => {
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+                className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                 placeholder="e.g., 1500.00"
                 value={newPayableForm.amount}
                 onChange={(e) => handleNewPayableInputChange('amount', e.target.value)}
@@ -2228,7 +2176,7 @@ const handleAddIndividualPayable = () => {
                 </div>
               )}
             </div>
-            <div className="flex justify-end gap-2 px-8 py-4">
+            <div className="flex justify-end gap-2 border-t border-slate-200 bg-white px-6 py-4">
               <button
                 onClick={() => {
                   setAddPayableDialogOpen(false);
@@ -2633,36 +2581,26 @@ const handleAddIndividualPayable = () => {
             setStagedPayments({});
           }}></div>
           <div className="relative z-10 flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_24px_80px_-20px_rgba(15,23,42,0.35)]">
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-white">
+            <div className="bg-slate-100 border-b border-slate-200 px-8 py-4">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-blue-100">Payment Center</p>
-                  <h2 className="mt-2 text-xl font-semibold">
+                  <p className="text-xs uppercase tracking-[0.2em] text-blue-700">Payment Center</p>
+                  <h2 className=" text-lg font-semibold">
                     {selectedStudentModal?.name}
-                    {selectedStudentModal?.isIrregular && (
-                      <span className="ml-2 inline-flex items-center rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-semibold text-blue-50">
-                        Irregular
-                      </span>
-                    )}
+                  
                   </h2>
-                  <p className="mt-1 text-sm text-blue-50/90">
+                  <p className="mt-1 text-sm text-blue-700">
                     {selectedStudentModal?.isIrregular
                       ? `Irregular Student (${selectedStudentModal.yearLevel === 1 ? '1st' : selectedStudentModal.yearLevel === 2 ? '2nd' : selectedStudentModal.yearLevel === 3 ? '3rd' : '4th'} Year Level)`
                       : `${tabValue === 0 ? '1st' : tabValue === 1 ? '2nd' : tabValue === 2 ? '3rd' : '4th'} Year`}
                   </p>
                 </div>
-                <button
-                  className="inline-flex items-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
-                  onClick={handleAddIndividualPayable}
-                >
-                  <BadgePlus className='mr-2 h-4 w-4' />
-                  Add Individual Charge
-                </button>
+              
               </div>
             </div>
             <div className="space-y-4 px-6 py-4 overflow-y-auto flex-1 min-h-0">
               <div className="flex flex-col md:flex-row gap-2 md:items-center md:justify-between">
-                <div className="w-80 flex items-center gap-2">
+                <div className="w-72 flex items-center gap-2">
                   <div className="relative w-full ">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
@@ -2674,9 +2612,9 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
                     />
                   </div>
                 </div>
-                <div className="">
+                <div className="flex items-center gap-2">
                   <select
-className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+className="w-fit border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     value={payablesFilter}
                     onChange={(e) => setPayablesFilter(e.target.value)}
                   >
@@ -2686,6 +2624,13 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                     <option value="fully_paid">Fully Paid</option>
                     <option value="individual">Individual Only</option>
                   </select>
+
+                    <button
+                  className="px-4 py-2 rounded-lg text-sm bg-blue-500 cursor-pointer text-white hover:bg-blue-600 transition"
+                  onClick={handleAddIndividualPayable}
+                >
+                  Add Individual Charge
+                </button>
                 </div>
               </div>
 
@@ -2739,21 +2684,21 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                   const payableTermLabel = payableTerm ? formatTermDisplay(payableTerm) : 'Not set';
                   const payableTermTag = payableTerm
                     ? (isSameTerm(payableTerm, activeTerm) ? 'Current Term' : 'Previous Term')
-                    : 'No term recorded';
+                    : 'Previous Term';
 
                   return (
                     <div
                       key={payable.id}
-                      className={`rounded-[24px] border p-4 shadow-sm transition ${
+                      className={`rounded-lg border p-4 shadow-sm transition ${
                         isFullyPaid
                           ? 'border-emerald-200 bg-emerald-50/40'
                           : 'border-slate-200 bg-white'
                       }`}
                     >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="flex-1">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h4 className="text-base font-semibold text-slate-900">{payable.type}</h4>
+                            <h4 className="min-w-0 text-base font-semibold text-slate-900">{payable.type}</h4>
                             {payable.isIndividual && (
                               <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
                                 Individual Charge
@@ -2769,20 +2714,21 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                               {isFullyPaid ? 'Fully Paid' : studentPayment.status === 'partially_paid' ? 'Partially Paid' : 'Unpaid'}
                             </span>
                           </div>
+                          
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                            <span className="font-medium text-slate-700">Created Term:</span>
+                            <span className="font-medium text-slate-700">Term:</span>
                             <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-800">
                               {payableTermTag}
                             </span>
                             <span className="text-slate-500">{payableTermLabel}</span>
                           </div>
-                          <p className="mt-2 text-sm text-slate-600">
-                            This fee has a current balance of <span className="font-semibold text-slate-900">₱{remaining.toLocaleString()}</span>.
-                          </p>
+
+                     
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
                           <button
-                            className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
+                            className="rounded-md p-1.5 text-slate-600 transition hover:bg-slate-100"
+                            title="Edit payable"
                             onClick={(e) => {
                               e.stopPropagation();
                               setOpenActionMenuId(null);
@@ -2792,7 +2738,8 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                             <Pencil className="w-4 h-4" />
                           </button>
                           <button
-                            className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
+                            className="rounded-md p-1.5 text-slate-600 transition hover:bg-slate-100"
+                            title="View transactions"
                             onClick={async (e) => {
                               e.stopPropagation();
                               setOpenActionMenuId(null);
@@ -2809,7 +2756,7 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                             <History className="w-4 h-4" />
                           </button>
                           <button
-                            className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
+                            className="rounded-md p-1.5 text-slate-600 transition hover:bg-slate-100"
                             onClick={async (e) => {
                               e.stopPropagation();
                               setOpenActionMenuId(null);
@@ -2840,7 +2787,8 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                             <Printer className="w-4 h-4" />
                           </button>
                           <button
-                            className="rounded-full p-1.5 text-rose-600 transition hover:bg-rose-50"
+                            className="rounded-md p-1.5 text-rose-600 transition hover:bg-rose-50"
+                            title="Delete payable"
                             onClick={(e) => {
                               e.stopPropagation();
                               setOpenActionMenuId(null);
@@ -2853,26 +2801,28 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                         </div>
                       </div>
 
-                      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                           <p className="text-slate-500">Total</p>
                           <p className="mt-1 font-semibold text-slate-900">₱{originalAmount.toLocaleString()}</p>
                         </div>
-                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                           <p className="text-slate-500">Paid</p>
                           <p className="mt-1 font-semibold text-emerald-700">₱{Math.max(0, currentPaid).toLocaleString()}</p>
                         </div>
-                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                           <p className="text-slate-500">Remaining</p>
                           <p className="mt-1 font-semibold text-rose-700">₱{remaining.toLocaleString()}</p>
                         </div>
                       </div>
 
-                      <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                           <div className="flex flex-wrap items-center gap-2 text-xs">
                             <span className="font-medium text-slate-700">Mode of Payment</span>
-                            <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
+                            <label className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 transition ${
+                              selectedMode === 'cash' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'
+                            }`}>
                               <input
                                 id={`paymentMode-cash-${payable.id}`}
                                 name={`paymentMode-${payable.id}`}
@@ -2884,7 +2834,9 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                               />
                               Cash
                             </label>
-                            <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
+                            <label className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 transition ${
+                              selectedMode === 'gcash' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'
+                            }`}>
                               <input
                                 id={`paymentMode-gcash-${payable.id}`}
                                 name={`paymentMode-${payable.id}`}
@@ -2896,7 +2848,9 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                               />
                               GCash
                             </label>
-                            <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
+                            <label className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 transition ${
+                              selectedMode === 'bank' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'
+                            }`}>
                               <input
                                 id={`paymentMode-bank-${payable.id}`}
                                 name={`paymentMode-${payable.id}`}
@@ -2914,7 +2868,8 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                           )}
                         </div>
 
-                        <div className="mt-3 grid gap-2 md:grid-cols-[1.1fr_1fr]">
+                        <div className="mt-3 border-t border-slate-200 pt-3">
+                          <div className="grid gap-2 md:grid-cols-[1.1fr_1fr]">
                           <div className="space-y-2">
                             <label className="block text-xs font-semibold text-slate-700">Payment Amount</label>
                             <input
@@ -2923,10 +2878,10 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                               min="0"
                               step="0.01"
                               max={maxPayment.toString()}
-                              className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                              className={`w-full rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none ${
                                 isFullyPaid
                                   ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
-                                  : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                  : 'border-slate-200 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-300'
                               }`}
                               placeholder="Enter payment"
                               value={stagedPayments?.[payable.id] ?? ''}
@@ -2935,23 +2890,16 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                               onKeyDown={(e) => { if (e.key === 'e' || e.key === 'E') e.preventDefault(); }}
                               disabled={isFullyPaid}
                             />
-                            <p className="text-[11px] text-slate-500">
-                              {isFullyPaid
-                                ? 'This fee is already fully paid.'
-                                : `Maximum allowed payment: ₱${maxPayment.toLocaleString()}`}
-                            </p>
+                         
                           </div>
                           <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-2">
                               <label className="block text-xs font-semibold text-slate-700">Reference</label>
-                              <span className="text-[11px] text-slate-500">{!requiresReference ? 'Optional for cash' : 'Required for non-cash'}</span>
-                            </div>
                             <input
                               type="text"
-                              className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                              className={`w-full rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none ${
                                 !requiresReference
                                   ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
-                                  : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                  : 'border-slate-200 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-300'
                               }`}
                               placeholder="Receipt or reference number"
                               value={stagedPaymentReferences?.[payable.id] || ''}
@@ -2961,13 +2909,15 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                           </div>
                         </div>
 
-                        <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="mt-3 border-t border-slate-200 pt-3">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                               <p className="text-xs font-semibold text-slate-700">Voucher</p>
                               <p className="text-[11px] text-slate-500">Apply or update a voucher without exceeding the remaining balance.</p>
                             </div>
-                            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                            <label className={`inline-flex w-fit items-center gap-2 rounded-lg border px-3 py-1.5 text-xs capitalize  transition ${
+                              voucherEnabled ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'
+                            }`}>
                               <input
                                 type="checkbox"
                                 checked={voucherEnabled}
@@ -3000,10 +2950,10 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                               <input
                                 type="number"
                                 placeholder="Amount"
-                                className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                className={`w-full rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none ${
                                   !voucherEnabled || isFullyPaid
                                     ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
-                                    : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                    : 'border-slate-200 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-300'
                                 }`}
                                 value={voucherAmountInput}
                                 onChange={(e) => {
@@ -3023,23 +2973,19 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                                 max={maxVoucher.toString()}
                                 disabled={!voucherEnabled || isFullyPaid}
                               />
-                              <p className="mt-1 text-[11px] text-slate-500">
-                                {isFullyPaid
-                                  ? 'Voucher updates are disabled for fully paid fees.'
-                                  : `Maximum voucher value: ₱${maxVoucher.toLocaleString()}`}
-                              </p>
+                            
                             </div>
                             <div>
                               <label className="mb-1 block text-[11px] font-semibold text-slate-700">Voucher Description</label>
                               <input
                                 type="text"
                                 placeholder="e.g. Scholarship, Promo"
-                                className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                className={`w-full rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none ${
                                   !voucherEnabled || isFullyPaid
                                     ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
                                     : voucherEnabled && Number(voucherAmountInput || 0) > 0 && !(voucherDescriptionInput || '').trim()
-                                      ? 'border-rose-300 bg-white focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100'
-                                      : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                      ? 'border-rose-300 bg-white focus:border-rose-400 focus:ring-2 focus:ring-rose-100'
+                                      : 'border-slate-200 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-300'
                                 }`}
                                 value={voucherDescriptionInput}
                                 onChange={(e) => {
@@ -3060,6 +3006,7 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                           </div>
                         </div>
                       </div>
+                    </div>
                     </div>
                   );
                 };
@@ -3225,9 +3172,9 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
 
       {/* Individual Student Payable Dialog */}
      {individualPayableDialogOpen && (
-  <div className="fixed inset-0 z-1000 flex items-center justify-center">
+  <div className="fixed inset-0 z-1000 flex items-center justify-center p-4">
     <div
-      className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50"
+      className="fixed inset-0 bg-black/30 backdrop-blur-[2px]"
       onClick={() => {
         setIndividualPayableDialogOpen(false);
         setIndividualPayableForm({
@@ -3243,22 +3190,25 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
         });
       }}
     ></div>
-    <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full overflow-y-auto relative z-10">
-      <h2 className="text-lg font-medium mb-4">
-        Add Previous Balance / Custom Charge
+    <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+      
+      <div className='border-b border-slate-200 bg-slate-50 px-6 py-4'>
+          <h2 className="text-lg font-semibold text-slate-900">
+        Add Individual Charge
       </h2>
       {selectedStudentModal && (
-        <p className="text-sm text-gray-600 mb-4">
+        <p className="mt-1 text-sm text-slate-500">
           For: <span className="font-medium">{selectedStudentModal.name}</span>
         </p>
       )}
+      </div>
 
-      <div className="space-y-4">
+      <div className="max-h-[70vh] space-y-4 overflow-y-auto px-6 py-5">
         {/* Category Selection */}
         <div className="flex items-center gap-4">
-          <label className="block text-sm font-medium">Category:</label>
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-1 text-sm">
+          <label className="block text-sm font-semibold text-slate-700">Category:</label>
+          <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-1">
+            <label className={`flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${individualPayableForm.category === 'general' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>
               <input
                 type="radio"
                 name="individualPayableCategory"
@@ -3269,7 +3219,7 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
               />
               <span>General</span>
             </label>
-            <label className="flex items-center gap-1 text-sm">
+            <label className={`flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${individualPayableForm.category === 'module' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>
               <input
                 type="radio"
                 name="individualPayableCategory"
@@ -3337,10 +3287,10 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
           </>
         ) : (
           <>
-            <label className="block text-sm font-medium mb-1">Charge Type</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-1">Charge Type</label>
             <input
               type="text"
-              className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
               placeholder="Payable Type (e.g., 2nd Year Balance, Laboratory Fee, etc.)"
               value={individualPayableForm.type}
               onChange={(e) => handleIndividualPayableInputChange('type', e.target.value)}
@@ -3349,13 +3299,13 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
         )}
 
         {/* Amount Input */}
-        <label className="block text-sm font-medium mb-1">Amount</label>
+        <label className="block text-sm font-semibold text-slate-700 mb-1">Amount</label>
         <input
           type="number"
           inputMode="decimal"
           min="0"
           step="0.01"
-          className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
           placeholder="e.g., 1500.00"
           value={individualPayableForm.amount}
           onChange={(e) => handleIndividualPayableInputChange('amount', e.target.value)}
@@ -3365,9 +3315,9 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
 
         {/* Year Level Selection */}
         <div>
-          <label className="block text-sm font-medium mb-1">Year Level (when the charge was incurred)</label>
+          <label className="block text-sm font-semibold text-slate-700 mb-1">Year Level (when the charge was incurred)</label>
           <select
-            className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
             value={individualPayableForm.yearLevel}
             onChange={(e) => handleIndividualPayableInputChange('yearLevel', e.target.value)}
           >
@@ -3380,16 +3330,15 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
         </div>
 
         {/* Info Box */}
-        <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
           <p className="text-xs text-blue-800">
             This will add a payable specifically for {selectedStudentModal?.name}.
             Other students will not see this charge.
           </p>
         </div>
-      </div>
 
-      {/* Action Buttons */}
-      <div className="flex justify-end gap-2 mt-6">
+        {/* Action Buttons */}
+      <div className="flex justify-end gap-2 border-t border-slate-200 bg-white pt-4 mt-8">
         <button
           onClick={() => {
             setIndividualPayableDialogOpen(false);
@@ -3405,13 +3354,13 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
               selectedModuleIds: []
             });
           }}
-          className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
         >
           Cancel
         </button>
         <button
           onClick={handleSaveIndividualPayable}
-          className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
           disabled={
             (!individualPayableForm.amount || !individualPayableForm.yearLevel || loading) ||
             (individualPayableForm.category === 'module'
@@ -3419,9 +3368,13 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
               : !individualPayableForm.type)
           }
         >
-          {loading ? 'Adding...' : 'Add Previous Balance'}
+          {loading ? 'Adding...' : 'Add '}
         </button>
       </div>
+
+      </div>
+
+      
     </div>
   </div>
 )}
@@ -3433,18 +3386,27 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
             className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50"
             onClick={() => setExportFilenameModalOpen(false)}
           ></div>
-          <div className="bg-white rounded-2xl shadow-lg p-6 max-w-md w-full relative z-10">
-            <h2 className="text-xl font-bold mb-2">Export File Name</h2>
-            <p className="text-sm text-gray-600 mb-4">Enter the file name before exporting.</p>
+          <div className="bg-white rounded-2xl shadow-lg  max-w-md w-full relative z-10">
+            <div className='px-8 py-4 border-b border-slate-200 bg-slate-100 rounded-t-2xl'>
+              <h2 className="text-lg font-medium">Export File Name</h2>
+            </div>
+            <div className="px-8 py-4">
+                <p className="text-sm text-gray-600 mb-4">Enter the file name before exporting.</p>
+                  <div className="flex w-full items-center rounded-lg border border-slate-200 bg-white  focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400 transition">
             <input
               type="text"
               value={exportFilename}
               onChange={(event) => setExportFilename(event.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="payables-export"
               autoFocus
+              className="flex-1 rounded-l-lg bg-transparent px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400"
             />
-            <div className="flex justify-end gap-2 mt-6">
+
+            <span className="flex items-center rounded-r-lg border-l border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-500">
+              .xlsx
+            </span>
+          </div>
+            <div className="flex justify-end gap-2 mt-8">
               <button
                 type="button"
                 className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
@@ -3454,11 +3416,12 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
               </button>
               <button
                 type="button"
-                className="px-4 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
+                className="px-4 py-1.5 text-sm w-24 rounded-lg bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
                 onClick={handleExportConfirm}
               >
                 Export
               </button>
+            </div>
             </div>
           </div>
         </div>

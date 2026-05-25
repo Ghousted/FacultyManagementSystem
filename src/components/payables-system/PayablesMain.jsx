@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowBigLeft, BadgePlus, Building2, Laptop, Package } from 'lucide-react';
+import { ArrowBigLeft, BadgePlus, Building2, Download, Laptop, Package } from 'lucide-react';
 import PayablesSystem from './PayablesSystem';
 import OtherDepartmentPayables from './OtherDepartmentPayables';
 import { useAuth } from '../../contexts/AuthContext';
@@ -112,6 +112,18 @@ const PayablesMain = ({ onBackToDashboard, initialDepartment = 'ccs' }) => {
               <BadgePlus className="w-4 h-4 inline-flex mr-1 mb-0.5" />
               Add Payables
             </button>
+            {headerActions.ccs.openExportPayables && (
+              <button
+                type="button"
+                className="px-3 py-1.5 border border-green-300 bg-green-50 cursor-pointer text-sm text-green-600 rounded-lg hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={headerActions.ccs.openExportPayables}
+                disabled={!headerActions.ccs.canExport}
+                title={headerActions.ccs.canExport ? 'Export payables' : 'Select a block to export payables'}
+              >
+                <Download className="w-4 h-4 inline-flex mr-1 mb-0.5" />
+                Export
+              </button>
+            )}
           </div>
         )}
 
@@ -134,6 +146,17 @@ const PayablesMain = ({ onBackToDashboard, initialDepartment = 'ccs' }) => {
               <BadgePlus className="w-4 h-4 inline-flex mr-1 mb-0.5" />
               Add Payables
             </button>
+            {headerActions.other.openExportPayables && (
+              <button
+                type="button"
+                className="px-3 py-1.5 border border-green-300 bg-green-50 cursor-pointer text-sm text-green-600 rounded-lg hover:bg-green-100"
+                onClick={headerActions.other.openExportPayables}
+                title="Export payables"
+              >
+                <Download className="w-4 h-4 inline-flex mr-1 mb-0.5" />
+                Export
+              </button>
+            )}
           </div>
         )}
       </div>

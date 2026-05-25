@@ -1,4 +1,14 @@
-import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  serverTimestamp,
+} from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
 // ─── Auth helpers ──────────────────────────────────────────────────────────────
@@ -90,6 +100,14 @@ const sanitizeForFirestore = (value) => {
   return value;
 };
 
+const INTERNAL_ID_PATTERN = /\b[A-Za-z0-9_-]{20,}\b/g;
+
+const removeInternalIds = (text = '') =>
+  text
+    .replace(INTERNAL_ID_PATTERN, 'record')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 // ─── Description builder ───────────────────────────────────────────────────────
 
 /**
@@ -127,7 +145,20 @@ const buildDescription = async ({
     text = text.replace(/untitled payable/gi, payableTitle);
   }
 
-  return text.replace(/\s+/g, ' ').trim();
+  return removeInternalIds(text);
+};
+
+const pruneOldLogs = async (keepCount = 50) => {
+  const logsQuery = query(
+    collection(db, 'systemLogs'),
+    orderBy('timestamp', 'desc')
+  );
+  const snapshot = await getDocs(logsQuery);
+  const staleDocs = snapshot.docs.slice(keepCount);
+
+  await Promise.all(
+    staleDocs.map((docSnap) => deleteDoc(doc(db, 'systemLogs', docSnap.id)))
+  );
 };
 
 // ─── Action normalizer ─────────────────────────────────────────────────────────
@@ -246,6 +277,8 @@ export const logSystemAction = async ({
       createdAt: now.toISOString(),
       timestamp: serverTimestamp(),
     });
+
+    await pruneOldLogs();
   } catch (error) {
     console.error('Error writing system log:', error);
   }

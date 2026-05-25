@@ -16,7 +16,6 @@ import {
   BadgePlus,
   Pencil,
   Search,
-  Funnel,
   Printer,
   History,
   Trash2,
@@ -25,7 +24,6 @@ import {
   X,
   Folder,
   Package,
-  Download,
   ChevronsUpDown, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { db } from '../../firebase';
@@ -44,6 +42,7 @@ import { logSystemAction } from '../../utils/auditLogger';
 import { isStudentInActiveTerm } from '../../utils/termHelpers';
 import { exportOtherDepartmentPayablesToExcel } from '../../utils/otherDepartmentPayablesExport';
 import ReceiptModal from './ReceiptModal';
+import ModuleManagement from './ModuleManagement';
 
 const emptyDepartmentForm = { name: '', code: '' };
 const emptyStudentForm = { name: '', course: '', yearLevel: '1', block: '' };
@@ -186,6 +185,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain, registerToolbarActions 
   const [offeredModules, setOfferedModules] = useState([]);
   const [moduleSelectorOpen, setModuleSelectorOpen] = useState(false);
   const [moduleSelectorContext, setModuleSelectorContext] = useState('individual');
+  const [moduleManagementOpen, setModuleManagementOpen] = useState(false);
 
   const loadOfferedModules = useCallback(async () => {
     const res = await getOfferedModules();
@@ -195,24 +195,6 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain, registerToolbarActions 
   useEffect(() => {
     loadOfferedModules();
   }, [loadOfferedModules]);
-
-  useEffect(() => {
-    if (!registerToolbarActions) {
-      return;
-    }
-
-    registerToolbarActions('other', {
-      openModuleManagement: () => {
-        setModuleSelectorContext('new');
-        setModuleSelectorOpen(true);
-      },
-      openAddPayable: () => {
-        setPayableForm(emptyPayableForm);
-        setEditingPayableId('');
-        setPayableModalOpen(true);
-      }
-    });
-  }, [registerToolbarActions]);
 
   const individualSelectedModuleIds = individualPayableForm?.selectedModuleIds || [];
   const individualSelectedModules = useMemo(
@@ -389,6 +371,7 @@ const OtherDepartmentPayables = ({ onBackToPayablesMain, registerToolbarActions 
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportFilenameModalOpen, setExportFilenameModalOpen] = useState(false);
   const [pendingExportMode, setPendingExportMode] = useState('xlsx-current-folder');
+  const [pendingExportData, setPendingExportData] = useState(null);
   const [studentForm, setStudentForm] = useState(emptyStudentForm);
   const [editingStudentId, setEditingStudentId] = useState('');
   const [studentModalOpen, setStudentModalOpen] = useState(false);
@@ -521,10 +504,18 @@ useEffect(() => {
 }, [currentUser]);
 
 useEffect(() => {
-  if (moduleSelectorOpen && moduleSelectorContext === 'new' && moduleYearLevelFilter === 'all') {
-    setModuleYearLevelFilter('1');
+  if (moduleSelectorOpen && moduleSelectorContext === 'new') {
+    if (moduleYearLevelFilter === 'all') {
+      setModuleYearLevelFilter('1');
+    }
+    if (moduleCurriculumFilter === 'all') {
+      setModuleCurriculumFilter('all');
+    }
+    if (moduleSemesterFilter === 'all') {
+      setModuleSemesterFilter('all');
+    }
   }
-}, [moduleSelectorOpen, moduleSelectorContext, moduleYearLevelFilter]);
+}, [moduleSelectorOpen, moduleSelectorContext, moduleYearLevelFilter, moduleCurriculumFilter, moduleSemesterFilter]);
 
   const selectedDepartment = useMemo(
     () => departments.find((department) => department.id === selectedDepartmentId) || null,
@@ -609,12 +600,15 @@ useEffect(() => {
   }, [currentTermStudents, studentSearch]);
 
   const folderGroups = useMemo(() => {
-    const groups = groupOtherDeptFoldersByTerm(
-      buildOtherDeptComboFolders(departmentStudents, { activeTerm }),
-      activeTerm
-    );
+    // Build folder definitions from all department students (Other Department Management data)
+    const allFolders = buildOtherDeptComboFolders(students, { activeTerm });
+    // Group folders by term
+    const groups = groupOtherDeptFoldersByTerm(allFolders, activeTerm);
 
-    return groups.map((group) => ({
+    // Show all groups from Other Department Management (all terms)
+    const groupsToShow = groups;
+
+    return groupsToShow.map((group) => ({
       ...group,
       folders: [...group.folders].sort((left, right) => {
         const leftCourse = String(left.course || '').trim().toLowerCase();
@@ -642,7 +636,7 @@ useEffect(() => {
         return leftBlock.localeCompare(rightBlock, undefined, { sensitivity: 'base' });
       })
     }));
-  }, [activeTerm, departmentStudents]);
+  }, [activeTerm, students]);
 
   const studentsInSelectedFolder = useMemo(() => {
     if (!selectedFolder) return departmentStudents;
@@ -1934,30 +1928,136 @@ const renderSortIcon = (field) => {
   const isExportDisabled = !selectedFolder;
 
   const getDefaultExportFilename = () => {
-    const baseName = selectedFolder?.label || `${selectedDepartment?.name || 'other-department'}-payables`;
+    const baseName = selectedFolder?.label || `${selectedDepartment?.name || 'all-other-departments'}-payables`;
     return sanitizeExportText(baseName);
   };
 
-  const handleExportAction = (mode) => {
+  const buildPaymentTotals = (paymentList) => {
+    const totals = {};
+    paymentList.forEach((payment) => {
+      const key = `${payment.studentId}::${payment.payableId}`;
+      const settledAmount = numberOrZero(payment.amount) + numberOrZero(payment.voucherAmount);
+      totals[key] = (totals[key] || 0) + settledAmount;
+    });
+    return totals;
+  };
+
+  const handleExportAction = async (mode) => {
     setExportMenuOpen(false);
-    if (!selectedFolder) {
+    const isAllBlocksExport = mode.includes('all-blocks');
+
+    if (!selectedFolder && !isAllBlocksExport) {
       showError('Open a folder to export its current payables records.');
       return;
     }
 
-    const exportStudents = mode.includes('all-blocks') ? departmentStudents : sortedStudents;
+    if (!selectedDepartment && isAllBlocksExport) {
+      if (!departments.length) {
+        showError('Create a department before exporting payables.');
+        return;
+      }
+
+      try {
+        const departmentIds = new Set(departments.map((department) => department.id).filter(Boolean));
+        const [studentsSnap, payablesSnap, paymentsSnap] = await Promise.all([
+          getDocs(collection(db, 'otherDept-Students')),
+          getDocs(collection(db, 'otherDept-payables')),
+          getDocs(collection(db, 'otherDept-payment'))
+        ]);
+
+        const exportStudents = studentsSnap.docs
+          .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+          .filter((student) => departmentIds.has(student.departmentId))
+          .filter((student) => isStudentInActiveTerm(student, activeTerm));
+        const exportPayables = payablesSnap.docs
+          .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+          .filter((payable) => departmentIds.has(payable.departmentId));
+        const exportPayments = paymentsSnap.docs
+          .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+          .filter((payment) => departmentIds.has(payment.departmentId));
+
+        const departmentGroups = departments.map((department) => {
+          const departmentStudents = exportStudents.filter((student) => student.departmentId === department.id);
+          const departmentPayables = exportPayables.filter((payable) => payable.departmentId === department.id);
+          const departmentPayments = exportPayments.filter((payment) => payment.departmentId === department.id);
+
+          return {
+            department,
+            students: departmentStudents,
+            payables: departmentPayables,
+            payments: departmentPayments,
+            paymentTotalsByStudentPayable: buildPaymentTotals(departmentPayments)
+          };
+        });
+
+        setPendingExportData({
+          students: exportStudents,
+          payables: exportPayables,
+          payments: exportPayments,
+          paymentTotalsByStudentPayable: buildPaymentTotals(exportPayments),
+          departmentGroups
+        });
+        setPendingExportMode(mode);
+        setExportFilenameModalOpen(true);
+      } catch (exportError) {
+        showError(`Failed to prepare export data: ${exportError.message}`);
+      }
+      return;
+    }
+
+    if (!selectedDepartment) {
+      showError('Select a department first.');
+      return;
+    }
+
+    const exportStudents = isAllBlocksExport ? departmentStudents : sortedStudents;
 
     if (!exportStudents.length) {
       showError('There are no students available to export for the selected scope.');
       return;
     }
 
+    setPendingExportData(null);
     setPendingExportMode(mode);
     setExportFilenameModalOpen(true);
   };
 
+  useEffect(() => {
+    if (!registerToolbarActions) {
+      return undefined;
+    }
+
+    registerToolbarActions('other', {
+      openModuleManagement: () => {
+        setModuleManagementOpen(true);
+      },
+      openAddPayable: () => {
+        setPayableForm(emptyPayableForm);
+        setEditingPayableId('');
+        setPayableModalOpen(true);
+      },
+      openExportPayables: () => {
+        handleExportAction('xlsx-all-blocks');
+      },
+      canExport: true
+    });
+
+    return () => registerToolbarActions('other', null);
+  }, [
+    activeTerm,
+    departments.length,
+    departmentStudents.length,
+    registerToolbarActions,
+    selectedDepartmentId,
+    selectedFolder,
+    sortedStudents.length
+  ]);
+
   const handleExportConfirm = (filename) => {
-    const exportStudents = pendingExportMode.includes('all-blocks') ? departmentStudents : sortedStudents;
+    const exportStudents = pendingExportData?.students || (pendingExportMode.includes('all-blocks') ? departmentStudents : sortedStudents);
+    const exportPayables = pendingExportData?.payables || payables;
+    const exportPayments = pendingExportData?.payments || payments;
+    const exportPaymentTotals = pendingExportData?.paymentTotalsByStudentPayable || paymentTotalsByStudentPayable;
     const effectiveFilename = filename || getDefaultExportFilename();
     const extension = pendingExportMode.includes('csv') ? 'csv' : 'xlsx';
 
@@ -1965,15 +2065,17 @@ const renderSortIcon = (field) => {
 
     exportOtherDepartmentPayablesToExcel({
       students: exportStudents,
-      payables,
-      payments,
-      paymentTotalsByStudentPayable,
+      payables: exportPayables,
+      payments: exportPayments,
+      paymentTotalsByStudentPayable: exportPaymentTotals,
       selectedDepartment,
       selectedFolder,
       scope: pendingExportMode.includes('all-blocks') ? 'all-blocks' : 'current-folder',
       activeTerm,
-      filename: effectiveFilename.endsWith(`.${extension}`) ? effectiveFilename : `${effectiveFilename}.${extension}`
+      filename: effectiveFilename.endsWith(`.${extension}`) ? effectiveFilename : `${effectiveFilename}.${extension}`,
+      departmentGroups: pendingExportData?.departmentGroups
     });
+    setPendingExportData(null);
   };
 
   const isPayableRelevantToStudent = (payable, student) => {
@@ -2118,7 +2220,7 @@ const renderSortIcon = (field) => {
         <>
           <section className="">
       <div className="flex flex-wrap items-center justify-between mb-3 gap-3">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify gap-2">
           {selectedFolder && (
             <div className="relative w-72">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -2132,58 +2234,6 @@ const renderSortIcon = (field) => {
             </div>
           )}
 
-          {selectedFolder && (
-            <div className="relative export-dropdown-container">
-              <button
-                type="button"
-                onClick={() => setExportMenuOpen((current) => !current)}
-                disabled={isExportDisabled}
-                className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-              >
-                <Download className="h-4 w-4" />
-                Export
-                <ChevronDown className="h-4 w-4" />
-              </button>
-
-              {exportMenuOpen && (
-                <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
-                  <button
-                    type="button"
-                    onClick={() => handleExportAction('xlsx-current-folder')}
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <span>Export as Excel (.xlsx)</span>
-                    <span className="text-xs text-slate-500">Current folder</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExportAction('csv-current-folder')}
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <span>Export as Google Sheet format</span>
-                    <span className="text-xs text-slate-500">Current folder</span>
-                  </button>
-                  <div className="my-2 h-px bg-slate-200" />
-                  <button
-                    type="button"
-                    onClick={() => handleExportAction('xlsx-current-folder')}
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <span>Export Current Folder Only</span>
-                    <span className="text-xs text-slate-500">Excel</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleExportAction('xlsx-all-blocks')}
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <span>Export All Blocks</span>
-                    <span className="text-xs text-slate-500">Excel</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
@@ -2509,19 +2559,21 @@ const renderSortIcon = (field) => {
      {payableModalOpen && (
   <div className="fixed inset-0 z-1000 flex items-center justify-center p-4">
     <div
-      className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+      className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
       onClick={closePayableModal}
       aria-hidden="true"
     />
-    <div className="relative w-full max-w-md bg-white rounded-2xl shadow-lg p-6">
-      <h4 className="text-lg font-semibold text-slate-800 mb-1">
-        {editingPayableId ? 'Edit Payable' : 'Add Payable'}
-      </h4>
-      <p className="text-sm text-slate-600 mb-6">
-        This payable applies to all studentS thast match the target group you will select below.
-      </p>
+    <div className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+      <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
+        <h4 className="text-lg font-semibold text-slate-900">
+          {editingPayableId ? 'Edit Payable' : 'Add Payable'}
+        </h4>
+        <p className="mt-1 text-sm text-slate-500">
+          This payable applies to students that match the target group selected below.
+        </p>
+      </div>
 
-      <form onSubmit={handleSavePayable} className="space-y-4">
+      <form onSubmit={handleSavePayable} className="max-h-[70vh] space-y-4 overflow-y-auto px-6 py-5">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
             Department
@@ -2530,7 +2582,7 @@ const renderSortIcon = (field) => {
             value={payableDepartmentId || ''}
             onChange={(event) => setPayableDepartmentId(event.target.value)}
             disabled={!!editingPayableId}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm disabled:bg-slate-100 disabled:cursor-not-allowed"
+            className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow disabled:bg-slate-100 disabled:cursor-not-allowed"
           >
             <option value="" disabled>
               Select department
@@ -2555,8 +2607,8 @@ const renderSortIcon = (field) => {
             Category:
           </label>
 
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+          <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-1">
+            <label className={`flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${payableForm.category === 'general' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>
               <input
                 type="radio"
                 name="category"
@@ -2573,7 +2625,7 @@ const renderSortIcon = (field) => {
               General
             </label>
 
-            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+            <label className={`flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${payableForm.category === 'module' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>
               <input
                 type="radio"
                 name="category"
@@ -2607,7 +2659,7 @@ const renderSortIcon = (field) => {
                   targetBlock: ''
                 }));
               }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+              className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
             >
               {courseOptions.map((course) => (
                 <option key={course} value={course}>
@@ -2628,7 +2680,7 @@ const renderSortIcon = (field) => {
                   targetBlock: ''
                 }));
               }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+              className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
             >
               {yearLevelOptions.map((level) => (
                 <option key={level} value={level}>
@@ -2648,7 +2700,7 @@ const renderSortIcon = (field) => {
                   targetBlock: value === 'All' ? '' : value
                 }));
               }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+              className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
             >
               {blockOptions.map((block) => (
                 <option key={block} value={block}>
@@ -2721,7 +2773,7 @@ const renderSortIcon = (field) => {
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+                className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                 placeholder="e.g., 1500.00"
                 value={payableForm.amount}
                 onChange={(e) => setPayableForm((prev) => ({ ...prev, amount: e.target.value }))}
@@ -2751,7 +2803,7 @@ const renderSortIcon = (field) => {
                 placeholder="e.g. Laboratory Fee"
                 value={payableForm.title}
                 onChange={(event) => setPayableForm((prev) => ({ ...prev, title: event.target.value }))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+                className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
               />
             </div>
             <div>
@@ -2761,7 +2813,7 @@ const renderSortIcon = (field) => {
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+                className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                 placeholder="e.g., 1500.00"
                 value={payableForm.amount}
                 onChange={(e) => setPayableForm((prev) => ({ ...prev, amount: e.target.value }))}
@@ -2773,18 +2825,18 @@ const renderSortIcon = (field) => {
         )}
 
         {/* Action Buttons */}
-        <div className="flex justify-end gap-2 mt-6">
+        <div className="flex justify-end gap-2 border-t border-slate-200 bg-white pt-4 mt-6">
           <button
             type="button"
             onClick={closePayableModal}
-            className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+            className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={loading}
-            className="px-6 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+            className="px-6 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
           >
             {editingPayableId ? 'Update Payable' : 'Add Payable'}
           </button>
@@ -2795,35 +2847,37 @@ const renderSortIcon = (field) => {
 )}
       {/* Module Selector Modal */}
       {moduleSelectorOpen && (
-  <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/30 px-4 py-6">
+  <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4">
     <div
       className="absolute inset-0"
       onClick={() => setModuleSelectorOpen(false)}
     ></div>
 
-    <div className="relative z-10 w-full max-w-3xl rounded-3xl border h-[70vh] border-slate-200 bg-white shadow-2xl">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-800">
-            Select Modules
-          </h2>
-          <p className="text-sm text-slate-500">
-            Choose modules to include.
-          </p>
-        </div>
+    <div className="relative z-10 w-full max-w-3xl bg-white rounded-2xl shadow-xl h-[90vh] flex flex-col">
+      <div className="px-6 pt-5 pb-4 border-b border-gray-200 rounded-t-2xl bg-slate-100">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-800">
+              Select Modules
+            </h2>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Choose offered modules for this payable using the same modal pattern as the payables module offer.
+            </p>
+          </div>
 
-        <button
-          type="button"
-          onClick={() => setModuleSelectorOpen(false)}
-          className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-        >
-          <X className="h-5 w-5" />
-        </button>
+          <button
+            type="button"
+            onClick={() => setModuleSelectorOpen(false)}
+            className="rounded-full bg-white p-1 cursor-pointer text-slate-500 hover:text-red-600 transition"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
       {/* Content */}
-      <div className="max-h-[60vh] overflow-y-auto px-6 py-5 ">
+      <div className="flex-1 overflow-y-auto px-6 pb-6 pt-4">
       <div className='flex items-center justify-between gap-2 mb-4'>
           {/* Year Level Filters */}
   <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
@@ -3044,17 +3098,23 @@ const renderSortIcon = (field) => {
   </div>
 )}
 
+      <ModuleManagement
+        open={moduleManagementOpen}
+        onClose={() => setModuleManagementOpen(false)}
+        onChanged={loadOfferedModules}
+      />
+
       {/* Student Payment Modal */}
       {studentPaymentModalOpen && selectedStudentForPayment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={closeStudentPaymentModal} aria-hidden="true" />
-          <div className="relative z-10 flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_24px_80px_-20px_rgba(15,23,42,0.35)]">
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 text-white">
+          <div className="absolute inset-0 bg-black/25 backdrop-blur-[2px]" onClick={closeStudentPaymentModal} aria-hidden="true" />
+          <div className="relative z-10 flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_24px_80px_-20px_rgba(15,23,42,0.35)]">
+            <div className="bg-slate-100 border-b border-slate-200 px-8 py-4">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-blue-100">Payment Center</p>
-                  <h4 className="mt-2 text-xl font-semibold">{selectedStudentForPayment.name}</h4>
-                  <p className="mt-1 text-sm text-blue-50/90">
+                  <p className="text-xs uppercase tracking-[0.2em] text-blue-700">Payment Center</p>
+                  <h4 className="text-lg font-semibold text-slate-900">{selectedStudentForPayment.name}</h4>
+                  <p className="mt-1 text-sm text-blue-700">
                     {selectedStudentForPayment.course || '-'} {selectedStudentForPayment.yearLevel}
                     {selectedStudentForPayment.yearLevel === '1' && 'ST'}
                     {selectedStudentForPayment.yearLevel === '2' && 'ND'}
@@ -3063,30 +3123,31 @@ const renderSortIcon = (field) => {
                   </p>
                 </div>
                 <button
-                  className="inline-flex items-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50"
+                  className="inline-flex items-center rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 cursor-pointer"
                   onClick={() => openAddPreviousBalanceModal(selectedStudentForPayment)}
                 >
-                  + Add Prev. Balance
+                  Add Individual Charge
                 </button>
               </div>
             </div>
 
             <div className="space-y-4 px-6 py-4 overflow-y-auto flex-1 min-h-0">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="relative w-full md:max-w-sm">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                    placeholder="Search payables by type..."
-                    value={payablesSearch}
-                    onChange={(event) => setPayablesSearch(event.target.value)}
-                  />
+              <div className="flex flex-col md:flex-row gap-2 md:items-center md:justify-between">
+                <div className="w-72 flex items-center gap-2">
+                  <div className="relative w-full">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                      placeholder="Search payables by type..."
+                      value={payablesSearch}
+                      onChange={(event) => setPayablesSearch(event.target.value)}
+                    />
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <Funnel className="w-4 h-4 text-slate-600" />
+                <div className="flex items-center gap-2">
                   <select
-                    className="border-0 bg-transparent text-sm text-slate-700 focus:outline-none"
+                    className="w-fit border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     value={payablesFilter}
                     onChange={(event) => setPayablesFilter(event.target.value)}
                   >
@@ -3143,7 +3204,7 @@ const renderSortIcon = (field) => {
                       return (
                         <div
                           key={payable.id}
-                          className={`rounded-[24px] border p-4 shadow-sm transition ${
+                          className={`rounded-lg border p-4 shadow-sm transition ${
                             isFullyPaid
                               ? 'border-emerald-200 bg-emerald-50/40'
                               : 'border-slate-200 bg-white'
@@ -3165,10 +3226,10 @@ const renderSortIcon = (field) => {
                             }));
                           }}
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="flex-1">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-2">
-                                <h4 className="text-base font-semibold text-slate-900">{payable.title}</h4>
+                                <h4 className="min-w-0 text-base font-semibold text-slate-900">{payable.title}</h4>
                                 <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${
                                   isFullyPaid
                                     ? 'bg-emerald-100 text-emerald-800'
@@ -3179,8 +3240,8 @@ const renderSortIcon = (field) => {
                                   {getPayableStatusLabel(status)}
                                 </span>
                               </div>
-                              <p className="mt-2 text-sm text-slate-600">
-                                This fee currently has <span className="font-semibold text-slate-900">{formatPeso(remaining)}</span> remaining.
+                              <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                                This fee has a current balance of <span className="font-semibold text-slate-900">{formatPeso(remaining)}</span>.
                               </p>
                               {payable.targetCourse && (
                                 <p className="mt-2 text-xs text-slate-500">Target Course: {payable.targetCourse}</p>
@@ -3191,14 +3252,14 @@ const renderSortIcon = (field) => {
                                 </p>
                               )}
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
                               <button
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   handleEditPayable(payable);
                                 }}
-                                className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
+                                className="rounded-md p-1.5 text-slate-600 transition hover:bg-slate-100"
                                 title="Edit payable type"
                               >
                                 <Pencil className="w-4 h-4" />
@@ -3209,7 +3270,7 @@ const renderSortIcon = (field) => {
                                   event.stopPropagation();
                                   openPayableTransactionHistory(payable);
                                 }}
-                                className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
+                                className="rounded-md p-1.5 text-slate-600 transition hover:bg-slate-100"
                                 title="View payment history"
                               >
                                 <History className="w-4 h-4" />
@@ -3224,7 +3285,7 @@ const renderSortIcon = (field) => {
                                   }
                                   handlePrintExistingPayment(latestTransaction);
                                 }}
-                                className="rounded-full p-1.5 text-slate-600 transition hover:bg-slate-100"
+                                className="rounded-md p-1.5 text-slate-600 transition hover:bg-slate-100"
                                 title="Print latest receipt"
                               >
                                 <Printer className="w-4 h-4" />
@@ -3237,7 +3298,7 @@ const renderSortIcon = (field) => {
                                   if (!confirmed) return;
                                   handleDeletePayable(payable.id);
                                 }}
-                                className="rounded-full p-1.5 text-rose-600 transition hover:bg-rose-50"
+                                className="rounded-md p-1.5 text-rose-600 transition hover:bg-rose-50"
                                 title="Delete this payable"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -3245,26 +3306,26 @@ const renderSortIcon = (field) => {
                             </div>
                           </div>
 
-                          <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                          <div className="mt-4 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                               <p className="text-slate-500">Total</p>
                               <p className="mt-1 font-semibold text-slate-900">{formatPeso(payableAmount)}</p>
                             </div>
-                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                               <p className="text-slate-500">Paid</p>
                               <p className="mt-1 font-semibold text-emerald-700">{formatPeso(paidAmount)}</p>
                             </div>
-                            <div className="rounded-xl bg-slate-50 px-3 py-2">
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                               <p className="text-slate-500">Remaining</p>
                               <p className="mt-1 font-semibold text-rose-700">{formatPeso(remaining)}</p>
                             </div>
                           </div>
 
-                          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                               <div className="flex flex-wrap items-center gap-2 text-xs">
                                 <span className="font-semibold text-slate-700">Mode of Payment</span>
-                                <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
+                                <label className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 transition ${selectedMode === 'cash' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'}`}>
                                   <input
                                     type="radio"
                                     name={`paymentMode-${payable.id}`}
@@ -3283,7 +3344,7 @@ const renderSortIcon = (field) => {
                                   />
                                   Cash
                                 </label>
-                                <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
+                                <label className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 transition ${selectedMode === 'gcash' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'}`}>
                                   <input
                                     type="radio"
                                     name={`paymentMode-${payable.id}`}
@@ -3302,7 +3363,7 @@ const renderSortIcon = (field) => {
                                   />
                                   GCash
                                 </label>
-                                <label className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1">
+                                <label className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 transition ${selectedMode === 'bank transfer' ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'}`}>
                                   <input
                                     type="radio"
                                     name={`paymentMode-${payable.id}`}
@@ -3348,10 +3409,10 @@ const renderSortIcon = (field) => {
                                     }
                                   }}
                                   disabled={isFullyPaid}
-                                  className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                  className={`w-full rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none ${
                                     isFullyPaid
                                       ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
-                                      : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                      : 'border-slate-200 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-300'
                                   }`}
                                 />
                                 <p className="text-[11px] text-slate-500">
@@ -3380,22 +3441,22 @@ const renderSortIcon = (field) => {
                                     }
                                   }}
                                   disabled={!requiresReference || isFullyPaid}
-                                  className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                  className={`w-full rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none ${
                                     !requiresReference || isFullyPaid
                                       ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
-                                      : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                      : 'border-slate-200 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-300'
                                   }`}
                                 />
                               </div>
                             </div>
 
-                            <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
-                              <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
                                   <p className="text-xs font-semibold text-slate-700">Voucher</p>
                                   <p className="text-[11px] text-slate-500">Keep voucher values within the current remaining balance.</p>
                                 </div>
-                                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                                <label className={`inline-flex w-fit items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition ${voucherEnabled ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700'}`}>
                                   <input
                                     type="checkbox"
                                     checked={voucherEnabled}
@@ -3444,10 +3505,10 @@ const renderSortIcon = (field) => {
                                       }
                                     }}
                                     disabled={!voucherEnabled || isFullyPaid}
-                                    className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                    className={`w-full rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none ${
                                       !voucherEnabled || isFullyPaid
                                         ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
-                                        : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                        : 'border-slate-200 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-300'
                                     }`}
                                   />
                                   <p className="mt-1 text-[11px] text-slate-500">
@@ -3473,10 +3534,10 @@ const renderSortIcon = (field) => {
                                       }
                                     }}
                                     disabled={!voucherEnabled || isFullyPaid}
-                                    className={`w-full rounded-xl border px-3 py-2 text-sm transition ${
+                                    className={`w-full rounded-lg border px-3 py-2 text-sm transition-shadow focus:outline-none ${
                                       !voucherEnabled || isFullyPaid
                                         ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
-                                        : 'border-slate-200 bg-white focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
+                                        : 'border-slate-200 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-300'
                                     }`}
                                   />
                                 </div>
@@ -3524,7 +3585,7 @@ const renderSortIcon = (field) => {
      {individualPayableDialogOpen && (
   <div className="fixed inset-0 z-1000 flex items-center justify-center p-4">
     <div
-      className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+      className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
       onClick={() => {
         setIndividualPayableDialogOpen(false);
         setIndividualPayableForm({
@@ -3542,21 +3603,23 @@ const renderSortIcon = (field) => {
       }}
       aria-hidden="true"
     />
-    <div className="relative w-full max-w-md bg-white rounded-2xl shadow-lg p-6">
-      <h4 className="text-lg font-semibold text-slate-800 mb-1">
-        Add Previous Balance / Custom Charge
-      </h4>
-      {selectedStudentForIndividualPayable && (
-        <p className="text-sm text-slate-600 mb-6">
-          For: <strong>{selectedStudentForIndividualPayable.name}</strong>
-        </p>
-      )}
+    <div className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+      <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
+        <h4 className="text-lg font-semibold text-slate-900">
+          Add Individual Charge
+        </h4>
+        {selectedStudentForIndividualPayable && (
+          <p className="mt-1 text-sm text-slate-500">
+            For: <strong>{selectedStudentForIndividualPayable.name}</strong>
+          </p>
+        )}
+      </div>
 
-      <form onSubmit={(e) => { e.preventDefault(); handleSaveIndividualPayable(); }} className="space-y-4">
+      <form onSubmit={(e) => { e.preventDefault(); handleSaveIndividualPayable(); }} className="max-h-[70vh] space-y-4 overflow-y-auto px-6 py-5">
         {/* Category Selection */}
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
-          <div className="flex gap-1 p-1 bg-slate-100 rounded-lg">
+          <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
             <button
               type="button"
               onClick={() => handleIndividualPayableInputChange('category', 'general')}
@@ -3647,7 +3710,7 @@ const renderSortIcon = (field) => {
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+                className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                 placeholder="e.g., 1500.00"
                 value={individualPayableForm.amount}
                 onChange={(e) => handleIndividualPayableInputChange('amount', e.target.value)}
@@ -3674,7 +3737,7 @@ const renderSortIcon = (field) => {
               <label className="block text-sm font-medium text-slate-700 mb-1">Charge Type</label>
               <input
                 type="text"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+                className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                 placeholder="Payable Type (e.g., 2nd Year Balance, Laboratory Fee, etc.)"
                 value={individualPayableForm.type}
                 onChange={(e) => handleIndividualPayableInputChange('type', e.target.value)}
@@ -3702,7 +3765,7 @@ const renderSortIcon = (field) => {
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Year Level (when the charge was incurred)</label>
           <select
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+            className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
             value={individualPayableForm.yearLevel}
             onChange={(e) => handleIndividualPayableInputChange('yearLevel', e.target.value)}
           >
@@ -3715,7 +3778,7 @@ const renderSortIcon = (field) => {
         </div>
 
         {/* Info Box */}
-        <div className="p-4 bg-blue-50 border border-blue-200 rounded">
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
           <p className="text-xs text-blue-800">
             This will add a payable specifically for <strong>{selectedStudentForIndividualPayable?.name}</strong>.
             Other students will not see this charge.
@@ -3723,7 +3786,7 @@ const renderSortIcon = (field) => {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex justify-end gap-2 mt-6">
+        <div className="flex justify-end gap-2 border-t border-slate-200 bg-white pt-4 mt-6">
           <button
             type="button"
             onClick={() => {
@@ -3741,7 +3804,7 @@ const renderSortIcon = (field) => {
               });
               setSelectedStudentForIndividualPayable(null);
             }}
-            className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+            className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
           >
             Cancel
           </button>
@@ -3753,9 +3816,9 @@ const renderSortIcon = (field) => {
                 ? !(individualPayableForm.selectedModuleIds && individualPayableForm.selectedModuleIds.length > 0)
                 : !individualPayableForm.type)
             }
-            className="px-6 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+            className="px-6 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
           >
-            {loading ? 'Adding...' : 'Add Previous Balance'}
+            {loading ? 'Adding...' : 'Add Charge'}
           </button>
         </div>
       </form>

@@ -815,8 +815,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
               <div className="h-3 w-20 animate-pulse rounded bg-gray-100" />
             </div>
           </div>
-          <div className="h-3 w-full animate-pulse rounded bg-gray-100" />
-          <div className="mt-2 h-3 w-2/3 animate-pulse rounded bg-gray-100" />
+      
         </div>
       ))}
     </div>

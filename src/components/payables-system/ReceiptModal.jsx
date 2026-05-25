@@ -548,17 +548,90 @@ export async function printReceiptDirect(receiptData) {
   style.setAttribute('data-generated-by', 'printReceiptDirect');
   style.textContent = `
     @media print {
-      @page { size: 100mm 150mm; margin: 0; }
-      body > *:not(.modal-container) { display: none !important; }
+      @page {
+        size: 100mm 150mm;
+        margin: 0;
+      }
+      body {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+        background: #fff !important;
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100mm;
+        height: 150mm;
+      }
+      body > *:not(#__receipt-print-container) { display: none !important; }
+      #__receipt-print-container {
+        position: static !important;
+        left: auto !important;
+        top: auto !important;
+        display: block !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        visibility: visible !important;
+        background: #fff !important;
+      }
       .modal-backdrop { display: none !important; }
-      .modal-container { position: static !important; display: block !important; padding: 0 !important; margin: 0 !important; visibility: visible !important; }
       .modal-dialog { position: static !important; max-width: none !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; overflow: visible !important; background: #fff !important; }
       .receipt-modal-content { max-height: none !important; overflow: visible !important; padding: 0 !important; margin: 0 !important; background: #fff !important; }
-      #receipt-preview { display: block !important; padding: 0 !important; margin: 0 auto !important; width: 100mm !important; max-width: 100mm !important; height: auto !important; min-height: 0 !important; }
-      .receipt-copy { box-shadow: none !important; border: 1px solid #cbd5e1 !important; border-radius: 0 !important; padding: 4mm !important; width: 150mm !important; max-width: 150mm !important; height: 100mm !important; min-height: 100mm !important; box-sizing: border-box !important; font-size: 11px !important; line-height: 1.15 !important; margin: 0 !important; }
+      #receipt-preview { display: block !important; padding: 0 !important; margin: 0 auto !important; width: 100mm !important; max-width: 100mm !important; height: auto !important; min-height: 0 !important; break-before: auto !important; page-break-before: auto !important; }
+      .receipt-copy {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        page-break-after: always;
+        break-after: page;
+        box-shadow: none !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 0 !important;
+        padding: 4mm !important;
+        width: 150mm !important;
+        max-width: 150mm !important;
+        height: 100mm !important;
+        min-height: 100mm !important;
+        box-sizing: border-box !important;
+        flex: 0 0 auto !important;
+        aspect-ratio: auto !important;
+        overflow: hidden !important;
+        font-size: 11px !important;
+        line-height: 1.15 !important;
+        margin: 0 !important;
+        transform-origin: top left !important;
+        transform: translateX(100mm) rotate(90deg) !important;
+      }
+      .receipt-copy:last-child {
+        page-break-after: auto;
+        break-after: auto;
+      }
+      .receipt-copy .text-[8px] { font-size: 7px !important; }
+      .receipt-copy .text-[10px] { font-size: 8px !important; }
+      .receipt-copy .text-[11px] { font-size: 8.5px !important; }
+      .receipt-copy .text-[12px] { font-size: 11px !important; }
+      .receipt-copy .text-xs { font-size: 8px !important; }
+      .receipt-copy .text-sm { font-size: 11px !important; }
+      .receipt-copy table { width: 100%; margin: 0; }
+      .receipt-copy td, .receipt-copy th { padding: 0.032in 0.028in; }
+      .receipt-copy + .receipt-copy { margin-top: 0 !important; }
     }
   `;
-  container.appendChild(style);
+  document.head.appendChild(style);
+
+  const cleanup = () => {
+    if (root && root.unmount) root.unmount();
+    else {
+      try {
+        const fallback = require('react-dom');
+        fallback.unmountComponentAtNode(container);
+      } catch (e) {
+        // ignore
+      }
+    }
+    style.remove();
+    container.remove();
+  };
 
   // Use React 18 createRoot if available
   let root = null;
@@ -601,24 +674,25 @@ export async function printReceiptDirect(receiptData) {
 
   const imgs = Array.from(container.querySelectorAll('img'));
   await Promise.all(imgs.map((img) => (img.complete ? Promise.resolve() : new Promise((res) => { img.onload = res; img.onerror = res; }))));
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
   try {
+    const afterPrint = new Promise((resolve) => {
+      const done = () => {
+        window.removeEventListener('afterprint', done);
+        resolve();
+      };
+      window.addEventListener('afterprint', done, { once: true });
+      setTimeout(done, 30000);
+    });
     window.print();
     toast.success('Receipt printed successfully!');
+    await afterPrint;
   } catch (err) {
     console.error('Print failed:', err);
     toast.error('Failed to print receipt. Please try again.');
     throw err;
   } finally {
-    if (root && root.unmount) root.unmount();
-    else {
-      try {
-        const fallback = require('react-dom');
-        fallback.unmountComponentAtNode(container);
-      } catch (e) {
-        // ignore
-      }
-    }
-    container.remove();
+    cleanup();
   }
 }

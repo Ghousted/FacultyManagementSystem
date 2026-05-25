@@ -86,7 +86,7 @@ className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor
 cancel
                 className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
 confirm
-                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
 
 
 
