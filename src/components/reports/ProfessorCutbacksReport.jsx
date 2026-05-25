@@ -23,6 +23,17 @@ import {
 } from '../../utils/excelExport';
 import Breadcrumbs from '../common/Breadcrumbs';
 
+const DEPARTMENT_SCOPES = [
+  { key: 'ccs', label: 'CCS Department' },
+  { key: 'other', label: 'Other Departments' }
+];
+
+const matchesDepartmentScope = (course, scope) => (
+  scope === 'other'
+    ? course?.source === 'other-department'
+    : course?.source !== 'other-department'
+);
+
 const FilenameModal = ({ isOpen, onClose, onConfirm, defaultName }) => {
   const [name, setName] = useState(defaultName);
 
@@ -182,10 +193,6 @@ const findOfferedModule = (course, offeredModules) => {
   }) || null;
 };
 
-const findModulePayable = (course, modulePayables, term) => {
-  return findModulePayables(course, modulePayables, term)[0] || null;
-};
-
 const findModulePayables = (course, modulePayables, term) => {
   const isOtherDepartment = course?.source === 'other-department';
   const sem = Number(term?.semester) || 0;
@@ -293,17 +300,6 @@ const mergeStudentPayments = (payable, collectionPayments = {}) => {
   return merged;
 };
 
-const findStudentPaymentEntry = (studentPayments, student) => {
-  if (!studentPayments || !student) return null;
-  if (studentPayments[student.id]) return studentPayments[student.id];
-  const studentNumber = (student.studentNumber || student.studentNo || '').toString().trim();
-  const found = Object.values(studentPayments).find(entry => {
-    const entryNumber = (entry.studentNumber || entry.studentNo || entry.studentId || '').toString().trim();
-    return entryNumber && studentNumber && entryNumber === studentNumber;
-  });
-  return found || null;
-};
-
 const isStudentFullyPaid = (payable, studentPaymentEntry) => {
   if (!studentPaymentEntry) return false;
   const amount = Number(payable?.amount) || 0;
@@ -353,6 +349,31 @@ const getPaymentBlock = (student, entry) => (
   ''
 ).toString().trim().toUpperCase();
 
+const getIrregularJoinedBlock = (student, course, term) => {
+  if (!student || !course || !isIrregularStudent(student)) return '';
+  const sem = Number(term?.semester) || 1;
+  const semKey = `sem${sem}`;
+  const targetCode = normalizeCode(course.courseCode);
+  const termSchoolYear = (term?.schoolYear || '').toString().trim();
+  const entries = (student.irregularSubjects || {})[semKey] || [];
+  const match = entries.find((item) => {
+    const itemCode = normalizeCode(item?.courseCode || item?.code);
+    if (!itemCode || itemCode !== targetCode) return false;
+    const itemSchoolYear = (item?.enrolledSchoolYear || item?.schoolYear || '').toString().trim();
+    if (itemSchoolYear && termSchoolYear && itemSchoolYear !== termSchoolYear) return false;
+    return true;
+  });
+  return (match?.joinedBlock || student.block || '').toString().trim().toUpperCase();
+};
+
+const getStudentBlockForCourse = (student, course, term, fallback = 'A') => {
+  if (!student) return fallback;
+  if (isIrregularStudent(student)) {
+    return getIrregularJoinedBlock(student, course, term) || fallback;
+  }
+  return (student.block || fallback).toString().trim().toUpperCase() || fallback;
+};
+
 const isPaymentInHandledBlocks = (course, student, entry) => {
   if (isIrregularStudent(student) || isIrregularStudent(entry)) return true;
   const allowedBlocks = Array.isArray(course?.blocks)
@@ -363,7 +384,7 @@ const isPaymentInHandledBlocks = (course, student, entry) => {
   return !block || allowedBlocks.includes(block);
 };
 
-const buildPaidStudentRows = ({ course, payable, studentPayments, studentLookups, dateMap, deadlineCutoff }) => {
+const buildPaidStudentRows = ({ course, payable, studentPayments, studentLookups, dateMap, deadlineCutoff, term }) => {
   const amountRequired = Number(payable?.amount || 0);
   return Object.entries(studentPayments || {})
     .map(([studentId, entry]) => {
@@ -378,9 +399,42 @@ const buildPaidStudentRows = ({ course, payable, studentPayments, studentLookups
         id: student?.id || studentId,
         name: student?.name || entry?.studentName || entry?.name || '(student record not found)',
         studentNumber: student?.studentNumber || student?.studentNo || entry?.studentNumber || entry?.studentNo || studentId,
-        block: getPaymentBlock(student, entry) || 'N/A',
+        block: student ? getStudentBlockForCourse(student, course, term, getPaymentBlock(student, entry) || 'A') : (getPaymentBlock(student, entry) || 'N/A'),
         isIrregular: isIrregularStudent(student),
         status: 'PAID',
+        paidAmount,
+        amountRequired,
+        paymentDate,
+        withinDeadline: true,
+        entry
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+};
+
+const buildAllStudentPaymentRows = ({ course, payable, studentPayments, studentLookups, dateMap, term }) => {
+  const amountRequired = Number(payable?.amount || 0);
+  return Object.entries(studentPayments || {})
+    .map(([studentId, entry]) => {
+      const student = getStudentForPayment(studentId, entry, studentLookups);
+      if (!isPaymentInHandledBlocks(course, student, entry)) return null;
+
+      const paidAmount = Number(entry?.paidAmount || 0) + Number(entry?.voucherAmount || 0);
+      const paymentDate = resolvePaymentDate(entry, payable?.id, student?.id || studentId, dateMap);
+      const status = amountRequired > 0 && paidAmount >= amountRequired
+        ? 'PAID'
+        : paidAmount > 0
+          ? 'PARTIAL'
+          : 'UNPAID';
+
+      return {
+        id: student?.id || studentId,
+        name: student?.name || entry?.studentName || entry?.name || '(student record not found)',
+        studentNumber: student?.studentNumber || student?.studentNo || entry?.studentNumber || entry?.studentNo || '',
+        block: student ? getStudentBlockForCourse(student, course, term, getPaymentBlock(student, entry) || 'A') : (getPaymentBlock(student, entry) || 'A'),
+        isIrregular: isIrregularStudent(student) || isIrregularStudent(entry),
+        status,
         paidAmount,
         amountRequired,
         paymentDate,
@@ -408,6 +462,7 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
   const [offeredModules, setOfferedModules] = useState([]);
   const [studentLookups, setStudentLookups] = useState(buildStudentLookups());
   const [paymentDateMap, setPaymentDateMap] = useState(new Map());
+  const [departmentScope, setDepartmentScope] = useState('ccs');
   const [error, setError] = useState('');
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -470,7 +525,7 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
               const matchingPayables = findModulePayables(c, modulePayables, term);
               const payable = matchingPayables[0] || null;
               const offeredModule = findOfferedModule(c, offered);
-              const hasPayable = matchingPayables.length > 0 && !!offeredModule;
+              const hasPayable = matchingPayables.length > 0 && (c.source === 'other-department' || !!offeredModule);
               let paidCount = 0;
               let lateCount = 0;
               let unpaidCount = 0;
@@ -486,7 +541,8 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
                     studentPayments,
                     studentLookups: lookups,
                     dateMap,
-                    deadlineCutoff
+                    deadlineCutoff,
+                    term
                   });
                   paidRows.forEach((row) => {
                     if (!paidRowsByStudent.has(row.id)) paidRowsByStudent.set(row.id, row);
@@ -530,36 +586,57 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  const fetchProfessorDetail = useCallback(async (prof) => {
-    if (!prof) return;
-    setSelectedProfessorDetail(null);
-    setSelectedProfessorLoading(true);
-    setSelectedProfessorError('');
-    try {
-      const deadlineCutoff = deadline ? new Date(`${deadline}T23:59:59.999`).getTime() : null;
-      const payableClasses = (prof.classes || []).filter((course) => course.hasPayable);
-      const classDetails = await Promise.all(payableClasses.map(async (course) => {
+  const buildProfessorClassDetails = useCallback(async (targetProf) => {
+    const allClasses = targetProf?.classes || [];
+    return Promise.all(allClasses.map(async (course) => {
         const matchingPayables = findModulePayables(course, modulePayables, activeTerm);
         const payable = matchingPayables[0] || null;
         const offeredModule = findOfferedModule(course, offeredModules);
+        const hasPayable = matchingPayables.length > 0 && (course.source === 'other-department' || !!offeredModule);
+        
+        // Get all students for this course
+        const studentsRes = await getStudentsForCourse(course, activeTerm);
+        const allStudents = studentsRes.success ? studentsRes.data : [];
+        
         const rowsByStudent = new Map();
-        if (matchingPayables.length > 0 && offeredModule) {
+        
+        if (hasPayable) {
+          // Build payment records for students who have paid
           await Promise.all(matchingPayables.map(async (matchedPayable) => {
             const paymentsRes = await getPaymentsForPayable(matchedPayable);
             const studentPayments = mergeStudentPayments(matchedPayable, paymentsRes.success ? paymentsRes.data : {});
-            const rows = buildPaidStudentRows({
+            const rows = buildAllStudentPaymentRows({
               course,
               payable: matchedPayable,
               studentPayments,
               studentLookups,
               dateMap: paymentDateMap,
-              deadlineCutoff
+              term: activeTerm
             });
             rows.forEach((row) => {
               if (!rowsByStudent.has(row.id)) rowsByStudent.set(row.id, row);
             });
           }));
         }
+        
+        // Add all enrolled students (even those without payments)
+        allStudents.forEach((student) => {
+          if (!rowsByStudent.has(student.id)) {
+            const amountRequired = payable ? Number(payable.amount || 0) : 0;
+            rowsByStudent.set(student.id, {
+              id: student.id,
+              name: student.name || '',
+              studentNumber: student.studentNumber || student.studentNo || '',
+              block: getStudentBlockForCourse(student, course, activeTerm, 'A'),
+              isIrregular: isIrregularStudent(student),
+              status: 'UNPAID',
+              paidAmount: 0,
+              amountRequired,
+              paymentDate: null,
+              withinDeadline: false
+            });
+          }
+        });
 
         const groupedStudents = Array.from(rowsByStudent.values())
           .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -578,29 +655,46 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
           paidCount,
           partialCount,
           unpaidCount,
-          hasPayable: matchingPayables.length > 0 && !!offeredModule,
+          hasPayable,
           payable,
           amountRequired: Number(payable?.amount || 0)
         };
-      }));
+    }));
+  }, [activeTerm, modulePayables, offeredModules, paymentDateMap, studentLookups]);
+
+  const fetchProfessorDetail = useCallback(async (prof) => {
+    if (!prof) return;
+    setSelectedProfessorDetail(null);
+    setSelectedProfessorLoading(true);
+    setSelectedProfessorError('');
+    try {
+      const classDetails = await buildProfessorClassDetails(prof);
       setSelectedProfessorDetail({ ...prof, classes: classDetails });
     } catch (err) {
       setSelectedProfessorError(err.message || 'Failed to load professor details.');
     } finally {
       setSelectedProfessorLoading(false);
     }
-  }, [activeTerm, deadline, modulePayables, offeredModules, paymentDateMap, studentLookups]);
+  }, [buildProfessorClassDetails]);
 
   // Only count paid students for classes that have an associated payable (offered modules)
+  const scopedProfessors = useMemo(() => professors.map((professor) => ({
+    ...professor,
+    classes: (professor.classes || []).filter((course) => matchesDepartmentScope(course, departmentScope))
+  })).filter((professor) => (professor.classes || []).length > 0), [professors, departmentScope]);
+
   const getPaidStudents = (prof) => (prof.classes || []).reduce((sum, c) => sum + ((c.hasPayable ? (c.paidCount || 0) : 0)), 0);
-  const getHandledClassCount = (prof) => (prof.classes || []).length;
+  const getHandledClassCount = (prof) => (prof.classes || []).reduce((sum, c) => {
+    const blocks = Array.isArray(c.blocks) && c.blocks.length > 0 ? c.blocks.length : 1;
+    return sum + blocks;
+  }, 0);
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = q ? professors.filter(p =>
+    const list = q ? scopedProfessors.filter(p =>
       (p.name || '').toLowerCase().includes(q) ||
       (p.employeeId || '').toLowerCase().includes(q)
-    ) : professors;
+    ) : scopedProfessors;
 
     return [...list].sort((a, b) => {
       const dir = sortConfig.direction === 'asc' ? 1 : -1;
@@ -609,7 +703,7 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
       if (sortConfig.key === 'totalCutback') return ((getPaidStudents(a) * rate) - (getPaidStudents(b) * rate)) * dir;
       return (a[sortConfig.key] || '').toString().localeCompare((b[sortConfig.key] || '').toString()) * dir;
     });
-  }, [professors, search, sortConfig, rate]);
+  }, [scopedProfessors, search, sortConfig, rate]);
 
   const grandTotals = useMemo(() => {
     let paidStudents = 0;
@@ -656,13 +750,34 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
 
   const openExportAll = () => setFilenameModal({ open: true, mode: 'all', target: null });
   const openExportSingle = (prof) => setFilenameModal({ open: true, mode: 'single', target: prof });
+  const openExportDetailed = (prof) => setFilenameModal({ open: true, mode: 'detailed', target: prof });
 
-  const handleExportConfirm = (filename) => {
+  const handleExportConfirm = async (filename) => {
     const safeName = filename || 'professor_cutbacks';
     if (filenameModal.mode === 'all') {
-      exportAllProfessorCutbacksToExcel(rows, rate, `${safeName}.xlsx`, { deadline });
-    } else if (filenameModal.target) {
-      exportSingleProfessorCutbacksToExcel(filenameModal.target, rate, `${safeName}.xlsx`, { deadline });
+      const exportProfessors = professors
+        .map((professor) => ({
+          ...professor,
+          classes: professor.classes || []
+        }))
+        .filter((professor) => professor.classes.length > 0);
+      const detailedRows = await Promise.all(exportProfessors.map(async (prof) => ({
+        ...prof,
+        classes: await buildProfessorClassDetails(prof)
+      })));
+      exportAllProfessorCutbacksToExcel(detailedRows, rate, `${safeName}.xlsx`, { deadline, detailed: true });
+    } else if (filenameModal.mode === 'single' && filenameModal.target) {
+      const classDetails = selectedProfessorDetail && selectedProfessorDetail.id === filenameModal.target.id
+        ? selectedProfessorDetail.classes
+        : await buildProfessorClassDetails(filenameModal.target);
+      exportSingleProfessorCutbacksToExcel(filenameModal.target, rate, `${safeName}.xlsx`, { deadline, classDetails });
+    } else if (filenameModal.mode === 'detailed' && filenameModal.target && selectedProfessorDetail) {
+      exportSingleProfessorCutbacksToExcel(
+        filenameModal.target, 
+        rate, 
+        `${safeName}.xlsx`, 
+        { deadline, classDetails: selectedProfessorDetail.classes }
+      );
     }
     setFilenameModal({ open: false, mode: 'all', target: null });
   };
@@ -678,6 +793,36 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
       {error && (
         <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg">
           {error}
+        </div>
+      )}
+
+      {!selectedProfessor && (
+        <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {DEPARTMENT_SCOPES.map((scope) => {
+              const active = departmentScope === scope.key;
+              return (
+                <button
+                  key={scope.key}
+                  type="button"
+                  onClick={() => {
+                    setDepartmentScope(scope.key);
+                    setSearch('');
+                  }}
+                  className={`rounded-xl px-4 py-3 text-left transition ${
+                    active
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="block text-sm font-semibold">{scope.label}</span>
+                  <span className={`mt-1 block text-xs ${active ? 'text-blue-100' : 'text-slate-500'}`}>
+                    {scope.key === 'ccs' ? 'Professor cutbacks from CCS modules' : 'Professor cutbacks from other department modules'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -741,7 +886,7 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
       disabled={loading || rows.length === 0}
       className="rounded-lg text-sm px-4 py-2 cursor-pointer bg-green-500 hover:bg-green-600 text-white font-semibold shadow flex items-center gap-2 disabled:opacity-50"
     >
-      <Download className="h-4 w-4" /> Export All
+      <Download className="h-4 w-4" /> Export All Handled Classes
     </button>
   </div>
 </div>
@@ -758,7 +903,7 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
         <div className="py-16 text-center bg-white border border-gray-200 rounded-xl">
           <UserRound className="w-10 h-10 mx-auto text-gray-300 mb-2" />
           <p className="text-sm text-gray-500">
-            {professors.length === 0 ? 'No professors registered.' : 'No professors match your search.'}
+            {professors.length === 0 ? 'No professors registered.' : 'No professors match the selected department or search.'}
           </p>
         </div>
       )}
@@ -831,13 +976,23 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
                   <ArrowBigLeft className="h-4 w-4" /> Back
                 </button>
               </div>
-              <div className="space-y-1 text-sm">
+              <div className="space-y-1 text-sm flex-1">
                 <h2 className="text-2xl font-semibold text-slate-900">{selectedProfessor.name}</h2>
                 <p className="text-sm text-slate-600">Employee ID: {selectedProfessor.employeeId || '—'}</p>
                 <p className="text-sm text-slate-500">
                   {getHandledClassCount(selectedProfessor)} handled class{getHandledClassCount(selectedProfessor) === 1 ? '' : 'es'}
                   {' '}· {(selectedProfessor.classes || []).filter(c => c.hasPayable).length} offered module{(selectedProfessor.classes || []).filter(c => c.hasPayable).length === 1 ? '' : 's'} with payments
                 </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => openExportDetailed(selectedProfessor)}
+                  disabled={!selectedProfessorDetail}
+                  className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download className="h-4 w-4" /> Export Current Professor
+                </button>
               </div>
             </div>
 
@@ -854,19 +1009,30 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
               <div className="space-y-8">
                 {(selectedProfessorDetail.classes || []).length === 0 && (
                   <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
-                    No offered module payment records found for this professor's handled classes.
+                    No handled classes found for this professor.
                   </div>
                 )}
                 {(selectedProfessorDetail.classes || []).map((course) => {
+                  // Group all students by their handled block, including irregular students by joinedBlock.
                   const regularGroups = course.students.reduce((acc, student) => {
-                    if (isIrregularStudent(student)) return acc;
                     const block = (student.block || 'A').toString().toUpperCase() || 'A';
                     if (!acc[block]) acc[block] = [];
                     acc[block].push(student);
                     return acc;
                   }, {});
-                  const irregularStudents = course.students.filter(student => isIrregularStudent(student));
                   const classTotal = course.students.length;
+                  
+                  // Calculate block-level statistics
+                  const getBlockStats = (students) => {
+                    const totalPaid = students.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0);
+                    const totalRequired = students.reduce((sum, s) => sum + Number(s.amountRequired || 0), 0);
+                    const totalBalance = students.reduce((sum, s) => sum + Math.max(0, Number(s.amountRequired || 0) - Number(s.paidAmount || 0)), 0);
+                    const paidCount = students.filter(s => s.status === 'PAID').length;
+                    const partialCount = students.filter(s => s.status === 'PARTIAL').length;
+                    const unpaidCount = students.filter(s => s.status === 'UNPAID').length;
+                    return { totalPaid, totalRequired, totalBalance, paidCount, partialCount, unpaidCount };
+                  };
+                  
                   return (
                     <section key={course.courseId} className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
                       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -884,113 +1050,125 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
                             <div className="text-xs uppercase text-slate-500">Students</div>
                             <div className="mt-1 text-lg font-semibold text-slate-900">{classTotal}</div>
                           </div>
-                          <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                            <div className="text-xs uppercase text-slate-500">Paid</div>
+                          <div className="rounded-2xl bg-emerald-50 p-3 text-center">
+                            <div className="text-xs uppercase text-emerald-600">Paid</div>
                             <div className="mt-1 text-lg font-semibold text-emerald-700">{course.paidCount || 0}</div>
                           </div>
-                          <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                            <div className="text-xs uppercase text-slate-500">Partial</div>
+                          <div className="rounded-2xl bg-amber-50 p-3 text-center">
+                            <div className="text-xs uppercase text-amber-600">Partial</div>
                             <div className="mt-1 text-lg font-semibold text-amber-700">{course.partialCount || 0}</div>
                           </div>
-                          <div className="rounded-2xl bg-slate-50 p-3 text-center">
-                            <div className="text-xs uppercase text-slate-500">Unpaid</div>
-                            <div className="mt-1 text-lg font-semibold text-slate-900">{course.unpaidCount || 0}</div>
+                          <div className="rounded-2xl bg-red-50 p-3 text-center">
+                            <div className="text-xs uppercase text-red-600">Unpaid</div>
+                            <div className="mt-1 text-lg font-semibold text-red-700">{course.unpaidCount || 0}</div>
                           </div>
                         </div>
                       </div>
 
-                      {Object.keys(regularGroups).length === 0 && irregularStudents.length === 0 ? (
-                        <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-slate-500">No paid students found for this offered module.</div>
+                      {Object.keys(regularGroups).length === 0 ? (
+                        <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-slate-500">
+                          No students enrolled for this class yet.
+                        </div>
                       ) : (
                         <div className="space-y-6">
                           {Object.keys(regularGroups).sort().map((block) => {
                             const students = regularGroups[block];
+                            const blockStats = getBlockStats(students);
                             return (
-                              <div key={block} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                                <div className="mb-3 flex items-center justify-between gap-3">
-                                  <div>
-                                    <p className="text-sm font-semibold text-slate-900">Block {block}</p>
-                                    <p className="text-xs text-slate-500">{students.length} student{students.length === 1 ? '' : 's'}</p>
+                              <div key={block} className="rounded-2xl border-2 border-slate-200 bg-white overflow-hidden">
+                                <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-5 py-3 flex items-center justify-between">
+                                  <div className="text-white">
+                                    <p className="text-lg font-bold">Block {block}</p>
+                                    <p className="text-xs text-blue-100">{students.length} student{students.length === 1 ? '' : 's'} enrolled</p>
                                   </div>
-                                  <div className="text-right text-xs text-slate-600">Total Paid: PHP {students.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0).toFixed(2)} · Balance: PHP {students.reduce((sum, s) => sum + Math.max(0, Number(s.amountRequired || 0) - Number(s.paidAmount || 0)), 0).toFixed(2)}</div>
+                                  <div className="flex gap-4 text-white text-xs">
+                                    <div className="text-center">
+                                      <div className="font-semibold text-lg">{blockStats.paidCount}</div>
+                                      <div className="text-blue-100">Paid</div>
+                                    </div>
+                                    <div className="text-center">
+                                      <div className="font-semibold text-lg">{blockStats.partialCount}</div>
+                                      <div className="text-blue-100">Partial</div>
+                                    </div>
+                                    <div className="text-center">
+                                      <div className="font-semibold text-lg">{blockStats.unpaidCount}</div>
+                                      <div className="text-blue-100">Unpaid</div>
+                                    </div>
+                                  </div>
                                 </div>
-                                <div className="overflow-x-auto">
-                                  <table className="min-w-full text-sm text-left">
-                                    <thead className="border-b border-slate-200 bg-white text-slate-700">
-                                      <tr>
-                                        <th className="px-3 py-2">Name</th>
-                                        <th className="px-3 py-2">Student No.</th>
-                                        <th className="px-3 py-2">Status</th>
-                                        <th className="px-3 py-2">Paid</th>
-                                        <th className="px-3 py-2">Required</th>
-                                        <th className="px-3 py-2">Balance</th>
-                                        <th className="px-3 py-2">Paid On</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {students.map((student) => (
-                                        <tr key={student.id} className="border-b border-slate-200 last:border-b-0">
-                                          <td className="px-3 py-2 text-slate-800">{student.name}</td>
-                                          <td className="px-3 py-2 text-slate-600">{student.studentNumber || student.studentNo || student.id}</td>
-                                          <td className="px-3 py-2 text-slate-700">{student.status}</td>
-                                          <td className="px-3 py-2 text-slate-800">PHP {Number(student.paidAmount || 0).toFixed(2)}</td>
-                                          <td className="px-3 py-2 text-slate-800">PHP {Number(student.amountRequired || 0).toFixed(2)}</td>
-                                          <td className="px-3 py-2 text-slate-800">PHP {Math.max(0, Number(student.amountRequired || 0) - Number(student.paidAmount || 0)).toFixed(2)}</td>
-                                          <td className="px-3 py-2 text-slate-600">{student.paymentDate ? new Date(student.paymentDate).toLocaleDateString() : '-'}</td>
+                                
+                                <div className="p-4 bg-slate-50">
+                                  <div className="overflow-x-auto">
+                                    <table className="min-w-full text-sm">
+                                      <thead className="bg-slate-200 text-slate-700">
+                                        <tr>
+                                          <th className="px-3 py-2 text-left font-semibold">Name</th>
+                                          <th className="px-3 py-2 text-left font-semibold">Student No.</th>
+                                          <th className="px-3 py-2 text-center font-semibold">Status</th>
+                                          <th className="px-3 py-2 text-right font-semibold">Paid</th>
+                                          <th className="px-3 py-2 text-right font-semibold">Required</th>
+                                          <th className="px-3 py-2 text-right font-semibold">Balance</th>
+                                          <th className="px-3 py-2 text-center font-semibold">Paid On</th>
                                         </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
+                                      </thead>
+                                      <tbody className="bg-white">
+                                        {students.map((student) => {
+                                          const statusColor = student.status === 'PAID' ? 'text-emerald-700 bg-emerald-50' : 
+                                                             student.status === 'PARTIAL' ? 'text-amber-700 bg-amber-50' : 
+                                                             'text-red-700 bg-red-50';
+                                          return (
+                                            <tr key={student.id} className="border-b border-slate-100 hover:bg-slate-50">
+                                              <td className="px-3 py-2 text-slate-800 font-medium">{student.name}</td>
+                                              <td className="px-3 py-2 text-slate-600">{student.studentNumber || student.studentNo || '-'}</td>
+                                              <td className="px-3 py-2 text-center">
+                                                <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${statusColor}`}>
+                                                  {student.status}
+                                                </span>
+                                              </td>
+                                              <td className="px-3 py-2 text-right text-slate-800 font-medium">PHP {Number(student.paidAmount || 0).toFixed(2)}</td>
+                                              <td className="px-3 py-2 text-right text-slate-600">PHP {Number(student.amountRequired || 0).toFixed(2)}</td>
+                                              <td className="px-3 py-2 text-right text-slate-800 font-medium">PHP {Math.max(0, Number(student.amountRequired || 0) - Number(student.paidAmount || 0)).toFixed(2)}</td>
+                                              <td className="px-3 py-2 text-center text-slate-600 text-xs">{student.paymentDate ? new Date(student.paymentDate).toLocaleDateString() : '-'}</td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                      <tfoot className="bg-slate-100 font-semibold">
+                                        <tr>
+                                          <td colSpan="3" className="px-3 py-2 text-right text-slate-700">Block Totals:</td>
+                                          <td className="px-3 py-2 text-right text-emerald-700">PHP {blockStats.totalPaid.toFixed(2)}</td>
+                                          <td className="px-3 py-2 text-right text-slate-700">PHP {blockStats.totalRequired.toFixed(2)}</td>
+                                          <td className="px-3 py-2 text-right text-red-700">PHP {blockStats.totalBalance.toFixed(2)}</td>
+                                          <td className="px-3 py-2"></td>
+                                        </tr>
+                                      </tfoot>
+                                    </table>
+                                  </div>
                                 </div>
                               </div>
                             );
                           })}
 
-                          {irregularStudents.length > 0 && (
-                            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                              <div className="mb-3 flex items-center justify-between gap-3">
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-900">Irregular Students</p>
-                                  <p className="text-xs text-slate-500">{irregularStudents.length} student{irregularStudents.length === 1 ? '' : 's'}</p>
-                                </div>
-                                <div className="text-right text-xs text-slate-600">Total Paid: PHP {irregularStudents.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0).toFixed(2)} · Balance: PHP {irregularStudents.reduce((sum, s) => sum + Math.max(0, Number(s.amountRequired || 0) - Number(s.paidAmount || 0)), 0).toFixed(2)}</div>
-                              </div>
-                              <div className="overflow-x-auto">
-                                <table className="min-w-full text-sm text-left">
-                                  <thead className="border-b border-slate-200 bg-white text-slate-700">
-                                    <tr>
-                                      <th className="px-3 py-2">Name</th>
-                                      <th className="px-3 py-2">Student No.</th>
-                                      <th className="px-3 py-2">Status</th>
-                                      <th className="px-3 py-2">Paid</th>
-                                      <th className="px-3 py-2">Required</th>
-                                      <th className="px-3 py-2">Balance</th>
-                                      <th className="px-3 py-2">Paid On</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {irregularStudents.map((student) => (
-                                      <tr key={student.id} className="border-b border-slate-200 last:border-b-0">
-                                        <td className="px-3 py-2 text-slate-800">{student.name}</td>
-                                        <td className="px-3 py-2 text-slate-600">{student.studentNumber || student.studentNo || student.id}</td>
-                                        <td className="px-3 py-2 text-slate-700">{student.status}</td>
-                                        <td className="px-3 py-2 text-slate-800">PHP {Number(student.paidAmount || 0).toFixed(2)}</td>
-                                        <td className="px-3 py-2 text-slate-800">PHP {Number(student.amountRequired || 0).toFixed(2)}</td>
-                                        <td className="px-3 py-2 text-slate-800">PHP {Math.max(0, Number(student.amountRequired || 0) - Number(student.paidAmount || 0)).toFixed(2)}</td>
-                                        <td className="px-3 py-2 text-slate-600">{student.paymentDate ? new Date(student.paymentDate).toLocaleDateString() : '-'}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
 
-                      <div className="mt-6 flex flex-wrap gap-3 text-sm text-slate-700">
-                        <div className="rounded-2xl bg-slate-100 px-4 py-3">Total Paid: PHP {course.totalPaid.toFixed(2)}</div>
-                        <div className="rounded-2xl bg-slate-100 px-4 py-3">Total Balance: PHP {course.totalBalance.toFixed(2)}</div>
+                      <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="rounded-2xl bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 px-4 py-3">
+                          <div className="text-xs text-blue-600 font-semibold">Total Students</div>
+                          <div className="text-xl font-bold text-blue-900">{classTotal}</div>
+                        </div>
+                        <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 px-4 py-3">
+                          <div className="text-xs text-emerald-600 font-semibold">Total Collected</div>
+                          <div className="text-xl font-bold text-emerald-900">PHP {course.totalPaid.toFixed(2)}</div>
+                        </div>
+                        <div className="rounded-2xl bg-gradient-to-br from-red-50 to-red-100 border border-red-200 px-4 py-3">
+                          <div className="text-xs text-red-600 font-semibold">Total Balance</div>
+                          <div className="text-xl font-bold text-red-900">PHP {course.totalBalance.toFixed(2)}</div>
+                        </div>
+                        <div className="rounded-2xl bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 px-4 py-3">
+                          <div className="text-xs text-purple-600 font-semibold">Professor Cutback</div>
+                          <div className="text-xl font-bold text-purple-900">PHP {((course.paidCount || 0) * rate).toFixed(2)}</div>
+                        </div>
                       </div>
                     </section>
                   );

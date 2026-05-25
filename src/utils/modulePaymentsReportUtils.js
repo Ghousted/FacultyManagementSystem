@@ -2,6 +2,7 @@ import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 
 const normalizeCode = (value) => (value || '').toString().trim().toUpperCase();
+const normalizeBlock = (value) => (value || '').toString().trim().toUpperCase() || 'A';
 
 const buildOtherDeptReportKey = ({ departmentId, courseId, courseCode, classCourse }) =>
   `other::${departmentId || ''}::${courseId || normalizeCode(courseCode)}::${(classCourse || '').toString().trim().toLowerCase()}`;
@@ -21,8 +22,7 @@ const findMatchingPayables = (courseKey, modulePayables) => {
     source,
     departmentId,
     classCourse,
-    yearLevel,
-    blocks = []
+    yearLevel
   } = courseKey;
 
   const code = normalizeCode(courseCode);
@@ -46,17 +46,47 @@ const findMatchingPayables = (courseKey, modulePayables) => {
   });
 };
 
-const buildStudentRowsForPayables = (matchingPayables, studentMap, otherStudentMap) => {
+const getIrregularJoinedBlock = (student, courseKey, activeTerm) => {
+  if (!student?.isIrregular) return '';
+  const sem = Number(activeTerm?.semester) || 1;
+  const semKey = `sem${sem}`;
+  const targetCode = normalizeCode(courseKey?.courseCode);
+  const termSchoolYear = (activeTerm?.schoolYear || '').toString().trim();
+  const entries = (student.irregularSubjects || {})[semKey] || [];
+  const match = entries.find((item) => {
+    const itemCode = normalizeCode(item?.courseCode || item?.code);
+    if (!itemCode || itemCode !== targetCode) return false;
+    const itemSchoolYear = (item?.enrolledSchoolYear || item?.schoolYear || '').toString().trim();
+    if (itemSchoolYear && termSchoolYear && itemSchoolYear !== termSchoolYear) return false;
+    return true;
+  });
+  return normalizeBlock(match?.joinedBlock || student.block || '');
+};
+
+const getStudentBlockForCourse = (student, courseKey, activeTerm, fallback = 'A') => (
+  student?.isIrregular
+    ? getIrregularJoinedBlock(student, courseKey, activeTerm) || normalizeBlock(fallback)
+    : normalizeBlock(student?.block || fallback)
+);
+
+const getStudentNumber = (student, payment) => (
+  student?.studentNumber ||
+  student?.studentNo ||
+  payment?.studentNumber ||
+  payment?.studentNo ||
+  ''
+);
+
+const buildStudentRowsForPayables = (matchingPayables, studentMap, otherStudentMap, courseKey = {}, activeTerm = null) => {
   const blockMap = new Map();
   const studentRows = new Map();
 
   matchingPayables.forEach((payable) => {
-    const amount = Number(payable.amount) || 0;
     Object.entries(payable.studentPayments || {}).forEach(([studentId, payment]) => {
       const student = studentMap.get(studentId) || otherStudentMap.get(studentId);
       if (!student) return;
 
-      const rawBlock = (student.block || payable.block || '').toString().trim().toUpperCase();
+      const rawBlock = getStudentBlockForCourse(student, courseKey, activeTerm, payable.block || 'A');
       const block = rawBlock || '—';
       const paidAmount = Number(payment?.paidAmount) || 0;
       const voucherAmount = Number(payment?.voucherAmount) || 0;
@@ -65,6 +95,7 @@ const buildStudentRowsForPayables = (matchingPayables, studentMap, otherStudentM
       const current = studentRows.get(studentId) || {
         id: studentId,
         name: student.name || '(unnamed)',
+        studentNumber: getStudentNumber(student, payment),
         block,
         paidAmount: 0,
         voucherAmount: 0,
@@ -77,6 +108,7 @@ const buildStudentRowsForPayables = (matchingPayables, studentMap, otherStudentM
 
       current.paidAmount = Math.max(current.paidAmount, paidAmount);
       current.voucherAmount = Math.max(current.voucherAmount, voucherAmount);
+      current.studentNumber = current.studentNumber || getStudentNumber(student, payment);
       current.paymentStatus = payment?.status || current.paymentStatus || '';
       if (paymentDate && (!current.paymentDate || new Date(paymentDate) > new Date(current.paymentDate))) {
         current.paymentDate = paymentDate;
@@ -110,6 +142,43 @@ const buildStudentRowsForPayables = (matchingPayables, studentMap, otherStudentM
   return { blocks, payableAmount, hasPayable: matchingPayables.length > 0 };
 };
 
+const addStudentsToBlocks = (built, studentsToAdd, courseKey, activeTerm) => {
+  const blockMap = new Map();
+  (built.blocks || []).forEach((blockGroup) => {
+    blockMap.set(blockGroup.block, [...(blockGroup.students || [])]);
+  });
+
+  studentsToAdd.forEach((student) => {
+    const block = getStudentBlockForCourse(student, courseKey, activeTerm, 'A');
+    if (!blockMap.has(block)) blockMap.set(block, []);
+    const list = blockMap.get(block);
+    if (list.some((row) => row.id === student.id)) return;
+    list.push({
+      id: student.id,
+      name: student.name || '(unnamed)',
+      studentNumber: student.studentNumber || student.studentNo || '',
+      block,
+      paidAmount: 0,
+      voucherAmount: 0,
+      paymentDate: '',
+      isIrregular: !!student.isIrregular,
+      yearLevel: student.yearLevel,
+      status: 'UNPAID'
+    });
+  });
+
+  built.blocks = Array.from(blockMap.entries())
+    .map(([block, list]) => ({
+      block,
+      yearLevel: list[0]?.yearLevel || courseKey.yearLevel,
+      students: list.sort((a, b) => a.name.localeCompare(b.name))
+    }))
+    .sort((a, b) => a.block.localeCompare(b.block, undefined, { numeric: true }));
+
+  built.totalStudents = built.blocks.reduce((sum, block) => sum + block.students.length, 0);
+  return built;
+};
+
 export const loadOtherDeptStudents = async () => {
   const snap = await getDocs(collection(db, 'otherDept-Students'));
   return snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
@@ -121,7 +190,8 @@ export const buildModulePaymentCourses = ({
   professors = [],
   students = [],
   otherDeptStudents = [],
-  curriculums = []
+  curriculums = [],
+  activeTerm = null
 }) => {
   const curriculumMap = new Map(curriculums.map((c) => [c.id, c]));
   const studentMap = new Map(students.map((s) => [s.id, s]));
@@ -142,18 +212,43 @@ export const buildModulePaymentCourses = ({
   offeredModules.forEach((mod) => {
     const curriculum = curriculumMap.get(mod.curriculumId);
     const source = curriculum ? 'ccs' : 'other';
-    const matchingPayables = findMatchingPayables(
-      {
+    const courseKey = {
         moduleId: mod.id,
         courseCode: mod.courseCode,
         source: source === 'ccs' ? 'ccs' : 'other-department',
         departmentId: mod.departmentId,
         classCourse: mod.classCourse || mod.course,
         yearLevel: mod.yearLevel
-      },
-      modulePayables
-    );
-    const built = buildStudentRowsForPayables(matchingPayables, studentMap, otherStudentMap);
+      };
+    const matchingPayables = findMatchingPayables(courseKey, modulePayables);
+    const built = buildStudentRowsForPayables(matchingPayables, studentMap, otherStudentMap, courseKey, activeTerm);
+    const sem = Number(activeTerm?.semester) || Number(mod.semester) || 1;
+    const semKey = `sem${sem}`;
+    const allowedBlocks = Array.isArray(mod.blocks)
+      ? mod.blocks.map(normalizeBlock).filter(Boolean)
+      : [];
+    const relevantStudents = curriculum
+      ? students.filter((student) => {
+          const block = getStudentBlockForCourse(student, courseKey, activeTerm, student.block || 'A');
+          if (allowedBlocks.length > 0 && !allowedBlocks.includes(block)) return false;
+          if (student.isIrregular) {
+            const entries = (student.irregularSubjects || {})[semKey] || [];
+            return entries.some((item) => normalizeCode(item?.courseCode || item?.code) === normalizeCode(mod.courseCode));
+          }
+          if (student.curriculumId !== mod.curriculumId) return false;
+          if (Number(student.yearLevel) !== Number(mod.yearLevel)) return false;
+          if (mod.semester && Number(mod.semester) !== sem) return false;
+          return true;
+        })
+      : otherDeptStudents.filter((student) => {
+          if (mod.departmentId && student.departmentId !== mod.departmentId) return false;
+          if ((student.course || '').toString().trim() !== (mod.classCourse || mod.course || '').toString().trim()) return false;
+          if (Number(student.yearLevel) !== Number(mod.yearLevel)) return false;
+          const block = getStudentBlockForCourse(student, courseKey, activeTerm, student.block || 'A');
+          if (allowedBlocks.length > 0 && !allowedBlocks.includes(block)) return false;
+          return true;
+        });
+    addStudentsToBlocks(built, relevantStudents, courseKey, activeTerm);
     const professor = matchingPayables[0]?.professor || mod.professor || mod.instructor || '';
 
     upsertCourse({
@@ -202,19 +297,16 @@ export const buildModulePaymentCourses = ({
         return;
       }
 
-      const matchingPayables = findMatchingPayables(
-        {
-          moduleId: assignment.subjectId || assignment.courseId,
-          courseCode: assignment.courseCode,
-          source: 'other-department',
-          departmentId: assignment.departmentId,
-          classCourse: assignment.classCourse,
-          yearLevel: assignment.yearLevel,
-          blocks: assignment.blocks || []
-        },
-        modulePayables
-      );
-      const built = buildStudentRowsForPayables(matchingPayables, studentMap, otherStudentMap);
+      const courseKey = {
+        moduleId: assignment.subjectId || assignment.courseId,
+        courseCode: assignment.courseCode,
+        source: 'other-department',
+        departmentId: assignment.departmentId,
+        classCourse: assignment.classCourse,
+        yearLevel: assignment.yearLevel
+      };
+      const matchingPayables = findMatchingPayables(courseKey, modulePayables);
+      const built = buildStudentRowsForPayables(matchingPayables, studentMap, otherStudentMap, courseKey, activeTerm);
 
       const relevantStudents = otherDeptStudents.filter((student) => {
         if (student.departmentId !== assignment.departmentId) return false;
@@ -236,6 +328,7 @@ export const buildModulePaymentCourses = ({
           blockMap.get(block).push({
             id: student.id,
             name: student.name || '(unnamed)',
+            studentNumber: student.studentNumber || student.studentNo || '',
             block,
             paidAmount: 0,
             voucherAmount: 0,
@@ -252,6 +345,7 @@ export const buildModulePaymentCourses = ({
         }));
         built.totalStudents = relevantStudents.length;
       }
+      addStudentsToBlocks(built, relevantStudents, courseKey, activeTerm);
 
       upsertCourse({
         reportKey,

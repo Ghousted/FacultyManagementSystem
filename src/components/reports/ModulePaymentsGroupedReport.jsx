@@ -208,6 +208,10 @@ const matchesBlock = (payable, block) => {
 
 const YEAR_LEVELS = [1, 2, 3, 4];
 const YEAR_LEVEL_LABELS = { 1: '1st Year', 2: '2nd Year', 3: '3rd Year', 4: '4th Year' };
+const DEPARTMENT_SCOPES = [
+  { key: 'ccs', label: 'CCS Department' },
+  { key: 'other', label: 'Other Departments' }
+];
 
 const formatCurrency = (value) => `₱${Number(value || 0).toLocaleString('en-PH', {
   minimumFractionDigits: 2,
@@ -215,6 +219,11 @@ const formatCurrency = (value) => `₱${Number(value || 0).toLocaleString('en-PH
 })}`;
 
 const getYearLevelLabel = (yearLevel) => YEAR_LEVEL_LABELS[Number(yearLevel)] || 'Other';
+const matchesDepartmentScope = (course, scope) => (
+  scope === 'other'
+    ? course?.source === 'other-department'
+    : course?.source !== 'other-department'
+);
 
 const getIrregularJoinedBlock = (student, course, activeTerm) => {
   if (!student || !course || !student.isIrregular) return '';
@@ -244,7 +253,7 @@ const getStudentBlockForCourse = (student, course, activeTerm) => {
 };
 
 const sanitizeSheetName = (name) => {
-  const cleaned = normalizeText(name || 'Sheet').replace(/[\\/?*\[\]:]/g, '-');
+  const cleaned = normalizeText(name || 'Sheet').replace(/[\\/?*[\]:]/g, '-');
   return cleaned.length > 31 ? cleaned.slice(0, 31) : cleaned || 'Sheet';
 };
 
@@ -797,6 +806,7 @@ const ModulePaymentsGroupedReport = ({ onBackToReportsMain }) => {
   const [activeTerm, setActiveTerm] = useState({ semester: 1, schoolYear: '' });
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [departmentScope, setDepartmentScope] = useState('ccs');
   const toolbarRef = useRef(null);
 
   const loadReport = useCallback(async () => {
@@ -904,9 +914,14 @@ const ModulePaymentsGroupedReport = ({ onBackToReportsMain }) => {
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, []);
 
+  const scopedProfessors = useMemo(() => professors.map((professor) => ({
+    ...professor,
+    classes: (professor.classes || []).filter((course) => matchesDepartmentScope(course, departmentScope))
+  })).filter((professor) => (professor.classes || []).length > 0), [professors, departmentScope]);
+
   const rows = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return professors.map((professor) => ({
+    return scopedProfessors.map((professor) => ({
       ...professor,
       classes: (professor.classes || []).filter((course) => {
         if (!term) return true;
@@ -920,9 +935,9 @@ const ModulePaymentsGroupedReport = ({ onBackToReportsMain }) => {
         ].some((value) => normalizeText(value).toLowerCase().includes(term));
       })
     })).filter((professor) => (professor.classes || []).length > 0);
-  }, [professors, search]);
+  }, [scopedProfessors, search]);
 
-  const allCourses = useMemo(() => flattenCourses(professors), [professors]);
+  const allCourses = useMemo(() => flattenCourses(scopedProfessors), [scopedProfessors]);
   const visibleCourses = useMemo(() => flattenCourses(rows), [rows]);
   const moduleRows = useMemo(() => visibleCourses.slice().sort((left, right) => {
     const yearDiff = Number(left.yearLevel || 99) - Number(right.yearLevel || 99);
@@ -1080,6 +1095,34 @@ const ModulePaymentsGroupedReport = ({ onBackToReportsMain }) => {
         </div>
       )}
 
+      <div className="rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {DEPARTMENT_SCOPES.map((scope) => {
+            const active = departmentScope === scope.key;
+            return (
+              <button
+                key={scope.key}
+                type="button"
+                onClick={() => {
+                  setDepartmentScope(scope.key);
+                  setSelectedCourse(null);
+                }}
+                className={`rounded-2xl px-4 py-3 text-left transition ${
+                  active
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span className="block text-sm font-semibold">{scope.label}</span>
+                <span className={`mt-1 block text-xs ${active ? 'text-blue-100' : 'text-slate-500'}`}>
+                  {scope.key === 'ccs' ? 'BSCS module payment summaries' : 'Module payment summaries from other departments'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {toolbar}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1103,7 +1146,7 @@ const ModulePaymentsGroupedReport = ({ onBackToReportsMain }) => {
 
       {!loading && moduleRows.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-500">
-          No offered modules found for the active term.
+          No offered modules found for the selected department and active term.
         </div>
       ) : loading ? (
         <div className="space-y-4">

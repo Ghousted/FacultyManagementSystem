@@ -6,7 +6,7 @@ const numberOrZero = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const sanitizeExportText = (value) => String(value || '').replace(/[\\/?*\[\]:]/g, '-').trim() || 'payables';
+const sanitizeExportText = (value) => String(value || '').replace(/[\\/?*[\]:]/g, '-').trim() || 'payables';
 
 const formatDateLabel = (rawValue) => {
   if (!rawValue) return '';
@@ -25,17 +25,12 @@ const getTermKey = (term) => `${term?.semester || 'na'}|${term?.schoolYear || ''
 const getTermLabel = (term) => {
   if (!term?.semester || !term?.schoolYear) return 'Current Term';
   const semesterLabel = term.semester === 1 ? '1st Semester' : term.semester === 2 ? '2nd Semester' : 'Summer';
-  return `${semesterLabel} · S.Y. ${term.schoolYear}`;
+  return `${semesterLabel} S.Y. ${term.schoolYear}`;
 };
 
-const getYearLabel = (yearLevel) => {
-  const numeric = Number(yearLevel);
-  if (!Number.isFinite(numeric)) return 'All Year Levels';
-  if (numeric === 1) return '1st Year';
-  if (numeric === 2) return '2nd Year';
-  if (numeric === 3) return '3rd Year';
-  if (numeric === 4) return '4th Year';
-  return `${numeric}th Year`;
+const buildSheetTitle = (label, activeTerm) => {
+  const title = String(label || 'CURRENT FOLDER').toUpperCase();
+  return `${title} ${getTermLabel(activeTerm)}`.trim();
 };
 
 const getStudentTerm = (student, activeTerm) => {
@@ -403,31 +398,34 @@ const buildWorksheet = ({ students, payablesByYear, selectedFolder, activeTerm, 
   setCell(0, 0, sheetTitle, titleStyle);
   mergeRow(0, 0, totalColumnIndex);
 
-  setCell(1, 0, 'No.', summaryHeaderStyle);
-  mergeRow(1, 0, 1);
-  setCell(1, 1, 'Student Name', summaryHeaderStyle);
-  mergeRow(1, 1, 1);
-  setCell(1, 2, 'Previous Balance', summaryHeaderStyle);
-  mergeRow(1, 2, 2);
-  setCell(1, 3, 'Paid Amount', summaryHeaderStyle);
-  mergeRow(1, 3, 3);
-  setCell(1, 4, 'Remaining Balance', summaryHeaderStyle);
-  mergeRow(1, 4, 4);
+  setCell(1, 0, `Students: ${filteredStudents.length}`, footerLabelStyle);
+  mergeRow(1, 0, totalColumnIndex);
+
+  setCell(2, 0, 'No.', summaryHeaderStyle);
+  mergeRow(2, 0, 1);
+  setCell(2, 1, 'Student Name', summaryHeaderStyle);
+  mergeRow(2, 1, 1);
+  setCell(2, 2, 'Previous Balance', summaryHeaderStyle);
+  mergeRow(2, 2, 2);
+  setCell(2, 3, 'Paid Amount', summaryHeaderStyle);
+  mergeRow(2, 3, 3);
+  setCell(2, 4, 'Remaining Balance', summaryHeaderStyle);
+  mergeRow(2, 4, 4);
 
   payableColumns.forEach((payable, index) => {
     const amountColumn = baseColumnCount + (index * 2);
     const dateColumn = amountColumn + 1;
     const payableLabel = String(payable.moduleCode || payable.moduleTitle || payable.type || payable.title || 'Payable').trim();
-    setCell(1, amountColumn, payableLabel, payableHeaderStyle);
-    mergeRow(1, amountColumn, dateColumn);
-    setCell(2, amountColumn, 'Amount', subHeaderStyle);
-    setCell(2, dateColumn, 'Payment Date', subHeaderStyle);
+    setCell(2, amountColumn, payableLabel, payableHeaderStyle);
+    mergeRow(2, amountColumn, dateColumn);
+    setCell(3, amountColumn, 'Amount', subHeaderStyle);
+    setCell(3, dateColumn, 'Payment Date', subHeaderStyle);
   });
 
-  setCell(1, totalColumnIndex, 'Total Balance', summaryHeaderStyle);
-  mergeRow(1, totalColumnIndex, totalColumnIndex);
+  setCell(2, totalColumnIndex, 'Total Balance', summaryHeaderStyle);
+  mergeRow(2, totalColumnIndex, totalColumnIndex);
 
-  let currentRow = 3;
+  let currentRow = 4;
 
   filteredStudents.forEach((student, index) => {
     const studentSummary = summarizeStudent(student, payablesByYear, activeTerm);

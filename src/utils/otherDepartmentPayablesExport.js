@@ -21,7 +21,13 @@ const formatExportDate = (rawValue) => {
   });
 };
 
-export const sanitizeExportText = (value) => String(value || '').replace(/[\\/?*\[\]:]/g, '-').trim() || 'payables';
+export const sanitizeExportText = (value) => String(value || '').replace(/[\\/?*[\]:]/g, '-').trim() || 'payables';
+
+const getTermLabel = (term) => {
+  if (!term?.semester || !term?.schoolYear) return 'Current Term';
+  const semesterLabel = Number(term.semester) === 1 ? '1st Semester' : Number(term.semester) === 2 ? '2nd Semester' : 'Summer';
+  return `${semesterLabel} S.Y. ${term.schoolYear}`;
+};
 
 const isPayableRelevantToStudent = (payable, student) => {
   if (!payable || !student) return false;
@@ -182,16 +188,14 @@ const buildAllBlocksWorksheet = ({
 }) => {
   const groups = buildBlockGroups(students);
   const departmentCode = String(selectedDepartment?.code || selectedDepartment?.name || 'DEPARTMENT').trim().toUpperCase();
-  const termLabel = activeTerm?.semester && activeTerm?.schoolYear
-    ? `${activeTerm.semester === 1 ? '1st Semester' : activeTerm.semester === 2 ? '2nd Semester' : 'Summer'} · S.Y. ${activeTerm.schoolYear}`
-    : 'Current Term';
+  const termLabel = getTermLabel(activeTerm);
 
   const rows = [];
   const merges = [];
   const styles = {};
   const tableWidth = 4;
   const gapWidth = 1;
-  const tablesPerRow = 6;
+  const tablesPerRow = 3;
   const bandWidth = tablesPerRow * (tableWidth + gapWidth) - gapWidth;
 
   const ensureRow = (rowIndex) => {
@@ -286,6 +290,7 @@ const buildAllBlocksWorksheet = ({
       const blockTitle = `${departmentCode}-${group.block}`;
       const blockRows = [
         [blockTitle, '', '', ''],
+        [`Students: ${group.students.length}`, '', '', ''],
         ['NO.', 'NAME', 'PAID', 'DATE']
       ];
 
@@ -336,6 +341,7 @@ const buildAllBlocksWorksheet = ({
       });
 
       mergeRow(rowOffset, colOffset, colOffset + tableWidth - 1);
+      mergeRow(rowOffset + 1, colOffset, colOffset + tableWidth - 1);
       mergeRow(rowOffset + blockRows.length - 1, colOffset, colOffset + tableWidth - 2);
     });
 
@@ -422,9 +428,7 @@ export const exportOtherDepartmentPayablesToExcel = ({
     ? `${normalizedFolderYear}${normalizedFolderYear === 1 ? 'st' : normalizedFolderYear === 2 ? 'nd' : normalizedFolderYear === 3 ? 'rd' : 'th'} Year`
     : 'All Year Levels';
   const currentBlockLabel = selectedFolder?.block ? String(selectedFolder.block).toUpperCase() : 'All Blocks';
-  const termLabel = activeTerm?.semester && activeTerm?.schoolYear
-    ? `${activeTerm.semester === 1 ? '1st Semester' : activeTerm.semester === 2 ? '2nd Semester' : 'Summer'} · S.Y. ${activeTerm.schoolYear}`
-    : 'Current Term';
+  const termLabel = getTermLabel(activeTerm);
 
   const defaultFilename = `${sanitizeExportText(selectedDepartment?.name || 'other-department')}-${sanitizeExportText(scopeLabel).toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`;
   const rawFilename = sanitizeExportText(filename || defaultFilename);
@@ -578,3 +582,4 @@ export const exportOtherDepartmentPayablesToExcel = ({
   const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array', cellStyles: true });
   saveAs(new Blob([buffer], { type: 'application/octet-stream' }), `${finalFilename}.xlsx`);
 };
+

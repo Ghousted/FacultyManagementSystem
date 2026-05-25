@@ -306,63 +306,210 @@ const blockList = (blocks = []) =>
 //   Blank row
 //   Totals footer  →  Total Students / Paid / Partial / Unpaid
 
+const getDisplayBlock = (value, fallback = 'N/A') => {
+  const raw = typeof value === 'object' && value !== null
+    ? value.block || value.joinedBlock || value.section
+    : value;
+  return String(raw || fallback).trim().toUpperCase() || fallback;
+};
+
+const getStudentDisplayBlock = (student, fallback = 'N/A') => (
+  getDisplayBlock(student?.joinedBlock || student?.block || student?.section || fallback, fallback)
+);
+
+const placeTablesInGrid = (rows, tables, options = {}) => {
+  const tableWidth = options.tableWidth || 5;
+  const gapWidth = options.gapWidth || 1;
+  const tablesPerRow = options.tablesPerRow || 3;
+  let rowOffset = options.startRow || rows.length;
+
+  for (let start = 0; start < tables.length; start += tablesPerRow) {
+    const rowTables = tables.slice(start, start + tablesPerRow);
+    const bandHeight = rowTables.reduce((max, table) => Math.max(max, table.length), 0);
+
+    rowTables.forEach((table, tableIndex) => {
+      const colOffset = tableIndex * (tableWidth + gapWidth);
+      table.forEach((tableRow, rowIndex) => {
+        const targetRow = rowOffset + rowIndex;
+        if (!rows[targetRow]) rows[targetRow] = [];
+        for (let colIndex = 0; colIndex < tableWidth; colIndex += 1) {
+          rows[targetRow][colOffset + colIndex] = tableRow[colIndex] ?? '';
+        }
+      });
+    });
+
+    rowOffset += bandHeight + (options.gapRows || 2);
+  }
+
+  return rowOffset;
+};
+
+const makeThinBorder = () => ({
+  top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+  bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+  left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+  right: { style: 'thin', color: { rgb: 'CBD5E1' } }
+});
+
+const autoFitWorksheetColumns = (rows, maxWidth = 34) => {
+  const maxColumns = rows.reduce((max, row) => Math.max(max, row?.length || 0), 0);
+  const widths = Array.from({ length: maxColumns }, () => 8);
+
+  rows.forEach((row) => {
+    (row || []).forEach((value, columnIndex) => {
+      if (value === null || typeof value === 'undefined') return;
+      const length = String(value).length;
+      widths[columnIndex] = Math.max(widths[columnIndex] || 8, Math.min(maxWidth, length + 2));
+    });
+  });
+
+  return widths.map((width) => ({ wch: Math.max(5, width) }));
+};
+
+const applyWorksheetStyles = (worksheet, styles, merges = []) => {
+  Object.entries(styles).forEach(([cellAddress, style]) => {
+    if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' };
+    worksheet[cellAddress].s = {
+      ...(worksheet[cellAddress].s || {}),
+      ...style
+    };
+  });
+
+  merges.forEach((mergeRange) => {
+    const topLeft = XLSX.utils.encode_cell({ r: mergeRange.s.r, c: mergeRange.s.c });
+    const topLeftStyle = styles[topLeft] || {};
+    for (let row = mergeRange.s.r; row <= mergeRange.e.r; row += 1) {
+      for (let column = mergeRange.s.c; column <= mergeRange.e.c; column += 1) {
+        const cellAddress = XLSX.utils.encode_cell({ r: row, c: column });
+        if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' };
+        worksheet[cellAddress].s = {
+          ...(worksheet[cellAddress].s || {}),
+          ...topLeftStyle
+        };
+      }
+    }
+  });
+};
+
+const alignProfessorBlockTables = (tables) => {
+  const getFooterStartIndex = (table) => {
+    const departmentShareIndex = table.findIndex((row) => row?.some((cell) => String(cell || '').startsWith('Department Share:')));
+    if (departmentShareIndex >= 0) return Math.max(2, departmentShareIndex - 1);
+    const totalPaidIndex = table.findIndex((row) => row?.some((cell) => String(cell || '').startsWith('Total Paid:')));
+    return totalPaidIndex < 0 ? -1 : Math.max(2, totalPaidIndex - 1);
+  };
+
+  const maxBodyRows = tables.reduce((max, table) => {
+    const footerStartIndex = getFooterStartIndex(table);
+    return Math.max(max, Math.max(0, footerStartIndex - 2));
+  }, 0);
+
+  return tables.map((table) => {
+    const footerStartIndex = getFooterStartIndex(table);
+    if (footerStartIndex < 0) return table;
+    const bodyRows = table.slice(2, footerStartIndex);
+    const footerRows = table.slice(footerStartIndex);
+    const paddingRows = Array.from({ length: Math.max(0, maxBodyRows - bodyRows.length) }, () => ['', '', '', '', '']);
+    return [
+      ...table.slice(0, 2),
+      ...bodyRows,
+      ...paddingRows,
+      ...footerRows
+    ];
+  });
+};
+
+const getProfessorHandledBlockCount = (classes = []) => (
+  classes.reduce((sum, course) => {
+    const studentBlocks = new Set(
+      (course.students || [])
+        .map((student) => getStudentDisplayBlock(student, ''))
+        .filter(Boolean)
+    );
+    if (studentBlocks.size > 0) return sum + studentBlocks.size;
+    if (Array.isArray(course.blocks) && course.blocks.length > 0) return sum + course.blocks.length;
+    return sum + 1;
+  }, 0)
+);
+
+const getProfessorTotalStudentsHandled = (classes = []) => (
+  classes.reduce((sum, course) => {
+    if (Array.isArray(course.students)) return sum + course.students.length;
+    return sum + Number(course.studentCount || 0);
+  }, 0)
+);
+
+const getProfessorPaidStudentCount = (classes = []) => (
+  classes.reduce((sum, course) => {
+    if (Array.isArray(course.students)) {
+      return sum + course.students.filter((student) => student.status === 'PAID').length;
+    }
+    return sum + Number(course.paidCount || 0);
+  }, 0)
+);
+
 const buildModuleSheet = (mod) => {
   const rows = [];
 
-  // Info block
-  rows.push(['Subject Code',  mod.courseCode  || '']);
+  rows.push(['Subject Code', mod.courseCode || '']);
   rows.push(['Subject Title', mod.courseTitle || '']);
-  rows.push(['Professor',     mod.professor   || '—']);
-  rows.push(['Year Level',    yearLabel(mod.yearLevel)]);
-  rows.push(['Block(s)',       blockList(mod.blocks)]);
-  rows.push(['Term',          termLabel(mod.semester)]);
-  rows.push(['Amount',        phpAmount(mod.amount)]);
-  rows.push([]); // blank separator
-
-  // Student table header
-  rows.push(['Name', 'Classification', 'Block', 'Status', 'Amount Paid (PHP)']);
+  rows.push(['Professor', mod.professor || '-']);
+  rows.push(['Year Level', yearLabel(mod.yearLevel)]);
+  rows.push(['Block(s)', blockList(mod.blocks)]);
+  rows.push(['Term', termLabel(mod.semester)]);
+  rows.push(['Amount', phpAmount(mod.amount)]);
+  rows.push([]);
 
   const blockGroups = mod.blocks || [];
   if (blockGroups.length === 0) {
+    rows.push(['Name', 'Classification', 'Block', 'Status', 'Amount Paid (PHP)']);
     rows.push(['No students enrolled', '', '', '', '']);
   } else {
-    blockGroups.forEach(group => {
+    const blockTables = blockGroups.map((group) => {
       const students = group.students || [];
+      const block = getDisplayBlock(group.block);
+      const table = [
+        [`Block ${block}`, '', '', '', ''],
+        [`Students: ${students.length}`, '', '', '', ''],
+        ['Name', 'Classification', 'Block', 'Status', 'Amount Paid (PHP)']
+      ];
+
       if (students.length === 0) {
-        rows.push(['(no students)', '', group.block || '—', '', '']);
+        table.push(['(no students)', '', block, '', '']);
       } else {
-        students.forEach(s => {
-          rows.push([
-            s.name        || '',
-            s.isIrregular ? 'Irregular' : 'Regular',
-            s.isIrregular ? '—' : (group.block || '—'),
-            s.status      || 'UNPAID',
-            s.paidAmount  != null ? Number(s.paidAmount).toFixed(2) : '0.00',
+        students.forEach((student) => {
+          table.push([
+            student.name || '',
+            student.isIrregular ? 'Irregular' : 'Regular',
+            getStudentDisplayBlock(student, block),
+            student.status || 'UNPAID',
+            student.paidAmount != null ? Number(student.paidAmount).toFixed(2) : '0.00'
           ]);
         });
       }
+
+      return table;
     });
+
+    placeTablesInGrid(rows, blockTables, { tableWidth: 5, tablesPerRow: 3 });
   }
 
-  // Totals footer
-  const allStudents  = blockGroups.flatMap(b => b.students || []);
-  const paidCount    = allStudents.filter(s => s.status === 'PAID').length;
-  const partialCount = allStudents.filter(s => s.status === 'PARTIAL').length;
-  const unpaidCount  = allStudents.length - paidCount - partialCount;
+  const allStudents = blockGroups.flatMap((block) => block.students || []);
+  const paidCount = allStudents.filter((student) => student.status === 'PAID').length;
+  const partialCount = allStudents.filter((student) => student.status === 'PARTIAL').length;
+  const unpaidCount = allStudents.length - paidCount - partialCount;
 
   rows.push([]);
-  rows.push(['Total Students', allStudents.length, '', '', '']);
-  rows.push(['Paid',           paidCount,           '', '', '']);
-  rows.push(['Partial',        partialCount,         '', '', '']);
-  rows.push(['Unpaid',         unpaidCount,          '', '', '']);
+  rows.push(['Total Students:', allStudents.length, '', '', '']);
+  rows.push(['Paid:', paidCount, '', '', '']);
+  rows.push(['Partial:', partialCount, '', '', '']);
+  rows.push(['Unpaid:', unpaidCount, '', '', '']);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [
-    { wch: 32 }, // Name / Label
-    { wch: 16 }, // Classification / Value
-    { wch: 10 }, // Block
-    { wch: 10 }, // Status
-    { wch: 18 }, // Amount Paid
+    { wch: 32 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 3 },
+    { wch: 32 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 3 },
+    { wch: 32 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 18 }
   ];
   return ws;
 };
@@ -454,7 +601,268 @@ export function exportAllModulePaymentsToExcel(modules, filename = 'all_module_p
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
 }
 
-// ─── Professor cutback exports (unchanged) ────────────────────────────────────
+// ─── Professor cutback exports with detailed student tables ──────────────────
+
+// eslint-disable-next-line no-unused-vars
+const buildProfessorDetailedSheet = (prof, ratePerStudent, classDetails, options = {}) => {
+  const { deadline = '' } = options;
+  const rows = [];
+  
+  // Professor header
+  rows.push([`Professor: ${prof.name || ''}`]);
+  if (prof.employeeId) rows.push([`Employee ID: ${prof.employeeId}`]);
+  rows.push([`Cutback Rate: ${Number(ratePerStudent).toFixed(2)} PHP per paid student`]);
+  rows.push([`Payment Deadline: ${deadline || 'None (no cutoff)'}`]);
+  rows.push([]);
+
+  const classes = classDetails || prof.classes || [];
+  
+  if (classes.length === 0) {
+    rows.push(['No assigned classes']);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 40 }];
+    return ws;
+  }
+
+  // For each class, create a detailed table
+  classes.forEach((course, idx) => {
+    if (idx > 0) rows.push([]); // Separator between classes
+    
+    // Class header
+    rows.push([`${course.courseCode || ''} - ${course.courseTitle || ''}`]);
+    rows.push([`Year Level: ${course.yearLevel || '-'}`, `Block(s): ${(course.blocks || []).join(', ') || '-'}`]);
+    rows.push([`Department: ${course.source === 'other-department' ? (course.departmentName || 'Other Department') : 'CCS Department'}`]);
+    rows.push([]);
+
+    // Student table header
+    rows.push(['Student Name', 'Student Number', 'Amount Paid', 'Payment Date', 'Remaining Balance']);
+
+    const students = course.students || [];
+    const amountRequired = Number(course.amountRequired || course.payableAmount || 0);
+    
+    if (students.length === 0) {
+      rows.push(['No payment records yet', '', '', '', '']);
+    } else {
+      students.forEach(student => {
+        const paidAmount = Number(student.paidAmount || 0);
+        const balance = Math.max(0, amountRequired - paidAmount);
+        const paymentDate = student.paymentDate ? new Date(student.paymentDate).toLocaleDateString() : '-';
+        
+        rows.push([
+          student.name || '',
+          student.studentNumber || student.studentNo || '',
+          paidAmount.toFixed(2),
+          paymentDate,
+          balance.toFixed(2)
+        ]);
+      });
+    }
+
+    rows.push([]);
+    
+    // Class computations
+    const totalStudents = Number(course.studentCount || 0);
+    const totalPaid = students.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0);
+    const totalBalance = students.reduce((sum, s) => sum + Math.max(0, amountRequired - Number(s.paidAmount || 0)), 0);
+    const professorRate = ratePerStudent;
+    const professorCutback = totalStudents * professorRate;
+    const totalExpected = professorCutback;
+    const totalModuleAmount = amountRequired * totalStudents;
+    const totalCollection = totalPaid;
+
+    rows.push(['COMPUTATIONS']);
+    rows.push(['Professor Rate per Student:', `PHP ${professorRate.toFixed(2)}`]);
+    rows.push(['Number of Students × Professor Rate:', `${totalStudents} × ${professorRate.toFixed(2)} = PHP ${totalExpected.toFixed(2)}`]);
+    rows.push(['Total Module Amount × Number of Students:', `${amountRequired.toFixed(2)} × ${totalStudents} = PHP ${totalModuleAmount.toFixed(2)}`]);
+    rows.push(['Total Paid:', `PHP ${totalCollection.toFixed(2)}`]);
+    rows.push([]);
+    rows.push([]);
+    rows.push(['Cutback for Prof:', `PHP ${professorCutback.toFixed(2)}`]);
+    rows.push(['Total Remaining Balance:', `PHP ${totalBalance.toFixed(2)}`]);
+    rows.push([]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 35 }, // Student Name / Label
+    { wch: 18 }, // Student Number / Value
+    { wch: 15 }, // Amount Paid
+    { wch: 15 }, // Payment Date
+    { wch: 18 }  // Remaining Balance
+  ];
+  return ws;
+};
+
+const buildProfessorBlockTablesSheet = (prof, ratePerStudent, classDetails) => {
+  const rows = [];
+  const merges = [];
+  const styles = {};
+  const border = makeThinBorder();
+  const tableWidth = 5;
+  const gapWidth = 1;
+  const tablesPerRow = 3;
+  const maxColumns = (tableWidth * tablesPerRow) + (gapWidth * (tablesPerRow - 1));
+
+  const subjectStyle = {
+    font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 },
+    fill: { patternType: 'solid', fgColor: { rgb: '2563EB' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border
+  };
+  const blockStyle = {
+    font: { bold: true, color: { rgb: '0F172A' } },
+    fill: { patternType: 'solid', fgColor: { rgb: 'DBEAFE' } },
+    alignment: { horizontal: 'center', vertical: 'center' },
+    border
+  };
+  const headerStyle = {
+    font: { bold: true, color: { rgb: '0F172A' } },
+    fill: { patternType: 'solid', fgColor: { rgb: 'E2E8F0' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border
+  };
+  const textStyle = {
+    alignment: { horizontal: 'left', vertical: 'center' },
+    border
+  };
+  const centerStyle = {
+    alignment: { horizontal: 'center', vertical: 'center' },
+    border
+  };
+  const amountStyle = {
+    alignment: { horizontal: 'right', vertical: 'center' },
+    numFmt: 'PHP #,##0.00',
+    border
+  };
+  const setCell = (rowIndex, columnIndex, value, style) => {
+    while (rows.length <= rowIndex) rows.push([]);
+    rows[rowIndex][columnIndex] = value;
+    if (style) styles[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })] = style;
+  };
+
+  const mergeCells = (startRow, startColumn, endRow, endColumn) => {
+    merges.push({ s: { r: startRow, c: startColumn }, e: { r: endRow, c: endColumn } });
+  };
+
+  const classes = classDetails || prof.classes || [];
+  if (classes.length === 0) {
+    setCell(0, 0, 'No assigned classes', textStyle);
+    const emptySheet = XLSX.utils.aoa_to_sheet(rows);
+    emptySheet['!cols'] = autoFitWorksheetColumns(rows);
+    applyWorksheetStyles(emptySheet, styles, merges);
+    return emptySheet;
+  }
+
+  const tableGroups = [];
+  classes.forEach((course) => {
+    const students = course.students || [];
+    const amountRequired = Number(course.amountRequired || course.payableAmount || 0);
+    const grouped = new Map();
+
+    students.forEach((student) => {
+      const block = getStudentDisplayBlock(student, (course.blocks || [])[0] || 'N/A');
+      if (!grouped.has(block)) grouped.set(block, []);
+      grouped.get(block).push(student);
+    });
+
+    if (grouped.size === 0) grouped.set(getDisplayBlock((course.blocks || [])[0], 'N/A'), []);
+
+    const blockTables = Array.from(grouped.entries()).map(([block, blockStudents]) => {
+      const totalPaid = blockStudents.reduce((sum, student) => sum + Number(student.paidAmount || 0), 0);
+      const paidStudents = blockStudents.filter((student) => student.status === 'PAID').length;
+      const professorRate = Number(ratePerStudent) || 0;
+      const professorCutback = paidStudents * professorRate;
+      const table = [
+        [`Block ${block}`, '', '', '', ''],
+        ['No.', 'Student Name', 'Amount Paid', 'Payment Date', 'Remaining Balance']
+      ];
+
+      if (blockStudents.length === 0) {
+        table.push(['', 'No students enrolled', '', '', '']);
+      } else {
+        blockStudents.forEach((student, index) => {
+          const paidAmount = Number(student.paidAmount || 0);
+          const balance = Math.max(0, amountRequired - paidAmount);
+          const paymentDate = student.paymentDate ? new Date(student.paymentDate).toLocaleDateString('en-PH') : '';
+          table.push([
+            index + 1,
+            student.name || '',
+            paidAmount > 0 ? paidAmount : '',
+            paymentDate,
+            balance
+          ]);
+        });
+      }
+
+      table.push(['', '', '', '', '']);
+      table.push(['', '', '', '', `Total Paid: ${totalPaid}`]);
+      table.push(['', '', '', '', '']);
+      table.push(['', '', '', '', '']);
+      table.push(['', '', '', '', `Cutback: ${professorCutback}`]);
+      return table;
+    });
+
+    for (let start = 0; start < blockTables.length; start += tablesPerRow) {
+      const subject = course.source === 'other-department'
+        ? `Course: ${course.classCourse || course.course || course.departmentName || 'Other Department'} | Module: ${course.courseCode || ''}${course.courseTitle ? ` - ${course.courseTitle}` : ''}`
+        : `${course.courseCode || ''}${course.courseTitle ? ` - ${course.courseTitle}` : ''}`;
+      tableGroups.push({
+        subject: subject.trim() || 'Module / Subject',
+        tables: alignProfessorBlockTables(blockTables.slice(start, start + tablesPerRow))
+      });
+    }
+  });
+
+  let currentRow = 0;
+  let currentColumn = 0;
+  let rowBandHeight = 0;
+
+  tableGroups.forEach((group) => {
+    const groupWidth = (group.tables.length * tableWidth) + ((group.tables.length - 1) * gapWidth);
+    const groupHeight = 1 + Math.max(...group.tables.map((table) => table.length));
+
+    if (currentColumn > 0 && currentColumn + groupWidth > maxColumns) {
+      currentRow += rowBandHeight + 2;
+      currentColumn = 0;
+      rowBandHeight = 0;
+    }
+
+    const subjectEndColumn = currentColumn + groupWidth - 1;
+    setCell(currentRow, currentColumn, group.subject, subjectStyle);
+    mergeCells(currentRow, currentColumn, currentRow, subjectEndColumn);
+
+    group.tables.forEach((table, tableIndex) => {
+      const tableColumn = currentColumn + (tableIndex * (tableWidth + gapWidth));
+      table.forEach((tableRow, rowIndex) => {
+        const absoluteRow = currentRow + 1 + rowIndex;
+        tableRow.forEach((value, columnIndex) => {
+          const absoluteColumn = tableColumn + columnIndex;
+          let style = textStyle;
+          if (rowIndex === 0) style = blockStyle;
+          else if (rowIndex === 1) style = headerStyle;
+          else if (columnIndex === 0) style = centerStyle;
+          else if (columnIndex === 2 || columnIndex === 4) style = amountStyle;
+          setCell(absoluteRow, absoluteColumn, value, style);
+        });
+      });
+      mergeCells(currentRow + 1, tableColumn, currentRow + 1, tableColumn + tableWidth - 1);
+    });
+
+    currentColumn += groupWidth + gapWidth;
+    rowBandHeight = Math.max(rowBandHeight, groupHeight);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!merges'] = merges;
+  ws['!cols'] = autoFitWorksheetColumns(rows, 38);
+  ws['!pageSetup'] = {
+    orientation: 'landscape',
+    fitToWidth: 1,
+    fitToHeight: 0
+  };
+  applyWorksheetStyles(ws, styles, merges);
+  return ws;
+};
 
 const buildProfessorSheet = (prof, ratePerStudent, options = {}) => {
   const { deadline = '' } = options;
@@ -510,10 +918,16 @@ const buildProfessorSheet = (prof, ratePerStudent, options = {}) => {
 
 export function exportSingleProfessorCutbacksToExcel(prof, ratePerStudent, filename = 'professor_cutbacks.xlsx', options = {}) {
   const wb = XLSX.utils.book_new();
-  const ws = buildProfessorSheet(prof, ratePerStudent, options);
-  const sheetName = dedupeSheetName(wb, prof.name || 'Professor');
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  
+  if (options.classDetails && options.classDetails.length > 0) {
+    const detailWs = buildProfessorBlockTablesSheet(prof, ratePerStudent, options.classDetails, options);
+    XLSX.utils.book_append_sheet(wb, detailWs, 'Professor Cutback');
+  } else {
+    const ws = buildProfessorSheet(prof, ratePerStudent, options);
+    XLSX.utils.book_append_sheet(wb, ws, 'Summary');
+  }
+  
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
 }
 
@@ -521,58 +935,85 @@ export function exportAllProfessorCutbacksToExcel(professors, ratePerStudent, fi
   const { deadline = '' } = options;
   const wb = XLSX.utils.book_new();
 
-  const summaryHeader = ['Professor', 'Employee ID', 'Subjects Handled', 'Paid Students'];
+  const summaryHeader = ['No.', 'Professor', 'Classes Handled', 'Total Students Handled', 'Paid Students'];
   if (deadline) summaryHeader.push('Late (excluded)');
   summaryHeader.push('Total Cutback (PHP)');
+  summaryHeader.push('Total Claimable Cutback (PHP)');
   const summaryRows = [summaryHeader];
 
+  let grandTotalStudents = 0;
   let grandPaidStudents = 0;
   let grandLateStudents = 0;
   let grandTotalCutback = 0;
-  professors.forEach(prof => {
+  let grandTotalClaimableCutback = 0;
+  professors.forEach((prof, index) => {
     const classes = prof.classes || [];
-    const paidStudents = classes.reduce((sum, c) => sum + (c.paidCount || 0), 0);
+    const handledClasses = getProfessorHandledBlockCount(classes);
+    const totalStudentsHandled = getProfessorTotalStudentsHandled(classes);
+    const paidStudents = getProfessorPaidStudentCount(classes);
     const lateStudents = classes.reduce((sum, c) => sum + (c.lateCount || 0), 0);
     const totalCutback = paidStudents * ratePerStudent;
+    const totalClaimableCutback = totalStudentsHandled * ratePerStudent;
+    grandTotalStudents += totalStudentsHandled;
     grandPaidStudents += paidStudents;
     grandLateStudents += lateStudents;
     grandTotalCutback += totalCutback;
+    grandTotalClaimableCutback += totalClaimableCutback;
     const row = [
-      prof.name       || '',
-      prof.employeeId || '',
-      classes.length,
+      index + 1,
+      prof.name || '',
+      handledClasses,
+      totalStudentsHandled,
       paidStudents
     ];
     if (deadline) row.push(lateStudents);
     row.push(totalCutback.toFixed(2));
+    row.push(totalClaimableCutback.toFixed(2));
     summaryRows.push(row);
   });
   summaryRows.push([]);
-  const totalRow = ['', '', 'GRAND TOTAL', grandPaidStudents];
+  const totalRow = ['', 'GRAND TOTAL', '', grandTotalStudents, grandPaidStudents];
   if (deadline) totalRow.push(grandLateStudents);
   totalRow.push(grandTotalCutback.toFixed(2));
+  totalRow.push(grandTotalClaimableCutback.toFixed(2));
   summaryRows.push(totalRow);
   summaryRows.push([]);
   summaryRows.push([`Rate per paid student: ${Number(ratePerStudent).toFixed(2)} PHP`]);
   summaryRows.push([`Payment deadline: ${deadline || 'None (no cutoff)'}`]);
 
   const summary = XLSX.utils.aoa_to_sheet(summaryRows);
-  const summaryCols = [{ wch: 30 }, { wch: 14 }, { wch: 18 }, { wch: 16 }];
+  const summaryCols = [{ wch: 8 }, { wch: 30 }, { wch: 18 }, { wch: 24 }, { wch: 16 }];
   if (deadline) summaryCols.push({ wch: 16 });
   summaryCols.push({ wch: 20 });
+  summaryCols.push({ wch: 30 });
   summary['!cols'] = summaryCols;
   XLSX.utils.book_append_sheet(wb, summary, 'Summary');
 
   professors.forEach(prof => {
-    const ws = buildProfessorSheet(prof, ratePerStudent, options);
+    const ws = options.detailed
+      ? buildProfessorBlockTablesSheet(prof, ratePerStudent, prof.classes || [], options)
+      : buildProfessorSheet(prof, ratePerStudent, options);
     const sheetName = dedupeSheetName(wb, prof.name || 'Professor');
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
   });
 
-  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
 }
 
+// ─── Export professor with detailed class breakdown ───────────────────────────
+export function exportProfessorDetailedCutbacksToExcel(prof, ratePerStudent, classDetails, filename = 'professor_detailed_cutbacks.xlsx') {
+  const wb = XLSX.utils.book_new();
+
+  (classDetails || []).forEach((course) => {
+    const ws = buildProfessorBlockTablesSheet(prof, ratePerStudent, [course]);
+    const sheetName = dedupeSheetName(wb, `${course.courseCode || 'Class'} ${(course.blocks || []).join(',')}`);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  });
+
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
+  saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
+}
 // Department share export helpers
 export function buildDepartmentShareSheet(report) {
   // report: { amountPerPaidStudent, totalPaidCount, totalShare, breakdown: [{courseCode, courseTitle, paidCount, shareAmount}] }
@@ -608,3 +1049,152 @@ export function exportDepartmentShareToExcel(report, filename = 'department_shar
   const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
 }
+
+// ─── CCS Department Cutback with detailed student tables ──────────────────────
+export function exportDepartmentDetailedCutbacksToExcel(moduleDetails, departmentShareAmount, filename = 'ccs_department_detailed_cutbacks.xlsx') {
+  const wb = XLSX.utils.book_new();
+  const tableWidth = 5;
+  const gapWidth = 1;
+  const tablesPerRow = 3;
+
+  (moduleDetails || []).forEach((module) => {
+    const blocks = Array.isArray(module.blocks) && module.blocks.length
+      ? module.blocks.filter((block) => (block.students || []).length > 0)
+      : [{ block: 'N/A', yearLevel: module.yearLevel, students: module.students || [] }];
+    if (blocks.length === 0) return;
+
+    const rows = [];
+    const merges = [];
+    const styles = {};
+    const border = makeThinBorder();
+    const amountRequired = Number(module.amount || module.amountRequired || 0);
+    const departmentShare = Number(departmentShareAmount) || 0;
+
+    const subjectStyle = {
+      font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 },
+      fill: { patternType: 'solid', fgColor: { rgb: '2563EB' } },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      border
+    };
+    const blockStyle = {
+      font: { bold: true, color: { rgb: '0F172A' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'DBEAFE' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border
+    };
+    const headerStyle = {
+      font: { bold: true, color: { rgb: '0F172A' } },
+      fill: { patternType: 'solid', fgColor: { rgb: 'E2E8F0' } },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      border
+    };
+    const textStyle = {
+      alignment: { horizontal: 'left', vertical: 'center' },
+      border
+    };
+    const centerStyle = {
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border
+    };
+    const amountStyle = {
+      alignment: { horizontal: 'right', vertical: 'center' },
+      numFmt: 'PHP #,##0.00',
+      border
+    };
+
+    const setCell = (rowIndex, columnIndex, value, style) => {
+      while (rows.length <= rowIndex) rows.push([]);
+      rows[rowIndex][columnIndex] = value;
+      if (style) styles[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })] = style;
+    };
+
+    const mergeCells = (startRow, startColumn, endRow, endColumn) => {
+      merges.push({ s: { r: startRow, c: startColumn }, e: { r: endRow, c: endColumn } });
+    };
+
+    const blockTables = blocks.map((blockGroup) => {
+      const blockStudents = blockGroup.students || [];
+      const block = getDisplayBlock(blockGroup.block);
+      const totalStudents = blockStudents.length;
+      const totalPaid = blockStudents.reduce((sum, student) => sum + Number(student.paidAmount || 0), 0);
+      const blockDepartmentShare = totalStudents * departmentShare;
+      const label = module.isCcs
+        ? `${yearLabel(blockGroup.yearLevel || module.yearLevel)} - ${block}`
+        : `${module.course || module.classCourse || module.department || 'Other Department'} ${yearLabel(blockGroup.yearLevel || module.yearLevel)} - ${block}`;
+      const table = [
+        [label.trim(), '', '', '', ''],
+        ['No.', 'Student Name', 'Amount Paid', 'Payment Date', 'Remaining Balance']
+      ];
+
+      if (blockStudents.length === 0) {
+        table.push(['', 'No students enrolled', '', '', '']);
+      } else {
+        blockStudents.forEach((student, index) => {
+          const paidAmount = Number(student.paidAmount || 0);
+          const balance = Math.max(0, amountRequired - paidAmount);
+          const paymentDate = student.paymentDate ? new Date(student.paymentDate).toLocaleDateString('en-PH') : '';
+          table.push([
+            index + 1,
+            student.name || '',
+            paidAmount > 0 ? paidAmount : '',
+            paymentDate,
+            balance
+          ]);
+        });
+      }
+
+      table.push(['', '', '', '', '']);
+      table.push(['', '', '', '', `Department Share: ${blockDepartmentShare}`]);
+      table.push(['', '', '', '', '']);
+      table.push(['', '', '', '', '']);
+      table.push(['', '', '', '', `Total Paid: ${totalPaid}`]);
+      return table;
+    });
+
+    const alignedTables = alignProfessorBlockTables(blockTables);
+    const subject = module.isCcs
+      ? `${module.courseCode || ''}${module.courseTitle ? ` - ${module.courseTitle}` : ''}`
+      : `Course: ${module.course || module.classCourse || module.department || 'Other Department'} | Module: ${module.courseCode || ''}${module.courseTitle ? ` - ${module.courseTitle}` : ''}`;
+    let currentRow = 0;
+
+    for (let start = 0; start < alignedTables.length; start += tablesPerRow) {
+      const rowTables = alignedTables.slice(start, start + tablesPerRow);
+      const groupWidth = (rowTables.length * tableWidth) + ((rowTables.length - 1) * gapWidth);
+      const subjectEndColumn = groupWidth - 1;
+      const maxTableHeight = Math.max(...rowTables.map((table) => table.length));
+
+      setCell(currentRow, 0, subject.trim() || 'Module', subjectStyle);
+      mergeCells(currentRow, 0, currentRow, subjectEndColumn);
+
+      rowTables.forEach((table, tableIndex) => {
+        const tableColumn = tableIndex * (tableWidth + gapWidth);
+        table.forEach((tableRow, rowIndex) => {
+          const absoluteRow = currentRow + 1 + rowIndex;
+          tableRow.forEach((value, columnIndex) => {
+            const absoluteColumn = tableColumn + columnIndex;
+            let style = textStyle;
+            if (rowIndex === 0) style = blockStyle;
+            else if (rowIndex === 1) style = headerStyle;
+            else if (columnIndex === 0) style = centerStyle;
+            else if (columnIndex === 2 || columnIndex === 4) style = amountStyle;
+            setCell(absoluteRow, absoluteColumn, value, style);
+          });
+        });
+        mergeCells(currentRow + 1, tableColumn, currentRow + 1, tableColumn + tableWidth - 1);
+      });
+
+      currentRow += maxTableHeight + 3;
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!merges'] = merges;
+    ws['!cols'] = autoFitWorksheetColumns(rows, 38);
+    applyWorksheetStyles(ws, styles, merges);
+    const sheetName = dedupeSheetName(wb, `${module.courseCode || 'Module'} ${module.course || ''}`);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  });
+
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
+  saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);
+}
+
