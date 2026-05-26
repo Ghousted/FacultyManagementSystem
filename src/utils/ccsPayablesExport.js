@@ -51,11 +51,16 @@ const getStudentTerm = (student, activeTerm) => {
 const getStudentTermKey = (student, activeTerm) => getTermKey(getStudentTerm(student, activeTerm));
 
 const isStudentEnrolledForTerm = (student, activeTerm) => {
-  if (!student || student.enrolled === false) return false;
-  if (!activeTerm?.semester || !activeTerm?.schoolYear) return student.enrolled !== false;
+  if (!student) return false;
+  if (student.enrolled === false && student.active !== false) return false;
+  if (!activeTerm?.semester || !activeTerm?.schoolYear) {
+    return student.active === false || student.enrolled !== false;
+  }
 
   const term = student.enrolledTerm || student.createdTerm || null;
-  if (!term || (!term.semester && !term.schoolYear)) return student.enrolled === true;
+  if (!term || (!term.semester && !term.schoolYear)) {
+    return student.active === false || student.enrolled === true;
+  }
 
   return (
     Number(term.semester) === Number(activeTerm.semester) &&
@@ -269,7 +274,7 @@ const autoFitColumns = (rows, payableColumnsCount) => {
 const buildPayableGroups = (students, payablesByYear, selectedFolder, activeTerm, scope) => {
   const seen = new Set();
   const exportStudents = scope === 'all-blocks'
-    ? (students || []).filter((student) => student.active !== false && isStudentEnrolledForTerm(student, activeTerm) && getStudentTermKey(student, activeTerm) === (selectedFolder?.termKey || getTermKey(activeTerm)))
+    ? (students || []).filter((student) => isStudentEnrolledForTerm(student, activeTerm) && getStudentTermKey(student, activeTerm) === (selectedFolder?.termKey || getTermKey(activeTerm)))
     : (students || []).filter((student) => isStudentEnrolledForTerm(student, activeTerm));
 
   const allPayables = [];

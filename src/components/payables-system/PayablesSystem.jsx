@@ -230,6 +230,12 @@ useEffect(() => {
     return s[(v - 20) % 10] || s[v] || s[0];
   };
 
+  const getStudentYearLevel = useCallback((student) => {
+    if (!student) return null;
+    const yearLevel = Number(student.yearLevel);
+    return Number.isFinite(yearLevel) && yearLevel > 0 ? yearLevel : null;
+  }, []);
+
   // Derive available blocks dynamically from loaded students
   const getAvailableBlocks = useCallback(() => {
     const set = new Set();
@@ -244,7 +250,7 @@ useEffect(() => {
     if (isIrregular) return [];
     const set = new Set();
     students.forEach(s => {
-      if ((Number(s.yearLevel) === Number(year)) && !s.isIrregular) {
+      if ((Number(getStudentYearLevel(s)) === Number(year)) && !s.isIrregular) {
         const block = s && s.block && String(s.block).trim() !== '' ? String(s.block).trim().toUpperCase() : 'A';
         set.add(block);
       }
@@ -252,7 +258,7 @@ useEffect(() => {
     const blocks = Array.from(set).sort((a, b) => a.localeCompare(b));
     if (blocks.length === 0) return ['A'];
     return blocks;
-  }, [students]);
+  }, [students, getStudentYearLevel]);
 
   const [moduleManagementOpen, setModuleManagementOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
@@ -372,18 +378,7 @@ useEffect(() => {
         setStudents((result.data || []).filter((student) => {
           if (!student) return false;
 
-          if (student.active === false) {
-            if (!activeTerm?.semester || !activeTerm?.schoolYear) {
-              return true;
-            }
-
-            const studentTerm = student.enrolledTerm || student.createdTerm || null;
-            if (!studentTerm || (!studentTerm.semester && !studentTerm.schoolYear)) {
-              return true;
-            }
-
-            return isSameTerm(studentTerm, activeTerm);
-          }
+          if (student.active === false) return true;
 
           if (student.enrolled === false) return false;
           if (!activeTerm?.semester || !activeTerm?.schoolYear) return student.enrolled !== false;
@@ -553,6 +548,10 @@ useEffect(() => {
 
 const handleAddIndividualPayable = () => {
   if (!selectedStudentModal) return;
+  if (selectedStudentModal.active === false) {
+    setError('Inactive students cannot receive new charges.');
+    return;
+  }
   loadOfferedModules();
   setIndividualPayableForm({
     type: '',
@@ -651,23 +650,23 @@ const handleAddIndividualPayable = () => {
           targetStudents = students.filter(s => s.isIrregular);
         } else if (targetYear === 'all') {
           if (targetBlock === 'all') {
-            targetStudents = students;
+            targetStudents = students.filter(s => s.active !== false);
           } else {
             // All year levels but specific block
             targetStudents = students.filter(s => {
               const studentBlock = (s.block || '').toUpperCase() || 'A';
-              return studentBlock === targetBlock.toUpperCase() && !s.isIrregular;
+              return studentBlock === targetBlock.toUpperCase() && !s.isIrregular && s.active !== false;
             });
           }
         } else {
           // Specific year level
           if (targetBlock === 'all') {
-            targetStudents = students.filter(s => s.yearLevel === parseInt(targetYear) && !s.isIrregular);
+            targetStudents = students.filter(s => getStudentYearLevel(s) === parseInt(targetYear) && !s.isIrregular && s.active !== false);
           } else {
             // Specific year level and specific block
             targetStudents = students.filter(s => {
               const studentBlock = (s.block || '').toUpperCase() || 'A';
-              return s.yearLevel === parseInt(targetYear) && !s.isIrregular && studentBlock === targetBlock.toUpperCase();
+              return getStudentYearLevel(s) === parseInt(targetYear) && !s.isIrregular && studentBlock === targetBlock.toUpperCase() && s.active !== false;
             });
           }
         }
@@ -768,6 +767,10 @@ const handleAddIndividualPayable = () => {
     }
     if (!selectedStudentModal) {
       setError('No student selected');
+      return;
+    }
+    if (selectedStudentModal.active === false) {
+      setError('Inactive students cannot receive new charges.');
       return;
     }
     setLoading(true);
@@ -1241,12 +1244,13 @@ const handleAddIndividualPayable = () => {
 
   const getStudentPayables = useCallback((student) => {
     if (!student || !payables) return [];
+    if (student.active === false) return [];
     const studentBlock = (student.block || 'A').toString().trim().toUpperCase() || 'A';
     let basePayables = [];
     if (student.isIrregular) {
-      basePayables = (payables[student.yearLevel] || []).concat(payables['irregular'] || []).concat(payables['all'] || []);
+      basePayables = (payables[getStudentYearLevel(student)] || []).concat(payables['irregular'] || []).concat(payables['all'] || []);
     } else {
-      basePayables = (payables[student.yearLevel] || []).concat(payables['all'] || []);
+      basePayables = (payables[getStudentYearLevel(student)] || []).concat(payables['all'] || []);
     }
     const individualAcrossYears = Object.values(payables)
       .flat()
@@ -1271,7 +1275,7 @@ const handleAddIndividualPayable = () => {
       merged[p.id] = p;
     });
     return Object.values(merged);
-  }, [payables]);
+  }, [payables, getStudentYearLevel]);
 
   const getOtherOutstandingPayables = useCallback((student, currentPayableId, updatedPaidByPayable = {}) => {
     if (!student) return { otherPayables: [], totalOtherBalance: 0 };
@@ -1513,6 +1517,7 @@ const handleAddIndividualPayable = () => {
     if (!studentId || !payables) return 0;
     const student = students.find(s => s.id === studentId);
     if (!student) return 0;
+    if (student.active === false) return 0;
     const studentPayables = getStudentPayables(student);
     return studentPayables.reduce((total, payable) => {
       const studentPayment = payable.studentPayments?.[studentId] || { status: 'unpaid', paidAmount: 0 };
