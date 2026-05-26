@@ -46,9 +46,10 @@ const CurriculumCheckerMain = () => {
     if (!selectedFolder) return [];
 
     let list = students.filter((student) => {
-      if (selectedFolder.isIrregular) return student.isIrregular;
+      if (selectedFolder.isIrregular) return student.isIrregular && student.active !== false;
       if (selectedFolder.isInactiveFolder) return student.active === false;
       return (
+        student.active !== false &&
         student.yearLevel === selectedFolder.year &&
         (selectedFolder.block ? student.block === selectedFolder.block : true) &&
         !student.isIrregular
@@ -619,7 +620,7 @@ const CurriculumCheckerMain = () => {
                     const blocks = Array.from(
                       new Set(
                         students
-                          .filter((s) => !s.isIrregular && s.yearLevel === year)
+                          .filter((s) => s.active !== false && !s.isIrregular && s.yearLevel === year)
                           .map((s) => (s.block || '').toString().trim())
                           .filter(Boolean)
                       )
@@ -628,7 +629,7 @@ const CurriculumCheckerMain = () => {
                     return blocks.map((block) => {
                       const yearLabel = year === 1 ? '1st Year' : year === 2 ? '2nd Year' : year === 3 ? '3rd Year' : '4th Year';
                       const count = students.filter(
-                        (s) => !s.isIrregular && s.yearLevel === year && (s.block || '').toString().trim() === block
+                        (s) => s.active !== false && !s.isIrregular && s.yearLevel === year && (s.block || '').toString().trim() === block
                       ).length;
                       return (
                         <button
@@ -660,7 +661,7 @@ const CurriculumCheckerMain = () => {
                       </div>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-900">Irregular Students</p>
-                        <p className="mt-1 text-xs text-slate-500">{students.filter(s => s.isIrregular).length} students</p>
+                        <p className="mt-1 text-xs text-slate-500">{students.filter(s => s.active !== false && s.isIrregular).length} students</p>
                       </div>
                     </div>
                   </button>
@@ -774,9 +775,10 @@ const CurriculumCheckerMain = () => {
         ) : (
           students
             .filter((s) => {
-              if (selectedFolder.isIrregular) return s.isIrregular;
+              if (selectedFolder.isIrregular) return s.active !== false && s.isIrregular;
               if (selectedFolder.isInactiveFolder) return s.active === false;
               return (
+                s.active !== false &&
                 s.yearLevel === selectedFolder.year &&
                 (selectedFolder.block ? s.block === selectedFolder.block : true) &&
                 !s.isIrregular
