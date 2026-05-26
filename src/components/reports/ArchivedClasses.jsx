@@ -35,29 +35,29 @@ const formatBatchLabel = (id) =>
 
 /* ---------------- SKELETON LOADING ---------------- */
 const StudentRowSkeleton = ({ selectMode }) => (
-  <tr className="border-t border-gray-300 animate-pulse">
+  <tr className="border-t border-slate-100 animate-pulse">
     <td className="px-4 py-2">
       {selectMode ? (
-        <div className="h-3 w-3 bg-gray-200 rounded" />
+        <div className="h-4 w-4 bg-slate-200 rounded" />
       ) : (
-        <div className="h-4 w-6 bg-gray-200 rounded" />
+        <div className="h-4 w-6 bg-slate-200 rounded" />
       )}
     </td>
     <td className="px-4 py-2">
-      <div className="h-4 w-24 bg-gray-200 rounded" />
+      <div className="h-4 w-24 bg-slate-200 rounded" />
     </td>
     <td className="px-4 py-2">
-      <div className="h-4 w-32 bg-gray-200 rounded" />
+      <div className="h-4 w-32 bg-slate-200 rounded" />
     </td>
     <td className="px-4 py-2">
-      <div className="h-4 w-28 bg-gray-200 rounded" />
+      <div className="h-4 w-28 bg-slate-200 rounded" />
     </td>
     <td className="px-4 py-2">
-      <div className="h-4 w-32 bg-gray-200 rounded" />
+      <div className="h-4 w-32 bg-slate-200 rounded" />
     </td>
     <td className="px-4 py-2">
       <div className="flex gap-2">
-        <div className="h-6 w-16 bg-gray-200 rounded" />
+        <div className="h-7 w-20 bg-slate-200 rounded-lg" />
       </div>
     </td>
   </tr>
@@ -72,6 +72,7 @@ const ItemCard = ({
   onDelete,
 }) => {
   const isBatch = type === 'batch';
+  const studentCount = (item.students || []).length;
 
   return (
  <div
@@ -82,16 +83,18 @@ const ItemCard = ({
     if (event.target !== event.currentTarget) return;
     if (event.key === 'Enter' || event.key === ' ') onClick();
   }}
-  className="group relative cursor-pointer rounded-lg border border-gray-300 bg-white p-4 text-left shadow-sm transition  hover:border-blue-400 hover:shadow-md"
+  className={`group relative cursor-pointer rounded-lg border bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-300 ${
+    isSelected ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'
+  }`}
 
 >
-  <div className="flex items-center gap-3 pr-8">
+  <div className="flex items-start gap-3 pr-9">
     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
 <Folder className="h-5 w-5" />
 </div>
 
 
-    <div className="min-w-0">
+    <div className="min-w-0 flex-1">
       <p
         className={`truncate text-sm font-semibold ${
           isSelected ? 'text-blue-800' : 'text-gray-900'
@@ -99,8 +102,14 @@ const ItemCard = ({
       >
          {isBatch ? formatBatchLabel(item.id) : item.name || item.id}
       </p>
-
-     
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+          {isBatch ? 'Batch' : 'Folder'}
+        </span>
+        <span className="text-xs text-slate-500">
+          {studentCount} student{studentCount === 1 ? '' : 's'}
+        </span>
+      </div>
     </div>
   </div>
   <button
@@ -109,7 +118,7 @@ const ItemCard = ({
       event.stopPropagation();
       onDelete(item);
     }}
-    className="absolute right-3 top-3 rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
+    className="absolute right-3 top-3 rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
     title={`Delete ${isBatch ? 'batch' : 'folder'}`}
   >
     <Trash2 className="h-4 w-4" />
@@ -143,16 +152,16 @@ const StudentList = ({
 }) => {
   if (loading) {
     return (
-      <div className="overflow-x-auto rounded-xl border border-gray-300 mt-6">
+      <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
-          <thead className='bg-blue-500 text-white'>
-            <tr className="text-left text-sm border-b border-gray-300">
-              {selectMode ? <th className="p-4 w-12"></th> : <th className="p-4 w-12">#</th>}
-              <th className="p-4 ">Student No.</th>
-              <th className="p-4">Name</th>
-              <th className="p-4">Curriculum</th>
-              <th className="p-4">Status</th>
-              <th className="p-4 w-12%">Actions</th>
+          <thead className="bg-blue-500 text-white">
+            <tr className="text-left text-xs uppercase tracking-wide">
+              {selectMode ? <th className="px-4 py-3 w-12"></th> : <th className="px-4 py-3 w-12">#</th>}
+              <th className="px-4 py-3">Student No.</th>
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Curriculum</th>
+              <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -161,28 +170,31 @@ const StudentList = ({
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     );
   }
 
   if (!students || students.length === 0) {
     return (
-      <div className="text-sm text-gray-500 p-6 text-center">
-        No students in this {isBatch ? 'batch' : 'folder'}.
+      <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+        <p className="text-sm font-medium text-slate-700">No students found</p>
+        <p className="mt-1 text-sm text-slate-500">This {isBatch ? 'batch' : 'folder'} has no matching archived records.</p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-300 mt-6">
-      <table className="min-w-full text-sm ">
-        <thead className='bg-blue-500 text-white'>
-          <tr className="text-left text-sm  border-b border-gray-300">
+    <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead className="bg-blue-500 text-white">
+          <tr className="text-left text-xs uppercase tracking-wide">
             {selectMode ? (
-              <th className="p-4 w-12">
+              <th className="px-4 py-3 w-12">
                 <input
                   type="checkbox"
-                  className="h-3 w-3"
+                  className="h-4 w-4 rounded border-white/60 text-blue-600 focus:ring-blue-300"
                   checked={students.length > 0 && students.every(s => selectedIds.includes(s.id))}
                   onChange={() => {
                     if (students.length > 0 && students.every(s => selectedIds.includes(s.id))) {
@@ -194,25 +206,25 @@ const StudentList = ({
                 />
               </th>
             ) : (
-              <th className="p-4 w-12">#</th>
+              <th className="px-4 py-3 w-12">No.</th>
             )}
             {[
-              ['studentNumber', 'Student No.'],
-              ['name', 'Name'],
-              ['curriculum', 'Curriculum'],
+              ['studentNumber', 'STUDENT NO.'],
+              ['name', 'NAME'],
+              ['curriculum', 'CURRICULUM'],
             ].map(([key, label]) => (
-              <th key={key} className="p-4">
+              <th key={key} className="px-4 py-3">
                 <button
                   type="button"
                   onClick={() => onSort(key)}
-                  className="inline-flex items-center"
+                  className="inline-flex items-center gap-1 transition hover:text-blue-100"
                 >
                   {label}
                   <SortIcon active={sortBy === key} direction={sortDir} />
                 </button>
               </th>
             ))}
-            <th className="p-4 w-12%">Actions</th>
+            <th className="px-4 py-3 text-right">Actions</th>
           </tr>
         </thead>
 
@@ -230,36 +242,36 @@ const StudentList = ({
             return (
               <tr
                 key={student.id}
-                className="cursor-pointer border-b border-gray-300 hover:bg-slate-50"
+                className="cursor-pointer border-b border-slate-100 transition last:border-b-0 hover:bg-blue-50/60"
                 onClick={() => onViewStudent(student)}
               >
                 {selectMode ? (
-                  <td className="px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
-                      className="h-3 w-3"
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-300"
                       checked={selectedIds.includes(student.id)}
                       onChange={() => onToggleSelect(student.id)}
                     />
                   </td>
                 ) : (
-                  <td className="px-4 py-2 text-gray-700 text-center">{index + 1}</td>
+                  <td className="px-4 py-3 text-center text-slate-500">{index + 1}</td>
                 )}
-                <td className="px-4 py-2 text-gray-700">{student.studentNumber || ''}</td>
-                <td className="px-4 py-2">{student.name}</td>
+                <td className="px-4 py-3 font-medium text-slate-700">{student.studentNumber || '-'}</td>
+                <td className="px-4 py-3 font-semibold text-slate-900">{student.name}</td>
 
-                <td className="px-4 py-2 text-gray-600">
+                <td className="px-4 py-3 text-slate-600">
                   {curriculums[student.curriculumId] || student.curriculumId || ''}
                 </td>
                
 
-                <td className="px-4 py-2 w-12% text-left">
+                <td className="px-4 py-3 text-right">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onUnarchiveStudent(student);
                     }}
-className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gray-500"
+                              className="p-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
                     title="Unarchive student"
                   >
                     <ArchiveRestore className="h-4 w-4" />
@@ -269,7 +281,7 @@ className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gr
                       e.stopPropagation();
                       onDeleteStudent(student);
                     }}
-                    className="ml-2 rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-red-50 text-gray-500 hover:text-red-600"
+                    className="ml-2 rounded-full bg-gray-100 p-1.5 text-gray-600 transition hover:bg-red-50 hover:text-red-600"
                     title="Delete archived record"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -280,6 +292,7 @@ className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gr
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 };
@@ -331,7 +344,6 @@ const GradesTable = ({ grades, curriculumCourses = {}, student = {}, yearFilter 
           const semesters = curriculumCourses[y] || {};
           return (
             <div key={y}>
-              <div className="text-sm font-semibold text-gray-700 mb-3">Year {y}</div>
               <div className="flex flex-col gap-2">
                 {semesterOrder.map((semLabel) => {
                   const courses = semesters[semLabel] || [];
@@ -347,14 +359,14 @@ const GradesTable = ({ grades, curriculumCourses = {}, student = {}, yearFilter 
                         <p className="text-sm text-gray-500">No subjects.</p>
                       ) : (
                         <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-xs text-gray-500 uppercase">
-                              <th className="py-2 text-left">Code</th>
-                              <th className="py-2 text-left">Description</th>
-                              <th className="py-2 text-left">Units</th>
-                              <th className="py-2 text-left">Prerequisites</th>
-                              <th className="py-2 text-center">Status</th>
-                              <th className="py-2 text-right">Grade</th>
+                          <thead className="bg-blue-500 text-xs uppercase text-white tracking-wide">
+                            <tr className="text-xs  uppercase">
+                              <th className="px-4 py-2 text-left">Code</th>
+                              <th className="px-4 py-2 text-left">Description</th>
+                              <th className="px-4 py-2 text-left">Units</th>
+                              <th className="px-4 py-2 text-left">Prerequisites</th>
+                              <th className="px-4 py-2 text-center">Status</th>
+                              <th className="px-4 py-2 text-right">Grade</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -368,11 +380,11 @@ const GradesTable = ({ grades, curriculumCourses = {}, student = {}, yearFilter 
 
                               return (
                                 <tr key={code} className="border-t border-gray-300">
-                                  <td className="py-2 text-gray-700">{code}</td>
-                                  <td className="py-2 text-gray-700">{course.courseTitle || ''}</td>
-                                  <td className="py-2 text-gray-700">{units}</td>
-                                  <td className="py-2 text-gray-700">{prereqs || ''}</td>
-                                  <td className="py-2 text-center text-xs">
+                                  <td className="px-4 py-2 text-gray-700">{code}</td>
+                                  <td className="px-4 py-2 text-gray-700">{course.courseTitle || ''}</td>
+                                  <td className="px-4 py-2 text-gray-700">{units}</td>
+                                  <td className="px-4 py-2 text-gray-700">{prereqs || ''}</td>
+                                  <td className="px-4 py-2 text-center text-xs">
                                     <span className={`px-2 py-0.5 rounded-full ${status === 'Completed' ? 'bg-green-100 text-green-700' : status === 'INC' ? 'bg-yellow-100 text-yellow-700' : status === 'Failed' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}>
                                       {status}
                                     </span>
@@ -504,32 +516,38 @@ const StudentDetailModal = ({ student, curriculums, curriculumCourses = {}, onCl
   if (!student) return null;
 
   return (
-   <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" role="dialog" aria-modal="true">
-  <div className="bg-white rounded-2xl p-6 w-full max-w-4xl shadow-lg min-h-[80vh] max-h-[80vh] overflow-hidden">
-    <div className="flex items-start justify-between mb-4">
+   <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+  <div className="flex max-h-[86vh] min-h-[70vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+    <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-9 py-4 rounded-t-2xl bg-slate-100">
       <div>
-        <div className="text-lg font-semibold">{student.name}</div>
-        <div className="text-sm text-gray-500">
+        <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Archived student record</p>
+        <div className="mt-1 text-xl font-semibold text-slate-900">{student.name}</div>
+        <div className="mt-1 text-sm text-slate-500">
           {student.studentNumber} · {curriculums?.[student.curriculumId] || student.curriculumId}
         </div>
       </div>
       <div>
         <button
           onClick={onClose}
-          className="text-gray-500 font-bold hover:text-red-600 cursor-pointer"
+          className="rounded-full border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-red-50 hover:text-red-600"
           aria-label="Close student details"
         >
-          <X className="w-8 h-8" />
+          <X className="w-5 h-5" />
         </button>
       </div>
     </div>
 
-    <div className="flex flex-wrap gap-2 mb-4">
+      <div className="flex-1 overflow-hidden px-6 py-5">
+  <div className="mb-4 flex flex-wrap gap-1.5">
       {[1, 2, 3, 4].map((year) => (
         <button
           key={year}
           onClick={() => setTab(String(year))}
-          className={`px-3 py-1 ${tab === String(year) ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-600 hover:text-gray-800'}`}
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
+              tab === String(year) 
+              ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 cursor-pointer'
+              }`}
         >
           {year === 1 ? '1st' : year === 2 ? '2nd' : year === 3 ? '3rd' : '4th'} Year
         </button>
@@ -537,7 +555,7 @@ const StudentDetailModal = ({ student, curriculums, curriculumCourses = {}, onCl
      
     </div>
 
-    <div className="overflow-y-auto max-h-[calc(80vh-140px)] pr-2">
+    <div className="max-h-[58vh] overflow-y-auto pr-2">
       {['1', '2', '3', '4'].includes(tab) && (
         <GradesTable
           grades={student.grades}
@@ -548,6 +566,8 @@ const StudentDetailModal = ({ student, curriculums, curriculumCourses = {}, onCl
       )}
       {tab === 'payables' && <PayablesTable payables={student.payables || []} />}
     </div>
+      </div>
+
   </div>
 </div>
   );
@@ -565,27 +585,25 @@ const CreateFolderModal = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-lg">
-        <h3 className="text-lg font-semibold">
-          Create New Folder
-        </h3>
+    <div className="fixed inset-0 bg-black/25 backdrop-blur-[2px] flex items-center justify-center z-50 p-4">
+      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="border-b border-slate-200 px-6 py-4">
+          <h3 className="text-lg font-semibold text-slate-900">Create New Folder</h3>
+          <p className="mt-1 text-sm text-slate-500">Organize archived classes into a named folder.</p>
+        </div>
 
-        <p className="text-sm text-gray-500 mb-5">
-          Organize archived classes
-        </p>
-
+        <div className="px-6 py-5">
         <input
           value={newFolder}
           onChange={(e) => setNewFolder(e.target.value)}
           placeholder="Folder name (e.g., Batch 2026)"
-          className="w-full border px-3 py-2 rounded-lg text-sm"
+          className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
         />
 
         <div className="flex justify-end gap-2 mt-4">
           <button
             onClick={onClose}
-            className="px-3 py-2 text-sm border rounded-lg"
+            className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
           >
             Cancel
           </button>
@@ -593,10 +611,11 @@ const CreateFolderModal = ({
           <button
             onClick={onCreate}
             disabled={!newFolder.trim() || creating}
-            className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg disabled:opacity-50"
+            className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
           >
             {creating ? 'Creating...' : 'Create'}
           </button>
+        </div>
         </div>
       </div>
     </div>
@@ -616,20 +635,22 @@ const UnarchiveModal = ({
   if (!student) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-lg">
-        <h3 className="text-lg font-semibold">Unarchive Student</h3>
-        <p className="text-sm text-gray-500 mb-5">
-          Choose where {student.name || 'this student'} should appear in Student Management.
-        </p>
+    <div className="fixed inset-0 bg-black/25 backdrop-blur-[2px] flex items-center justify-center z-50 p-4">
+      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="border-b border-slate-200 px-6 py-4">
+          <h3 className="text-lg font-semibold text-slate-900">Unarchive Student</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Choose where {student.name || 'this student'} should appear in Student Management.
+          </p>
+        </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+        <div className="space-y-4 px-8 py-4 flex items-start gap-2">
+          <div className="flex-2">
+            <label className="block text-sm font-medium text-slate-600 mb-1">Year Level</label>
             <select
               value={year || 1}
               onChange={(e) => setYear(Number(e.target.value))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
             >
               {[1, 2, 3, 4].map((value) => (
                 <option key={value} value={value}>
@@ -639,24 +660,30 @@ const UnarchiveModal = ({
             </select>
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-600 mb-1">Block</label>
-            <select
-              value={block || 'A'}
-              onChange={(e) => setBlock(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            >
-              {['A', 'B', 'C', 'D', 'E'].map((value) => (
-                <option key={value} value={value}>Block {value}</option>
-              ))}
-            </select>
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-slate-600 mb-1">Block</label>
+            <input
+  type="text"
+  value={block || ""}
+  onChange={(e) => {
+    // Letters only + automatic uppercase + single character only
+    const value = e.target.value
+      .replace(/[^A-Za-z]/g, "") // remove non-letters
+      .toUpperCase() // auto uppercase
+      .slice(0, 1); // only 1 letter
+
+    setBlock(value);
+  }}
+  placeholder="Enter Block"
+  className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+/>
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 mt-6">
+        <div className="flex justify-end gap-2 border-t border-slate-200 px-6 py-4">
           <button
             onClick={onClose}
-            className="px-3 py-2 text-sm border rounded-lg"
+            className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
           >
             Cancel
           </button>
@@ -664,8 +691,106 @@ const UnarchiveModal = ({
           <button
             onClick={onConfirm}
             disabled={saving}
-            className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg disabled:opacity-50"
+            className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
           >
+            {saving ? 'Restoring...' : 'Unarchive'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const BulkUnarchiveConfirmModal = ({
+  count,
+  year,
+  block,
+  setYear,
+  setBlock,
+  saving,
+  onClose,
+  onConfirm,
+}) => {
+  if (!count) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/25 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">
+              Unarchive {count} student{count === 1 ? '' : 's'}?
+            </h3>
+           
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-full border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50"
+            aria-label="Close confirmation"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="px-6 py-4">
+           <p className="mb-4 text-sm text-slate-500">
+              Choose where the selected students should appear in Student Management.
+            </p>
+
+          <div className="mb-4 flex items-start gap-2">
+            <div className="flex-2">
+              <label className="block text-sm font-medium text-slate-600 mb-1">Year Level</label>
+              <select
+                value={year || 1}
+                onChange={(e) => setYear(Number(e.target.value))}
+                className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+              >
+                {[1, 2, 3, 4].map((value) => (
+                  <option key={value} value={value}>
+                    {value === 1 ? '1st' : value === 2 ? '2nd' : value === 3 ? '3rd' : '4th'} Year
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-slate-600 mb-1">Block</label>
+              <input
+                type="text"
+                value={block || ''}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 1);
+                  setBlock(value);
+                }}
+                placeholder="Enter Block"
+                className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            This keeps the student records and removes them from this archive after restoration.
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-200 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 disabled:opacity-50 cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={saving || !block}
+            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-blue-500 text-sm font-semibold text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
+          >
+            <ArchiveRestore className="h-4 w-4" />
             {saving ? 'Restoring...' : 'Unarchive'}
           </button>
         </div>
@@ -687,28 +812,39 @@ const DeleteArchiveModal = ({ target, saving, onClose, onConfirm }) => {
     : target.item?.name || target.item?.id || 'this archive';
 
   return (
-    <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-lg">
-        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-        <p className="mt-2 text-sm text-gray-600">
-          This will permanently remove <span className="font-medium text-gray-900">{name}</span> from archived classes. This action cannot be undone.
-        </p>
+    <div className="fixed inset-0 bg-black/25 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+          </div>
+       
+        </div>
 
-        <div className="flex justify-end gap-2 mt-6">
+        <div className="px-8 py-4">
+          <p className="text- text-slate-600">
+           Please confirm before permanently deleting archived data. This will permanently remove <span className="font-medium text-slate-900">{name}</span> from archived classes. This action cannot be undone.
+          </p>
+         
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-200 px-6 py-4">
           <button
+            type="button"
             onClick={onClose}
             disabled={saving}
-            className="px-3 py-2 text-sm border rounded-lg disabled:opacity-50"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
           >
             Cancel
           </button>
 
           <button
+            type="button"
             onClick={onConfirm}
             disabled={saving}
-            className="px-3 py-2 text-sm bg-red-600 text-white rounded-lg disabled:opacity-50"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
           >
-            {saving ? 'Deleting...' : 'Delete Permanently'}
+            {saving ? 'Deleting...' : 'Delete'}
           </button>
         </div>
       </div>
@@ -765,7 +901,7 @@ const removeStudentsFromArchivedPayables = async (archiveId, studentIds) => {
 const ArchivedClasses = ({ onBackToReportsMain }) => {
   const [archives, setArchives] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
-  const [search] = useState('');
+  const [search, setSearch] = useState('');
   const [curriculums, setCurriculums] = useState({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newFolder, setNewFolder] = useState('');
@@ -779,6 +915,9 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
   const [unarchiveYear, setUnarchiveYear] = useState(1);
   const [unarchiveBlock, setUnarchiveBlock] = useState('A');
   const [unarchiving, setUnarchiving] = useState(false);
+  const [bulkUnarchiveOpen, setBulkUnarchiveOpen] = useState(false);
+  const [bulkUnarchiveYear, setBulkUnarchiveYear] = useState(1);
+  const [bulkUnarchiveBlock, setBulkUnarchiveBlock] = useState('A');
   
   // Selection state for bulk actions
   const [selectMode, setSelectMode] = useState(false);
@@ -888,6 +1027,11 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
     ...batches.map((b) => ({ ...b, type: 'batch' })),
   ];
 
+  const totalArchivedStudents = useMemo(
+    () => archives.reduce((sum, archive) => sum + (archive.students || []).length, 0),
+    [archives]
+  );
+
   const handleSort = (key) => {
     if (sortBy === key) {
       setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -969,6 +1113,14 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
     setDeleteTarget({ type: 'students', archive: selectedItem, students });
   };
 
+  const openBulkUnarchiveModal = () => {
+    if (selectedIds.length === 0) return;
+    const firstSelected = (selectedItem?.students || []).find((student) => selectedIds.includes(student.id));
+    setBulkUnarchiveYear(Number(firstSelected?.yearLevel) || 1);
+    setBulkUnarchiveBlock((firstSelected?.block || 'A').toString().trim().toUpperCase().slice(0, 1) || 'A');
+    setBulkUnarchiveOpen(true);
+  };
+
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
 
@@ -1046,6 +1198,8 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
   // Handle bulk unarchive for selected students
   const handleBulkUnarchive = async () => {
     if (selectedIds.length === 0) return;
+    const targetBlock = (bulkUnarchiveBlock || '').toString().trim().toUpperCase().slice(0, 1);
+    if (!targetBlock) return;
     
     setUnarchiving(true);
     try {
@@ -1057,8 +1211,8 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
       const restorePromises = selectedStudents.map(async (student) => {
         const restoredStudent = {
           ...student,
-          yearLevel: Number(student.yearLevel) || 1,
-          block: (student.block || 'A').toString().trim().toUpperCase() || 'A',
+          yearLevel: Number(bulkUnarchiveYear) || 1,
+          block: targetBlock,
           active: true,
           inactiveAt: null,
           inactiveYear: null,
@@ -1097,7 +1251,9 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
         details: {
           archiveId: selectedItem.id,
           studentIds: selectedIds,
-          count: selectedIds.length
+          count: selectedIds.length,
+          yearLevel: Number(bulkUnarchiveYear) || 1,
+          block: targetBlock
         }
       });
 
@@ -1111,6 +1267,7 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
       );
       setSelectedItem(prev => prev ? { ...prev, students: remainingStudents } : prev);
       setSelectedIds([]);
+      setBulkUnarchiveOpen(false);
       setSuccess(`${selectedIds.length} students successfully unarchived!`);
     } catch (err) {
       alert(`Failed to unarchive students: ${err.message}`);
@@ -1198,6 +1355,7 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
       );
       setSelectedItem((prev) => prev ? { ...prev, students: nextStudents } : prev);
       setUnarchiveTarget(null);
+      setSuccess(`${unarchiveTarget.name || 'Student'} successfully unarchived.`);
     } catch (err) {
       alert(`Failed to unarchive student: ${err.message}`);
     } finally {
@@ -1206,7 +1364,7 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto ">
+    <div className="mx-auto max-w-7xl space-y-5">
       <Breadcrumbs
         items={[
           { label: 'Archived Classes', onClick: selectedItem ? () => setSelectedItem(null) : null },
@@ -1214,77 +1372,57 @@ const ArchivedClasses = ({ onBackToReportsMain }) => {
         ]}
       />
 
-      <div className='flex items-center justify-between mb-6'>
-           <div>
-            <h5 className="text-2xl font-medium text-gray-900">Archived Classes</h5>
-            <p className="text-gray-500 text-sm">
-             View and manage archived classes, organized by folders or batches, to keep track of past academic records.
-            </p>
-            {success && (
-              <div className="mt-2 p-2 bg-green-100 border border-green-300 text-green-700 rounded-lg text-sm">
-                {success}
-              </div>
-            )}
-          </div>
-            {!selectedItem && (
-              <button
-                onClick={() => setIsModalOpen(true)}
-                className="flex items-center gap-2 bg-green-500 cursor-pointer hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm"
-              >
-                <BadgePlus className="w-4 h-4" />
-                Create Batch / Folder
-              </button>
-            )}
-          
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold text-slate-900">
+            {selectedItem ? selectedItem.name || selectedItem.id : 'Archived Classes'}
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm text-slate-500">
+            {selectedItem
+              ? `${filteredSelectedStudents.length} archived record${filteredSelectedStudents.length === 1 ? '' : 's'} in this archive.`
+              : 'Browse archived class folders and batches, then restore or permanently remove past student records.'}
+          </p>
+          {success && (
+            <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              {success}
+            </div>
+          )}
+        </div>
+        {!selectedItem && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-green-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-green-600"
+          >
+            <BadgePlus className="w-4 h-4" />
+            Create Batch / Folder
+          </button>
+        )}
       </div>
+
+      {!selectedItem && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium text-slate-500">Folders</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-900">{folders.length}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium text-slate-500">Batches</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-900">{batches.length}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-medium text-slate-500">Archived Students</p>
+            <p className="mt-1 text-2xl font-semibold text-blue-700">{totalArchivedStudents}</p>
+          </div>
+        </div>
+      )}
 
       <div>
             {selectedItem && (
               <>
 
-                <div className='flex items-center gap-2 justify-between'>
-                 <div className='flex items-center gap-2'>
-                   <button
-                  type="button"
-                  onClick={() => {
-                    const next = !selectMode;
-                    setSelectMode(next);
-                    if (!next) setSelectedIds([]);
-                  }}
-                  title={selectMode ? 'Turn off selection' : 'Select students'}
-                 className={`inline-flex items-center gap-2 text-sm p-2 border border-gray-300 cursor-pointer rounded-lg transition 
-${selectMode 
-? 'bg-gray-100 text-gray-400 '
-: 'hover:bg-gray-100 text-gray-700 bg-gray-50 '
-}`}
-                >
-                  <Square className="w-4 h-4" />
-                  <span className="text-xs">Select</span>
-                </button>
-
-                {selectMode && selectedIds.length > 0 && (
-                  <>
-                    <button
-                      onClick={handleBulkUnarchive}
-                      disabled={unarchiving}
-                      className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-gray-200 text-gray-500"
-                      title={`Unarchive ${selectedIds.length} selected student${selectedIds.length > 1 ? 's' : ''}`}
-                    >
-                      <ArchiveRestore className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={openDeleteSelectedModal}
-                      disabled={deleting}
-                      className="rounded-lg bg-gray-100 p-1.5 cursor-pointer hover:bg-red-50 text-gray-500 hover:text-red-600"
-                      title={`Delete ${selectedIds.length} selected archived record${selectedIds.length > 1 ? 's' : ''}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </>
-                )}
-                
-                 </div>
-                <div className='flex items-center gap-2'>
+                <div className="flex items-center justify-between flex-wrap gap-4 mb-4">
+               
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <button
                   onClick={handleRefresh}
                   disabled={refreshing}
@@ -1301,11 +1439,55 @@ className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 t
                     placeholder="Search students..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+className="w-full min-w-64 border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                   />
                 </div>
                 
                 </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                 
+                   <button
+                  type="button"
+                  onClick={() => {
+                    const next = !selectMode;
+                    setSelectMode(next);
+                    if (!next) setSelectedIds([]);
+                  }}
+                  title={selectMode ? 'Turn off selection' : 'Select students'}
+                 className={`inline-flex items-center gap-2 rounded-lg border p-2 text-sm transition cursor-pointer
+${selectMode 
+? 'bg-blue-50 text-blue-600 border-blue-300'
+: 'bg-gray-50 text-gray-700 border-gray-300 hover:bg-gray-100'
+}`}
+                >
+                  <Square className="w-4 h-4" />
+                  <span className="text-xs">Select</span>
+                </button>
+
+                {selectMode && selectedIds.length > 0 && (
+                  <>
+                    <button
+                      onClick={openBulkUnarchiveModal}
+                      disabled={unarchiving}
+                      className="rounded-lg bg-slate-100 p-2 text-slate-600 transition hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50"
+                      title={`Unarchive ${selectedIds.length} selected student${selectedIds.length > 1 ? 's' : ''}`}
+                    >
+                      <ArchiveRestore className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={openDeleteSelectedModal}
+                      disabled={deleting}
+                      className="rounded-lg bg-slate-100 p-2 text-slate-600 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                      title={`Delete ${selectedIds.length} selected archived record${selectedIds.length > 1 ? 's' : ''}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+                
+                 </div>
+
             
                 </div>
                 
@@ -1319,9 +1501,36 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
        {/* GRID */}
       {!selectedItem && (
         loading ? (
-          <p className="text-gray-500">Loading...</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <div key={index} className="h-24 animate-pulse rounded-lg border border-slate-200 bg-white shadow-sm">
+                <div className="m-4 h-4 w-2/3 rounded bg-slate-200" />
+                <div className="mx-4 mt-3 h-3 w-1/3 rounded bg-slate-100" />
+              </div>
+            ))}
+          </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+          <>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative w-full sm:max-w-sm">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search folders or batches..."
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+              />
+            </div>
+            <p className="text-sm text-slate-500">{allItems.length} archive{allItems.length === 1 ? '' : 's'} shown</p>
+          </div>
+          {allItems.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+              <p className="text-sm font-medium text-slate-700">No archived classes found</p>
+              <p className="mt-1 text-sm text-slate-500">Create a folder or adjust your search to continue.</p>
+            </div>
+          ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {allItems.map((item) => (
               <ItemCard
                 key={item.id}
@@ -1341,6 +1550,8 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
               />
             ))}
           </div>
+          )}
+          </>
         )
       )}
 
@@ -1391,6 +1602,16 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
         onClose={() => setUnarchiveTarget(null)}
         onConfirm={handleUnarchive}
         saving={unarchiving}
+      />
+      <BulkUnarchiveConfirmModal
+        count={bulkUnarchiveOpen ? selectedIds.length : 0}
+        year={bulkUnarchiveYear}
+        block={bulkUnarchiveBlock}
+        setYear={setBulkUnarchiveYear}
+        setBlock={setBulkUnarchiveBlock}
+        saving={unarchiving}
+        onClose={() => setBulkUnarchiveOpen(false)}
+        onConfirm={handleBulkUnarchive}
       />
       <DeleteArchiveModal
         target={deleteTarget}

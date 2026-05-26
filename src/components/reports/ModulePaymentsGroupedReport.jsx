@@ -1262,7 +1262,7 @@ className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 t
               <div className="p-4">
                   <div className="overflow-x-auto rounded-lg border border-slate-200 ">
                 <table className="min-w-full text-sm">
-                  <thead className="bg-slate-100 text-slate-600">
+                  <thead className="bg-blue-500 text-white text-xs uppercase tracking-wide">
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold">Block</th>
                       <th className="px-4 py-3 text-left font-semibold">Students</th>

@@ -111,6 +111,8 @@ const buildStudentRowsForPayables = (matchingPayables, studentMap, otherStudentM
         name: student.name || '(unnamed)',
         studentNumber: getStudentNumber(student, payment),
         block,
+        course: student.course || courseKey.classCourse || '',
+        curriculumId: student.curriculumId || '',
         paidAmount: 0,
         voucherAmount: 0,
         paymentDate: '',
@@ -172,6 +174,8 @@ const addStudentsToBlocks = (built, studentsToAdd, courseKey, activeTerm) => {
       name: student.name || '(unnamed)',
       studentNumber: student.studentNumber || student.studentNo || '',
       block,
+      course: student.course || courseKey.classCourse || '',
+      curriculumId: student.curriculumId || '',
       paidAmount: 0,
       voucherAmount: 0,
       paymentDate: '',
@@ -242,19 +246,31 @@ export const buildModulePaymentCourses = ({
       ? mod.blocks.map(normalizeBlock).filter(Boolean)
       : [];
     const relevantStudents = curriculum
-      ? students.filter((student) => {
-          if (!isStudentEnrolledForTerm(student, activeTerm)) return false;
-          const block = getStudentBlockForCourse(student, courseKey, activeTerm, student.block || 'A');
-          if (allowedBlocks.length > 0 && !allowedBlocks.includes(block)) return false;
-          if (student.isIrregular) {
+      ? (() => {
+          const regularStudents = students.filter((student) => {
+            if (!isStudentEnrolledForTerm(student, activeTerm)) return false;
+            if (student.isIrregular) return false;
+            const block = getStudentBlockForCourse(student, courseKey, activeTerm, student.block || 'A');
+            if (allowedBlocks.length > 0 && !allowedBlocks.includes(block)) return false;
+            if (student.curriculumId !== mod.curriculumId) return false;
+            if (Number(student.yearLevel) !== Number(mod.yearLevel)) return false;
+            if (mod.semester && Number(mod.semester) !== sem) return false;
+            return true;
+          });
+
+          if (regularStudents.length === 0) return [];
+
+          const irregularStudents = students.filter((student) => {
+            if (!isStudentEnrolledForTerm(student, activeTerm)) return false;
+            if (!student.isIrregular) return false;
+            const block = getStudentBlockForCourse(student, courseKey, activeTerm, student.block || 'A');
+            if (allowedBlocks.length > 0 && !allowedBlocks.includes(block)) return false;
             const entries = (student.irregularSubjects || {})[semKey] || [];
             return entries.some((item) => normalizeCode(item?.courseCode || item?.code) === normalizeCode(mod.courseCode));
-          }
-          if (student.curriculumId !== mod.curriculumId) return false;
-          if (Number(student.yearLevel) !== Number(mod.yearLevel)) return false;
-          if (mod.semester && Number(mod.semester) !== sem) return false;
-          return true;
-        })
+          });
+
+          return [...regularStudents, ...irregularStudents];
+        })()
       : otherDeptStudents.filter((student) => {
           if (!isStudentEnrolledForTerm(student, activeTerm)) return false;
           if (mod.departmentId && student.departmentId !== mod.departmentId) return false;
@@ -264,6 +280,15 @@ export const buildModulePaymentCourses = ({
           if (allowedBlocks.length > 0 && !allowedBlocks.includes(block)) return false;
           return true;
         });
+    if (curriculum && relevantStudents.length === 0) {
+      built.blocks = (built.blocks || [])
+        .map((blockGroup) => ({
+          ...blockGroup,
+          students: (blockGroup.students || []).filter((student) => !student.isIrregular)
+        }))
+        .filter((blockGroup) => (blockGroup.students || []).length > 0);
+      built.totalStudents = built.blocks.reduce((sum, block) => sum + block.students.length, 0);
+    }
     addStudentsToBlocks(built, relevantStudents, courseKey, activeTerm);
     const professor = matchingPayables[0]?.professor || mod.professor || mod.instructor || '';
 
@@ -279,8 +304,12 @@ export const buildModulePaymentCourses = ({
       id: mod.id,
       courseCode: mod.courseCode,
       courseTitle: mod.courseTitle,
-      course: curriculum ? 'BSCS' : mod.classCourse || mod.course || mod.departmentName || 'Other Department',
+      course: curriculum ? (curriculum.name || 'CCS Department') : mod.classCourse || mod.course || mod.departmentName || 'Other Department',
       department: curriculum ? curriculum.name : mod.departmentName || 'Other Department',
+      departmentId: mod.departmentId || '',
+      departmentName: mod.departmentName || '',
+      departmentCode: mod.departmentCode || '',
+      classCourse: mod.classCourse || mod.course || '',
       source,
       yearLevel: mod.yearLevel,
       semester: mod.semester,
@@ -371,6 +400,10 @@ export const buildModulePaymentCourses = ({
         courseTitle: assignment.courseTitle,
         course: assignment.classCourse || assignment.departmentName || 'Other Department',
         department: assignment.departmentName || 'Other Department',
+        departmentId: assignment.departmentId || '',
+        departmentName: assignment.departmentName || '',
+        departmentCode: assignment.departmentCode || '',
+        classCourse: assignment.classCourse || '',
         source: 'other',
         yearLevel: assignment.yearLevel,
         semester: assignment.semester,

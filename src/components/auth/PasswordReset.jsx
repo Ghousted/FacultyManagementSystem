@@ -52,7 +52,7 @@ const PasswordReset = ({ onSwitchToSignIn }) => {
               </label>
               <input
                 type="email"
-                className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                 placeholder="tcc.ccs.official@gmail.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}

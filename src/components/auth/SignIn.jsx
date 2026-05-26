@@ -69,7 +69,7 @@ const SignIn = ({ onSwitchToResetPassword }) => {
             {/* error messages are shown via toast notifications */}
             <input
               type="email"
-              className="w-full p-2 border border-gray-300 rounded"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
               placeholder="Email Address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -78,7 +78,7 @@ const SignIn = ({ onSwitchToResetPassword }) => {
             />
             <input
               type="password"
-              className="w-full p-2 border border-gray-300 rounded"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -95,7 +95,7 @@ const SignIn = ({ onSwitchToResetPassword }) => {
             </button>
             <button
               type="submit"
-              className="w-full p-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400"
+              className="w-full p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400"
               disabled={loading}
             >
               {loading ? 'Signing in...' : !isOnline ? 'Sign in (Offline)' : 'Sign in'}

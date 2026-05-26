@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import ProfessorCutbacksReport from './ProfessorCutbacksReport';
 import CCSCutbackReports from './CCSCutbackReports';
 import Breadcrumbs from '../common/Breadcrumbs';
@@ -21,10 +21,19 @@ const TABS = [
 
 const CutBackReports = () => {
   const [activeTab, setActiveTab] = useState('professor');
+  const [breadcrumbTrail, setBreadcrumbTrail] = useState([]);
+  const handleBreadcrumbChange = useCallback((items) => {
+    setBreadcrumbTrail(items || []);
+  }, []);
 
   return (
     <div>
-      <Breadcrumbs items={[{ label: 'Cutback Reports' }]} />
+      <Breadcrumbs
+        items={[
+          { label: 'Cutback Reports' },
+          ...breadcrumbTrail
+        ]}
+      />
 
       <div className="mb-4">
         <h2 className="text-2xl font-semibold text-gray-900">Cutback Reports</h2>
@@ -33,7 +42,7 @@ const CutBackReports = () => {
         </p>
       </div>
 
-      <div className="mb-5 grid gap-3 md:grid-cols-2">
+  <div className="flex flex-wrap gap-1.5">
         {TABS.map((tab) => (
           (() => {
             const Icon = tab.icon;
@@ -42,31 +51,27 @@ const CutBackReports = () => {
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`rounded-2xl border p-4 text-left transition ${
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
               active
-                ? 'border-blue-200 bg-blue-600 text-white shadow-sm'
-                : 'border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50'
+                ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
             }`}
           >
-            <span className="flex items-start gap-3">
-              <span className={`mt-0.5 rounded-xl p-2 ${active ? 'bg-white/15 text-white' : 'bg-blue-50 text-blue-600'}`}>
-                <Icon className="h-5 w-5" />
-              </span>
-              <span>
-                <span className="block text-sm font-semibold">{tab.label}</span>
-                <span className={`mt-1 block text-xs leading-relaxed ${active ? 'text-blue-100' : 'text-slate-500'}`}>
-                  {tab.description}
-                </span>
-              </span>
-            </span>
+              
+              
+                {tab.label}
+                
+              
           </button>
             );
           })()
         ))}
       </div>
 
-      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-        {activeTab === 'professor' ? <ProfessorCutbacksReport embedded /> : <CCSCutbackReports embedded />}
+      <div className="mt-4">
+        {activeTab === 'professor'
+          ? <ProfessorCutbacksReport embedded onBreadcrumbChange={handleBreadcrumbChange} />
+          : <CCSCutbackReports embedded onBreadcrumbChange={handleBreadcrumbChange} />}
       </div>
     </div>
   );

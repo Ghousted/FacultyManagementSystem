@@ -1065,23 +1065,38 @@ export function exportDepartmentShareToExcel(report, filename = 'department_shar
 }
 
 // ─── CCS Department Cutback with detailed student tables ──────────────────────
-export function exportDepartmentDetailedCutbacksToExcel(moduleDetails, departmentShareAmount, filename = 'ccs_department_detailed_cutbacks.xlsx') {
+export function exportDepartmentDetailedCutbacksToExcel(moduleDetails, departmentShareAmount, filename = 'ccs_department_detailed_cutbacks.xlsx', options = {}) {
   const wb = XLSX.utils.book_new();
   const tableWidth = 5;
-  const gapWidth = 1;
+  const gapWidth = 2;
   const tablesPerRow = 3;
 
-  (moduleDetails || []).forEach((module) => {
-    const blocks = Array.isArray(module.blocks) && module.blocks.length
+  const getBlocks = (module) => (
+    Array.isArray(module.blocks) && module.blocks.length
       ? module.blocks.filter((block) => (block.students || []).length > 0)
-      : [{ block: 'N/A', yearLevel: module.yearLevel, students: module.students || [] }];
-    if (blocks.length === 0) return;
+      : [{ block: 'N/A', yearLevel: module.yearLevel, students: module.students || [] }]
+  );
+  const getDepartmentCode = (module) => (
+    String(module.departmentCode || module.departmentName || module.department || 'OTHER').trim().toUpperCase() || 'OTHER'
+  );
+  const getCourseLabel = (module) => (
+    module.course || module.classCourse || module.departmentName || module.department || 'Other Department'
+  );
+  const sortModules = (modules) => modules.slice().sort((left, right) => {
+    const yearDiff = Number(left.yearLevel || 99) - Number(right.yearLevel || 99);
+    if (yearDiff !== 0) return yearDiff;
+    const codeDiff = String(left.courseCode || '').localeCompare(String(right.courseCode || ''), undefined, { sensitivity: 'base', numeric: true });
+    if (codeDiff !== 0) return codeDiff;
+    const courseDiff = String(getCourseLabel(left)).localeCompare(String(getCourseLabel(right)), undefined, { sensitivity: 'base', numeric: true });
+    if (courseDiff !== 0) return courseDiff;
+    return String(left.courseTitle || '').localeCompare(String(right.courseTitle || ''), undefined, { sensitivity: 'base', numeric: true });
+  });
 
+  const buildSheet = (sheetTitle, modules, mode) => {
     const rows = [];
     const merges = [];
     const styles = {};
     const border = makeThinBorder();
-    const amountRequired = Number(module.amount || module.amountRequired || 0);
     const departmentShare = Number(departmentShareAmount) || 0;
 
     const subjectStyle = {
@@ -1126,87 +1141,142 @@ export function exportDepartmentDetailedCutbacksToExcel(moduleDetails, departmen
       merges.push({ s: { r: startRow, c: startColumn }, e: { r: endRow, c: endColumn } });
     };
 
-    const blockTables = blocks.map((blockGroup) => {
-      const blockStudents = blockGroup.students || [];
-      const block = getDisplayBlock(blockGroup.block);
-      const totalStudents = blockStudents.length;
-      const totalPaid = blockStudents.reduce((sum, student) => sum + Number(student.paidAmount || 0), 0);
-      const blockDepartmentShare = totalStudents * departmentShare;
-      const label = module.isCcs
-        ? `${yearLabel(blockGroup.yearLevel || module.yearLevel)} - ${block}`
-        : `${module.course || module.classCourse || module.department || 'Other Department'} ${yearLabel(blockGroup.yearLevel || module.yearLevel)} - ${block}`;
-      const table = [
-        [label.trim(), '', '', '', ''],
-        ['No.', 'Student Name', 'Amount Paid', 'Payment Date', 'Remaining Balance']
-      ];
-
-      if (blockStudents.length === 0) {
-        table.push(['', 'No students enrolled', '', '', '']);
-      } else {
-        blockStudents.forEach((student, index) => {
-          const paidAmount = Number(student.paidAmount || 0);
-          const balance = Math.max(0, amountRequired - paidAmount);
-          const paymentDate = student.paymentDate ? new Date(student.paymentDate).toLocaleDateString('en-PH') : '';
-          table.push([
-            index + 1,
-            student.name || '',
-            paidAmount > 0 ? paidAmount : '',
-            paymentDate,
-            balance
-          ]);
-        });
-      }
-
-      table.push(['', '', '', '', '']);
-      table.push(['', '', '', '', `Department Share: ${blockDepartmentShare}`]);
-      table.push(['', '', '', '', '']);
-      table.push(['', '', '', '', '']);
-      table.push(['', '', '', '', `Total Paid: ${totalPaid}`]);
-      return table;
-    });
-
-    const alignedTables = alignProfessorBlockTables(blockTables);
-    const subject = module.isCcs
-      ? `${module.courseCode || ''}${module.courseTitle ? ` - ${module.courseTitle}` : ''}`
-      : `Course: ${module.course || module.classCourse || module.department || 'Other Department'} | Module: ${module.courseCode || ''}${module.courseTitle ? ` - ${module.courseTitle}` : ''}`;
     let currentRow = 0;
 
-    for (let start = 0; start < alignedTables.length; start += tablesPerRow) {
-      const rowTables = alignedTables.slice(start, start + tablesPerRow);
-      const groupWidth = (rowTables.length * tableWidth) + ((rowTables.length - 1) * gapWidth);
-      const subjectEndColumn = groupWidth - 1;
-      const maxTableHeight = Math.max(...rowTables.map((table) => table.length));
+    setCell(currentRow, 0, sheetTitle, subjectStyle);
+    mergeCells(currentRow, 0, currentRow, tableWidth - 1);
+    currentRow += 2;
+    if (options.deadline) {
+      setCell(currentRow, 0, `Payment Deadline: ${options.deadline}`, textStyle);
+      mergeCells(currentRow, 0, currentRow, tableWidth - 1);
+      currentRow += 2;
+    }
 
-      setCell(currentRow, 0, subject.trim() || 'Module', subjectStyle);
-      mergeCells(currentRow, 0, currentRow, subjectEndColumn);
+    sortModules(modules).forEach((module) => {
+      const blocks = getBlocks(module);
+      if (blocks.length === 0) return;
+      const amountRequired = Number(module.amount || module.amountRequired || 0);
+      const moduleSubject = `${module.courseCode || ''}${module.courseTitle ? ` - ${module.courseTitle}` : ''}`.trim() || 'Module';
+      const subject = mode === 'other'
+        ? `Module: ${moduleSubject}`
+        : moduleSubject;
+      const blockTables = blocks.map((blockGroup) => {
+        const blockStudents = blockGroup.students || [];
+        const block = getDisplayBlock(blockGroup.block);
+        const totalStudents = blockStudents.length;
+        const totalPaid = blockStudents.reduce((sum, student) => sum + Number(student.paidAmount || 0), 0);
+        const blockDepartmentShare = totalStudents * departmentShare;
+        const label = mode === 'other'
+          ? `${getCourseLabel(module)} ${yearLabel(blockGroup.yearLevel || module.yearLevel)} - Block ${block}`
+          : `Block ${block}`;
+        const table = [
+          [label.trim(), '', '', '', ''],
+          ['No.', 'Student Name', 'Amount Paid', 'Payment Date', 'Remaining Balance']
+        ];
 
-      rowTables.forEach((table, tableIndex) => {
-        const tableColumn = tableIndex * (tableWidth + gapWidth);
-        table.forEach((tableRow, rowIndex) => {
-          const absoluteRow = currentRow + 1 + rowIndex;
-          tableRow.forEach((value, columnIndex) => {
-            const absoluteColumn = tableColumn + columnIndex;
-            let style = textStyle;
-            if (rowIndex === 0) style = blockStyle;
-            else if (rowIndex === 1) style = headerStyle;
-            else if (columnIndex === 0) style = centerStyle;
-            else if (columnIndex === 2 || columnIndex === 4) style = amountStyle;
-            setCell(absoluteRow, absoluteColumn, value, style);
+        if (blockStudents.length === 0) {
+          table.push(['', 'No students enrolled', '', '', '']);
+        } else {
+          blockStudents.forEach((student, index) => {
+            const paidAmount = Number(student.paidAmount || 0);
+            const balance = Math.max(0, amountRequired - paidAmount);
+            const paymentDate = student.paymentDate ? new Date(student.paymentDate).toLocaleDateString('en-PH') : '';
+            table.push([
+              index + 1,
+              student.name || '',
+              paidAmount > 0 ? paidAmount : '',
+              paymentDate,
+              balance
+            ]);
           });
-        });
-        mergeCells(currentRow + 1, tableColumn, currentRow + 1, tableColumn + tableWidth - 1);
+        }
+
+        table.push(['', '', '', '', '']);
+        table.push(['', '', '', '', `Department Share: PHP ${Number(blockDepartmentShare).toFixed(2)}`]);
+        table.push(['', '', '', '', `Total Paid: PHP ${Number(totalPaid).toFixed(2)}`]);
+        return table;
       });
 
-      currentRow += maxTableHeight + 3;
-    }
+      const alignedTables = alignProfessorBlockTables(blockTables);
+      for (let start = 0; start < alignedTables.length; start += tablesPerRow) {
+        const rowTables = alignedTables.slice(start, start + tablesPerRow);
+        const groupWidth = (rowTables.length * tableWidth) + ((rowTables.length - 1) * gapWidth);
+        const subjectEndColumn = groupWidth - 1;
+        const maxTableHeight = Math.max(...rowTables.map((table) => table.length));
+
+        setCell(currentRow, 0, subject, subjectStyle);
+        mergeCells(currentRow, 0, currentRow, subjectEndColumn);
+
+        rowTables.forEach((table, tableIndex) => {
+          const tableColumn = tableIndex * (tableWidth + gapWidth);
+          table.forEach((tableRow, rowIndex) => {
+            const absoluteRow = currentRow + 1 + rowIndex;
+            tableRow.forEach((value, columnIndex) => {
+              const absoluteColumn = tableColumn + columnIndex;
+              let style = textStyle;
+              if (rowIndex === 0) style = blockStyle;
+              else if (rowIndex === 1) style = headerStyle;
+              else if (columnIndex === 0) style = centerStyle;
+              else if (columnIndex === 2 || columnIndex === 4) style = amountStyle;
+              setCell(absoluteRow, absoluteColumn, value, style);
+            });
+          });
+          mergeCells(currentRow + 1, tableColumn, currentRow + 1, tableColumn + tableWidth - 1);
+        });
+
+        currentRow += maxTableHeight + 3;
+      }
+    });
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws['!merges'] = merges;
     ws['!cols'] = autoFitWorksheetColumns(rows, 38);
     applyWorksheetStyles(ws, styles, merges);
-    const sheetName = dedupeSheetName(wb, `${module.courseCode || 'Module'} ${module.course || ''}`);
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    return ws;
+  };
+
+  const ccsModulesByYear = new Map();
+  const otherModulesByDepartment = new Map();
+
+  (moduleDetails || []).forEach((module) => {
+    if (getBlocks(module).length === 0) return;
+    if (module.isCcs) {
+      const year = Number(module.yearLevel || getBlocks(module)[0]?.yearLevel || 0);
+      const key = [1, 2, 3, 4].includes(year) ? year : 'other';
+      if (!ccsModulesByYear.has(key)) ccsModulesByYear.set(key, []);
+      ccsModulesByYear.get(key).push(module);
+      return;
+    }
+    const departmentCode = getDepartmentCode(module);
+    if (!otherModulesByDepartment.has(departmentCode)) otherModulesByDepartment.set(departmentCode, []);
+    otherModulesByDepartment.get(departmentCode).push(module);
   });
+
+  [1, 2, 3, 4].forEach((year) => {
+    const modules = ccsModulesByYear.get(year) || [];
+    if (modules.length === 0) return;
+    const sheetTitle = `CCS Department Cutback - ${yearLabel(year)}`;
+    XLSX.utils.book_append_sheet(wb, buildSheet(sheetTitle, modules, 'ccs'), dedupeSheetName(wb, yearLabel(year)));
+  });
+
+  const otherYearModules = ccsModulesByYear.get('other') || [];
+  if (otherYearModules.length > 0) {
+    XLSX.utils.book_append_sheet(wb, buildSheet('CCS Department Cutback - Other Year Levels', otherYearModules, 'ccs'), dedupeSheetName(wb, 'Other Year Levels'));
+  }
+
+  Array.from(otherModulesByDepartment.entries())
+    .sort(([left], [right]) => left.localeCompare(right, undefined, { sensitivity: 'base', numeric: true }))
+    .forEach(([departmentCode, modules]) => {
+      XLSX.utils.book_append_sheet(
+        wb,
+        buildSheet(`${departmentCode} Department Cutback`, modules, 'other'),
+        dedupeSheetName(wb, departmentCode)
+      );
+    });
+
+  if (wb.SheetNames.length === 0) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['No department cutback records found.']]), 'Summary');
+  }
 
   const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
   saveAs(new Blob([wbout], { type: 'application/octet-stream' }), filename);

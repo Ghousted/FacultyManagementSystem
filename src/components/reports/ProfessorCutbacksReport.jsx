@@ -43,9 +43,10 @@ const FilenameModal = ({ isOpen, onClose, onConfirm, defaultName }) => {
 
   return (
     <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-3xl shadow-2xl w-96 max-w-full">
-        <h3 className="text-lg font-bold text-blue-700">Export to Excel</h3>
-        <p className="text-sm text-gray-600 mb-4">Enter a filename for the export.</p>
+      <div className="bg-white  rounded-3xl shadow-2xl w-sm max-w-full">
+        <h3 className="text-xl font-medium border-b border-slate-200 bg-slate-100 px-8 py-4 rounded-t-3xl">Export to Excel</h3>
+        <div className="px-8 py-4">
+            <p className="text-sm text-gray-600 mb-4">Enter a filename for the export.</p>
         <div className="flex items-center">
           <input
             value={name}
@@ -54,19 +55,20 @@ const FilenameModal = ({ isOpen, onClose, onConfirm, defaultName }) => {
           />
           <span className="px-3 py-1.5 text-sm bg-gray-100 border border-gray-300 border-l-0 rounded-r-lg">.xlsx</span>
         </div>
-        <div className="flex justify-end gap-2 mt-6">
+        <div className="flex justify-end gap-2 mt-8">
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-full text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
           >
             Cancel
           </button>
           <button
             onClick={() => onConfirm((name || defaultName).trim())}
-            className="px-6 py-1.5 rounded-full cursor-pointer text-sm bg-blue-600 text-white hover:bg-blue-700"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
           >
             Export
           </button>
+        </div>
         </div>
       </div>
     </div>
@@ -86,15 +88,17 @@ const SettingsModal = ({ isOpen, onClose, currentRate, currentDeadline, onSave, 
 
   return (
     <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-3xl shadow-2xl w-[26rem] max-w-full">
-        <h3 className="text-xl font-bold text-blue-700 mb-2">Configure Cutback</h3>
-        <p className="text-sm text-gray-600 mb-4">
+      <div className="bg-white  rounded-3xl shadow-2xl w-md max-w-full">
+        <h3 className="text-xl font-medium px-8 py-4 border-b border-slate-200 bg-slate-100 rounded-t-3xl">Configure Cutback</h3>
+        
+        <div className="px-8 py-4">
+            <p className="text-sm text-gray-600 mb-4">
           Cutback is added per student who fully pays for the professor's module on or before the deadline.
         </p>
 
         <label className="block text-xs font-semibold text-gray-600 mb-1">Rate per paid student</label>
         <div className="flex items-center mb-4">
-          <span className="px-3 py-1.5 text-sm bg-gray-100 border border-gray-300 border-r-0 rounded-l-lg">PHP</span>
+          <span className="px-3 py-1.5 text-sm bg-gray-100 border border-gray-300 border-r-0 rounded-l-lg">₱</span>
           <input
             type="number"
             min="0"
@@ -127,21 +131,22 @@ const SettingsModal = ({ isOpen, onClose, currentRate, currentDeadline, onSave, 
           Leave empty to count every fully-paid student. Otherwise, students whose last module payment lands after this date are excluded.
         </p>
 
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 mt-8">
           <button
             onClick={onClose}
             disabled={isSaving}
-            className="px-4 py-1.5 rounded-xl text-sm bg-gray-300 hover:bg-gray-400 text-gray-700 font-semibold cursor-pointer"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
           >
             Cancel
           </button>
           <button
             onClick={() => onSave({ rate: rateValue, deadline: deadlineValue })}
             disabled={isSaving}
-            className="px-4 py-1.5 rounded-xl text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold cursor-pointer"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
           >
             {isSaving ? 'Saving...' : 'Save'}
           </button>
+        </div>
         </div>
       </div>
     </div>
@@ -446,7 +451,166 @@ const buildAllStudentPaymentRows = ({ course, payable, studentPayments, studentL
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 };
 
-const ProfessorCutbacksReport = ({ embedded = false }) => {
+const formatCurrency = (value) => `₱ ${Number(value || 0).toFixed(2)}`;
+
+const formatPaymentDate = (value) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString('en-PH');
+};
+
+const getStatusBadgeClass = (status) => {
+  if (status === 'PAID') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  if (status === 'PARTIAL') return 'bg-amber-50 text-amber-700 border-amber-200';
+  return 'bg-red-50 text-red-700 border-red-200';
+};
+
+const getCourseContext = (course) => (
+  course?.source === 'other-department'
+    ? `${course.departmentName || 'Other Department'} - ${course.classCourse || 'Other'}`
+    : (course?.curriculumName || 'CCS Department')
+);
+
+const groupStudentsByBlock = (students = []) => (
+  students.reduce((acc, student) => {
+    const block = (student.block || 'A').toString().trim().toUpperCase() || 'A';
+    if (!acc[block]) acc[block] = [];
+    acc[block].push(student);
+    return acc;
+  }, {})
+);
+
+const ClassStudentsModal = ({ detail, onClose }) => {
+  const [activeBlock, setActiveBlock] = useState('');
+
+  useEffect(() => {
+    if (!detail) return;
+    const firstBlock = detail.blocks?.[0]?.block || '';
+    setActiveBlock(firstBlock);
+  }, [detail]);
+
+  if (!detail) return null;
+  const { course, blocks = [], rate = 0 } = detail;
+  const activeBlockDetail = blocks.find((item) => item.block === activeBlock) || blocks[0] || {};
+  const { block = '-', students = [] } = activeBlockDetail;
+  const paidCount = students.filter((student) => student.status === 'PAID').length;
+  const partialCount = students.filter((student) => student.status === 'PARTIAL').length;
+  const unpaidCount = students.filter((student) => student.status === 'UNPAID').length;
+  const totalPaid = students.reduce((sum, student) => sum + Number(student.paidAmount || 0), 0);
+  const totalBalance = students.reduce((sum, student) => sum + Math.max(0, Number(student.amountRequired || 0) - Number(student.paidAmount || 0)), 0);
+  const totalClaim = paidCount * Number(rate || 0);
+  const totalShare = students.length * Number(rate || 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-[2px]" role="dialog" aria-modal="true">
+      <div className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Class Payment Details</p>
+            <h3 className="mt-1 text-xl font-semibold text-slate-900">
+              {course.courseCode || '-'} - {course.courseTitle || '-'}
+            </h3>
+          
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-red-50 hover:text-red-600"
+            aria-label="Close class details"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="px-8 py-4">
+  <div className="flex flex-wrap gap-1.5 mb-4">
+            {blocks.map((item) => (
+              <button
+                key={item.block}
+                type="button"
+                onClick={() => setActiveBlock(item.block)}
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
+                  item.block === block
+                  ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
+                }`}
+              >
+                Block {item.block}
+             
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-xs font-medium text-slate-500">Students</p>
+            <p className="mt-1 text-lg font-semibold text-slate-900">{students.length}</p>
+          </div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+            <p className="text-xs font-medium text-emerald-700">Amount Paid</p>
+            <p className="mt-1 text-lg font-semibold text-emerald-800">{formatCurrency(totalPaid)}</p>
+          </div>
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+            <p className="text-xs font-medium text-red-700">Remaining Balance</p>
+            <p className="mt-1 text-lg font-semibold text-red-800">{formatCurrency(totalBalance)}</p>
+          </div>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+            <p className="text-xs font-medium text-blue-700">Claim Amount</p>
+            <p className="mt-1 text-lg font-semibold text-blue-800">{formatCurrency(totalClaim)}</p>
+          </div>
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+            <p className="text-xs font-medium text-indigo-700">Share</p>
+            <p className="mt-1 text-lg font-semibold text-indigo-800">{formatCurrency(totalShare)}</p>
+          </div>
+          </div>
+        
+        </div>
+
+        <div className="overflow-auto px-8">
+          <div className="overflow-hidden rounded-lg border border-slate-200">
+            <table className="min-w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-blue-500 text-white">
+                <tr className="text-left text-xs uppercase tracking-wide">
+                  <th className="px-4 py-3 w-[5%]">No.</th>
+                  <th className="px-4 py-3 w-[30%]">Student Name</th>
+                  <th className="px-4 py-3 w-[15%] text-center">Status</th>
+                  <th className="px-4 py-3 w-[15%] text-right">Amount Paid</th>
+                  <th className="px-4 py-3 w-[15%] text-right">Balance</th>
+                  <th className="px-4 py-3 w-[20%] text-center">Paid On</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white">
+                {students.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-10 text-center text-slate-500">No students found for this block.</td>
+                  </tr>
+                ) : students.map((student, index) => {
+                  const balance = Math.max(0, Number(student.amountRequired || 0) - Number(student.paidAmount || 0));
+                  return (
+                    <tr key={student.id || `${student.name}-${index}`} className="border-t border-slate-100 transition hover:bg-blue-50/50">
+                      <td className="px-4 py-3 text-slate-500">{index + 1}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900">{student.name || '-'}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(student.status)}`}>
+                          {student.status || 'UNPAID'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-emerald-700">{formatCurrency(student.paidAmount)}</td>
+                      <td className={`px-4 py-3 text-right font-semibold ${balance > 0 ? 'text-red-700' : 'text-slate-700'}`}>{formatCurrency(balance)}</td>
+                      <td className="px-4 py-3 text-center text-slate-600">{formatPaymentDate(student.paymentDate)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ProfessorCutbacksReport = ({ embedded = false, onBreadcrumbChange }) => {
   const [loading, setLoading] = useState(true);
   const [professors, setProfessors] = useState([]);
   const [activeTerm, setActiveTerm] = useState({ semester: 1, schoolYear: '' });
@@ -458,6 +622,7 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
   const [selectedProfessorDetail, setSelectedProfessorDetail] = useState(null);
   const [selectedProfessorLoading, setSelectedProfessorLoading] = useState(false);
   const [selectedProfessorError, setSelectedProfessorError] = useState('');
+  const [selectedClassBlock, setSelectedClassBlock] = useState(null);
   const [modulePayables, setModulePayables] = useState([]);
   const [offeredModules, setOfferedModules] = useState([]);
   const [studentLookups, setStudentLookups] = useState(buildStudentLookups());
@@ -709,6 +874,108 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
     });
   }, [scopedProfessors, search, sortConfig, rate]);
 
+  const selectedProfessorClassRows = useMemo(() => {
+    if (!selectedProfessorDetail) return [];
+    const groupedCourses = new Map();
+
+    (selectedProfessorDetail.classes || []).forEach((course) => {
+      const grouped = groupStudentsByBlock(course.students || []);
+      const blocks = Object.keys(grouped).length > 0
+        ? Object.keys(grouped).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+        : ((course.blocks || []).length ? course.blocks : ['A']);
+      const groupKey = [
+        normalizeCode(course.courseCode),
+        (course.courseTitle || '').toString().trim().toLowerCase(),
+        getCourseContext(course).toLowerCase(),
+        course.yearLevel || ''
+      ].join('|');
+
+      const blockRows = blocks.map((block) => {
+        const students = grouped[block] || [];
+        const paidCount = students.filter((student) => student.status === 'PAID').length;
+        const partialCount = students.filter((student) => student.status === 'PARTIAL').length;
+        const unpaidCount = students.filter((student) => student.status === 'UNPAID').length;
+        const totalPaid = students.reduce((sum, student) => sum + Number(student.paidAmount || 0), 0);
+        const totalBalance = students.reduce((sum, student) => sum + Math.max(0, Number(student.amountRequired || 0) - Number(student.paidAmount || 0)), 0);
+
+        return {
+          id: `${course.courseId || course.courseCode || 'class'}-${block}`,
+          course,
+          block,
+          students,
+          paidCount,
+          partialCount,
+          unpaidCount,
+          totalPaid,
+          totalBalance,
+          claimAmount: paidCount * Number(rate || 0)
+        };
+      });
+
+      if (!groupedCourses.has(groupKey)) {
+        groupedCourses.set(groupKey, {
+          id: `${course.courseCode || 'class'}-${course.yearLevel || 'year'}-${getCourseContext(course)}`,
+          course,
+          blockMap: new Map()
+        });
+      }
+
+      const group = groupedCourses.get(groupKey);
+      blockRows.forEach((blockRow) => {
+        const current = group.blockMap.get(blockRow.block);
+        if (!current) {
+          group.blockMap.set(blockRow.block, blockRow);
+          return;
+        }
+
+        current.students = [...current.students, ...blockRow.students];
+        current.paidCount += blockRow.paidCount;
+        current.partialCount += blockRow.partialCount;
+        current.unpaidCount += blockRow.unpaidCount;
+        current.totalPaid += blockRow.totalPaid;
+        current.totalBalance += blockRow.totalBalance;
+        current.claimAmount += blockRow.claimAmount;
+      });
+    });
+
+    return Array.from(groupedCourses.values()).map((group) => {
+      const blockRows = Array.from(group.blockMap.values())
+        .sort((left, right) => left.block.localeCompare(right.block, undefined, { numeric: true }));
+      const totals = blockRows.reduce((acc, blockRow) => ({
+        students: acc.students + blockRow.students.length,
+        paidCount: acc.paidCount + blockRow.paidCount,
+        partialCount: acc.partialCount + blockRow.partialCount,
+        unpaidCount: acc.unpaidCount + blockRow.unpaidCount,
+        totalPaid: acc.totalPaid + blockRow.totalPaid,
+        totalBalance: acc.totalBalance + blockRow.totalBalance,
+        claimAmount: acc.claimAmount + blockRow.claimAmount
+      }), {
+        students: 0,
+        paidCount: 0,
+        partialCount: 0,
+        unpaidCount: 0,
+        totalPaid: 0,
+        totalBalance: 0,
+        claimAmount: 0
+      });
+
+      return {
+        id: group.id,
+        course: group.course,
+        blocks: blockRows,
+        blockLabels: blockRows.map((blockRow) => blockRow.block),
+        studentsCount: totals.students,
+        paidCount: totals.paidCount,
+        partialCount: totals.partialCount,
+        unpaidCount: totals.unpaidCount,
+        totalPaid: totals.totalPaid,
+        totalBalance: totals.totalBalance,
+        claimAmount: totals.claimAmount,
+        shareAmount: totals.students * Number(rate || 0)
+      };
+    });
+  }, [selectedProfessorDetail, rate]);
+
   const grandTotals = useMemo(() => {
     let paidStudents = 0;
     rows.forEach(p => {
@@ -719,6 +986,41 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
       totalCutback: paidStudents * rate
     };
   }, [rows, rate]);
+
+  const breadcrumbItems = useMemo(() => {
+    const items = [
+      { label: 'Professor Cutback' }
+    ];
+
+    if (selectedProfessor) {
+      items[0] = {
+        label: 'Professor Cutback',
+        onClick: () => {
+          setSelectedProfessor(null);
+          setSelectedProfessorDetail(null);
+          setSelectedProfessorError('');
+          setSelectedClassBlock(null);
+        }
+      };
+      items.push({
+        label: selectedProfessor.name || selectedProfessor.employeeId || 'Professor',
+        onClick: selectedClassBlock ? () => setSelectedClassBlock(null) : null
+      });
+    }
+
+    if (selectedClassBlock) {
+      items.push({
+        label: selectedClassBlock.course?.courseCode || 'Class Details'
+      });
+    }
+
+    return items;
+  }, [selectedProfessor, selectedClassBlock]);
+
+  useEffect(() => {
+    if (!onBreadcrumbChange) return;
+    onBreadcrumbChange(breadcrumbItems);
+  }, [onBreadcrumbChange, breadcrumbItems]);
 
   const handleSort = (key) => {
     setSortConfig((prev) => ({
@@ -789,48 +1091,9 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
   return (
     <div>
       {!embedded && (
-        <Breadcrumbs items={[{ label: 'Professor Cutbacks' }]} />
+        <Breadcrumbs items={breadcrumbItems} />
       )}
 
-   
-
-      {error && (
-        <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg">
-          {error}
-        </div>
-      )}
-
-      {!selectedProfessor && (
-        <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-          <div className="grid gap-2 sm:grid-cols-2">
-            {DEPARTMENT_SCOPES.map((scope) => {
-              const active = departmentScope === scope.key;
-              return (
-                <button
-                  key={scope.key}
-                  type="button"
-                  onClick={() => {
-                    setDepartmentScope(scope.key);
-                    setSearch('');
-                  }}
-                  className={`rounded-xl px-4 py-3 text-left transition ${
-                    active
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <span className="block text-sm font-semibold">{scope.label}</span>
-                  <span className={`mt-1 block text-xs ${active ? 'text-blue-100' : 'text-slate-500'}`}>
-                    {scope.key === 'ccs' ? 'Professor cutbacks from CCS modules' : 'Professor cutbacks from other department modules'}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {!selectedProfessor && !loading && rows.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <p className="text-xs text-gray-500">Professors</p>
@@ -842,47 +1105,57 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
           </div>
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <p className="text-xs text-gray-500">Total Cutbacks</p>
-            <p className="text-2xl font-semibold text-emerald-700">PHP {grandTotals.totalCutback.toFixed(2)}</p>
+            <p className="text-2xl font-semibold text-emerald-700">₱ {grandTotals.totalCutback.toFixed(2)}</p>
           </div>
+        </div>
+
+
+      {error && (
+        <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg">
+          {error}
         </div>
       )}
 
+     <div className='flex items-center justify-between mb-4 gap-4 flex-wrap'>
+        
+        <div className="">
+  <div className="flex flex-wrap gap-1.5">
+            {DEPARTMENT_SCOPES.map((scope) => {
+              const active = departmentScope === scope.key;
+              return (
+                <button
+                  key={scope.key}
+                  type="button"
+                  onClick={() => {
+                    setDepartmentScope(scope.key);
+                    setSearch('');
+                  }}
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
+                    active
+                      ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
+                  }`}
+                >
+                  {scope.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+     
+
+     
       
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-4 items-stretch sm:items-center justify-between">
-  <div className="flex gap-2 items-center flex-1">
-    <button
-      onClick={loadAll}
-      disabled={loading}
-      className="inline-flex items-center justify-center gap-2 p-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 cursor-pointer"
-      title="Reload"
-    >
-      <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-    </button>
-
-    <div className="relative w-80">
-      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-      <input
-        type="text"
-        placeholder="Search professors..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-      />
-    </div>
-  </div>
-
+      <div className="flex items-center gap-2">
+ 
   <div className="flex gap-2 flex-wrap">
     <button
       onClick={() => setSettingsModalOpen(true)}
       className="rounded-lg text-sm px-4 py-2 cursor-pointer bg-blue-500 hover:bg-blue-600 text-white font-semibold shadow flex items-center gap-2"
     >
-      <Settings2 className="h-4 w-4" /> Rate: PHP {rate.toFixed(2)}
-      {deadline && (
-        <span className="inline-flex items-center gap-1 ml-1 pl-2 border-l border-blue-400 text-xs">
-          <CalendarClock className="h-3.5 w-3.5" /> {deadline}
-        </span>
-      )}
+      <Settings2 className="h-4 w-4" /> Rate
+      
     </button>
 
     <button
@@ -890,10 +1163,11 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
       disabled={loading || rows.length === 0}
       className="rounded-lg text-sm px-4 py-2 cursor-pointer bg-green-500 hover:bg-green-600 text-white font-semibold shadow flex items-center gap-2 disabled:opacity-50"
     >
-      <Download className="h-4 w-4" /> Export All Handled Classes
+      <Download className="h-4 w-4" /> Export
     </button>
   </div>
 </div>
+     </div>
 
       {!selectedProfessor && loading && (
         <div className="space-y-3">
@@ -915,23 +1189,22 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
       {!selectedProfessor && !loading && rows.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
           <table className="min-w-full text-sm">
-            <thead className="bg-blue-500 text-white">
-              <tr>
+            <thead className="bg-blue-500 text-white text-xs uppercase tracking-wider">
+              <tr className="">
                 {[
-                  ['employeeId', 'Employee ID'],
-                  ['name', 'Professor'],
-                  ['classCount', 'Classes'],
-                  ['paidStudents', 'Paid Students'],
-                  ['totalCutback', 'Cutback']
+                  ['employeeId', 'EMPLOYEE ID'],
+                  ['name', 'PROFESSOR'],
+                  ['classCount', 'CLASSES'],
+                  ['paidStudents', 'PAID STUDENTS'],
+                  ['totalCutback', 'CUTBACK']
                 ].map(([key, label]) => (
-                  <th key={key} className="px-4 py-2 text-left font-semibold">
+                  <th key={key} className="px-4 py-2 text-left font-semibold ">
                     <button type="button" onClick={() => handleSort(key)} className="inline-flex items-center gap-1">
                       {label}
                       <SortIcon column={key} />
                     </button>
                   </th>
                 ))}
-                <th className="px-4 py-2 text-right font-semibold">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -949,16 +1222,8 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
                     <td className="px-4 py-3 font-semibold text-gray-800">{prof.name}</td>
                     <td className="px-4 py-3 text-gray-700">{getHandledClassCount(prof)}</td>
                     <td className="px-4 py-3 text-gray-700">{paidStudents}</td>
-                    <td className="px-4 py-3 font-semibold text-emerald-700">PHP {totalCutback.toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); openExportSingle(prof); }}
-                        className="inline-flex items-center gap-1.5 rounded-full bg-green-600 px-3 py-1.5 text-xs text-white hover:bg-green-700"
-                      >
-                        <Download className="h-3.5 w-3.5" /> Export
-                      </button>
-                    </td>
+                    <td className="px-4 py-3 font-semibold text-emerald-700">₱ {totalCutback.toFixed(2)}</td>
+                  
                   </tr>
                 );
               })}
@@ -968,13 +1233,13 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
       )}
 
       {selectedProfessor && (
-        <div className="min-h-screen bg-slate-50 pb-10">
-          <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-            <div className="mb-6 flex flex-col gap-3 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-h-screen ">
+          <div className="">
+            <div className="mb-6 flex flex-col gap-4 rounded-3xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <button
                   type="button"
-                  onClick={() => { setSelectedProfessor(null); setSelectedProfessorDetail(null); setSelectedProfessorError(''); }}
+                  onClick={() => { setSelectedProfessor(null); setSelectedProfessorDetail(null); setSelectedProfessorError(''); setSelectedClassBlock(null); }}
                   className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
                 >
                   <ArrowBigLeft className="h-4 w-4" /> Back
@@ -983,21 +1248,9 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
               <div className="space-y-1 text-sm flex-1">
                 <h2 className="text-2xl font-semibold text-slate-900">{selectedProfessor.name}</h2>
                 <p className="text-sm text-slate-600">Employee ID: {selectedProfessor.employeeId || '—'}</p>
-                <p className="text-sm text-slate-500">
-                  {getHandledClassCount(selectedProfessor)} handled class{getHandledClassCount(selectedProfessor) === 1 ? '' : 'es'}
-                  {' '}· {(selectedProfessor.classes || []).filter(c => c.hasPayable).length} offered module{(selectedProfessor.classes || []).filter(c => c.hasPayable).length === 1 ? '' : 's'} with payments
-                </p>
+               
               </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => openExportDetailed(selectedProfessor)}
-                  disabled={!selectedProfessorDetail}
-                  className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Download className="h-4 w-4" /> Export Current Professor
-                </button>
-              </div>
+            
             </div>
 
             {selectedProfessorLoading ? (
@@ -1011,12 +1264,55 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
               <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 shadow-sm">{selectedProfessorError}</div>
             ) : selectedProfessorDetail ? (
               <div className="space-y-8">
-                {(selectedProfessorDetail.classes || []).length === 0 && (
-                  <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+                {selectedProfessorClassRows.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
                     No handled classes found for this professor.
                   </div>
+                ) : (
+                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                   
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-blue-500 text-white">
+                          <tr className="text-left text-xs uppercase tracking-wide">
+                            <th className="px-4 py-3 w-[20%]">Subject Code</th>
+                            <th className="px-4 py-3 w-[30%]">Subject Description </th>
+                            <th className="px-4 py-3 w-[20%]">Handled Blocks</th>
+                            <th className="px-4 py-3 w-[200%] text-left">Share</th>
+                            <th className="px-4 py-3 w-[10%] text-center">Students</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedProfessorClassRows.map((row) => (
+                            <tr
+                              key={row.id}
+                              onClick={() => setSelectedClassBlock({ ...row, rate })}
+                              className="cursor-pointer border-t border-slate-100 transition hover:bg-blue-50/60"
+                            >
+                              <td className="px-4 py-3 font-semibold text-slate-900">{row.course.courseCode || '-'}</td>
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-slate-800">{row.course.courseTitle || '-'}</div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex flex-wrap gap-1.5">
+                                  {row.blockLabels.map((block) => (
+                                    <span key={block} className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                                       {block}
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-left font-semibold text-indigo-700">{formatCurrency(row.shareAmount)}</td>
+                              <td className="px-4 py-3 text-center text-slate-700">{row.studentsCount}</td>
+                            
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 )}
-                {(selectedProfessorDetail.classes || []).map((course) => {
+                {false && (selectedProfessorDetail.classes || []).map((course) => {
                   // Group all students by their handled block, including irregular students by joinedBlock.
                   const regularGroups = course.students.reduce((acc, student) => {
                     const block = (student.block || 'A').toString().toUpperCase() || 'A';
@@ -1046,7 +1342,7 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
                             {course.source === 'other-department'
                               ? `${course.departmentName || 'Other Department'} - ${course.classCourse || 'Other'}`
                               : (course.curriculumName || 'CCS Department')}
-                            {' '} - Year {course.yearLevel || '-'} - Blocks: {(course.blocks || []).join(', ') || '-'} - {course.amountRequired ? `Amount: PHP ${course.amountRequired.toFixed(2)}` : 'No payable set'}
+                            {' '} - Year {course.yearLevel || '-'} - Blocks: {(course.blocks || []).join(', ') || '-'} - {course.amountRequired ? `Amount: ₱ ${course.amountRequired.toFixed(2)}` : 'No payable set'}
                           </p>
                         </div>
                         <div className="grid grid-cols-2 gap-3 text-sm text-slate-700 sm:grid-cols-4">
@@ -1080,7 +1376,7 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
                             const blockStats = getBlockStats(students);
                             return (
                               <div key={block} className="rounded-2xl border-2 border-slate-200 bg-white overflow-hidden">
-                                <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-5 py-3 flex items-center justify-between">
+                                <div className="bg-blue-500 px-5 py-3 flex items-center justify-between">
                                   <div className="text-white">
                                     <p className="text-lg font-bold">Block {block}</p>
                                     <p className="text-xs text-blue-100">{students.length} student{students.length === 1 ? '' : 's'} enrolled</p>
@@ -1129,9 +1425,9 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
                                                   {student.status}
                                                 </span>
                                               </td>
-                                              <td className="px-3 py-2 text-right text-slate-800 font-medium">PHP {Number(student.paidAmount || 0).toFixed(2)}</td>
-                                              <td className="px-3 py-2 text-right text-slate-600">PHP {Number(student.amountRequired || 0).toFixed(2)}</td>
-                                              <td className="px-3 py-2 text-right text-slate-800 font-medium">PHP {Math.max(0, Number(student.amountRequired || 0) - Number(student.paidAmount || 0)).toFixed(2)}</td>
+                                              <td className="px-3 py-2 text-right text-slate-800 font-medium">₱ {Number(student.paidAmount || 0).toFixed(2)}</td>
+                                              <td className="px-3 py-2 text-right text-slate-600">₱ {Number(student.amountRequired || 0).toFixed(2)}</td>
+                                              <td className="px-3 py-2 text-right text-slate-800 font-medium">₱ {Math.max(0, Number(student.amountRequired || 0) - Number(student.paidAmount || 0)).toFixed(2)}</td>
                                               <td className="px-3 py-2 text-center text-slate-600 text-xs">{student.paymentDate ? new Date(student.paymentDate).toLocaleDateString() : '-'}</td>
                                             </tr>
                                           );
@@ -1140,9 +1436,9 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
                                       <tfoot className="bg-slate-100 font-semibold">
                                         <tr>
                                           <td colSpan="3" className="px-3 py-2 text-right text-slate-700">Block Totals:</td>
-                                          <td className="px-3 py-2 text-right text-emerald-700">PHP {blockStats.totalPaid.toFixed(2)}</td>
-                                          <td className="px-3 py-2 text-right text-slate-700">PHP {blockStats.totalRequired.toFixed(2)}</td>
-                                          <td className="px-3 py-2 text-right text-red-700">PHP {blockStats.totalBalance.toFixed(2)}</td>
+                                          <td className="px-3 py-2 text-right text-emerald-700">₱ {blockStats.totalPaid.toFixed(2)}</td>
+                                          <td className="px-3 py-2 text-right text-slate-700">₱ {blockStats.totalRequired.toFixed(2)}</td>
+                                          <td className="px-3 py-2 text-right text-red-700">₱ {blockStats.totalBalance.toFixed(2)}</td>
                                           <td className="px-3 py-2"></td>
                                         </tr>
                                       </tfoot>
@@ -1157,21 +1453,21 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
                       )}
 
                       <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <div className="rounded-2xl bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 px-4 py-3">
+                        <div className="rounded-2xl bg-blue-50 border border-blue-200 px-4 py-3">
                           <div className="text-xs text-blue-600 font-semibold">Total Students</div>
                           <div className="text-xl font-bold text-blue-900">{classTotal}</div>
                         </div>
-                        <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 px-4 py-3">
+                        <div className="rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-3">
                           <div className="text-xs text-emerald-600 font-semibold">Total Collected</div>
-                          <div className="text-xl font-bold text-emerald-900">PHP {course.totalPaid.toFixed(2)}</div>
+                          <div className="text-xl font-bold text-emerald-900">₱ {course.totalPaid.toFixed(2)}</div>
                         </div>
-                        <div className="rounded-2xl bg-gradient-to-br from-red-50 to-red-100 border border-red-200 px-4 py-3">
+                        <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3">
                           <div className="text-xs text-red-600 font-semibold">Total Balance</div>
-                          <div className="text-xl font-bold text-red-900">PHP {course.totalBalance.toFixed(2)}</div>
+                          <div className="text-xl font-bold text-red-900">₱ {course.totalBalance.toFixed(2)}</div>
                         </div>
-                        <div className="rounded-2xl bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 px-4 py-3">
+                        <div className="rounded-2xl bg-purple-50 border border-purple-200 px-4 py-3">
                           <div className="text-xs text-purple-600 font-semibold">Professor Cutback</div>
-                          <div className="text-xl font-bold text-purple-900">PHP {((course.paidCount || 0) * rate).toFixed(2)}</div>
+                          <div className="text-xl font-bold text-purple-900">₱ {((course.paidCount || 0) * rate).toFixed(2)}</div>
                         </div>
                       </div>
                     </section>
@@ -1203,6 +1499,11 @@ const ProfessorCutbacksReport = ({ embedded = false }) => {
             ? `cutbacks_${(filenameModal.target.name || 'professor').replace(/\s+/g, '_')}`
             : 'all_professor_cutbacks'
         }
+      />
+
+      <ClassStudentsModal
+        detail={selectedClassBlock}
+        onClose={() => setSelectedClassBlock(null)}
       />
     </div>
   );
