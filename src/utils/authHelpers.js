@@ -23,15 +23,15 @@ const getPasswordResetContinueUrl = () => {
     return configured;
   }
 
-  if (typeof window !== 'undefined' && window.location && window.location.origin) {
-    const originUrl = withResetPath(window.location.origin);
-    if (originUrl) return originUrl;
-  }
-
   const authDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
   if (authDomain) {
     const authDomainUrl = withResetPath(`https://${String(authDomain).replace(/^https?:\/\//i, '')}`);
     if (authDomainUrl) return authDomainUrl;
+  }
+
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    const originUrl = withResetPath(window.location.origin);
+    if (originUrl) return originUrl;
   }
 
   return 'https://tcc-ccs-faculty.web.app/reset-password';

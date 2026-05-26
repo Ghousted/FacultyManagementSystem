@@ -378,6 +378,23 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       const code = error?.code || '';
 
+      if (code === 'auth/unauthorized-continue-uri') {
+        try {
+          // Fallback to Firebase default reset link flow when custom continue URL is not authorized.
+          await sendPasswordResetEmail(auth, email);
+          return {
+            success: true,
+            offline: false
+          };
+        } catch (fallbackError) {
+          return {
+            success: false,
+            error: 'This domain is not authorized for password reset links. Please add it under Firebase Authentication > Settings > Authorized domains.',
+            offline: false
+          };
+        }
+      }
+
       if (code === 'auth/invalid-email') {
         return {
           success: false,
@@ -398,14 +415,6 @@ export const AuthProvider = ({ children }) => {
         return {
           success: false,
           error: 'Password reset link configuration is invalid. Please contact admin to verify Firebase Authorized Domains.',
-          offline: false
-        };
-      }
-
-      if (code === 'auth/unauthorized-continue-uri') {
-        return {
-          success: false,
-          error: 'This domain is not authorized for password reset links. Please add it under Firebase Authentication > Settings > Authorized domains.',
           offline: false
         };
       }
