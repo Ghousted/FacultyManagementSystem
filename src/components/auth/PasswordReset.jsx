@@ -21,7 +21,8 @@ const PasswordReset = ({ onSwitchToSignIn }) => {
       return;
     }
 
-    const result = await resetPassword(email);
+    const normalizedEmail = String(email || '').trim();
+    const result = await resetPassword(normalizedEmail);
     if (result.success) {
       toast.success('Password reset email sent! Check your inbox.');
       setEmail('');

@@ -376,6 +376,40 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true, offline: false };
     } catch (error) {
+      const code = error?.code || '';
+
+      if (code === 'auth/invalid-email') {
+        return {
+          success: false,
+          error: 'Invalid email address. Please check the email and try again.',
+          offline: false
+        };
+      }
+
+      if (code === 'auth/too-many-requests') {
+        return {
+          success: false,
+          error: 'Too many reset attempts. Please wait a few minutes before trying again.',
+          offline: false
+        };
+      }
+
+      if (code === 'auth/invalid-continue-uri' || code === 'auth/missing-continue-uri') {
+        return {
+          success: false,
+          error: 'Password reset link configuration is invalid. Please contact admin to verify Firebase Authorized Domains.',
+          offline: false
+        };
+      }
+
+      if (code === 'auth/unauthorized-continue-uri') {
+        return {
+          success: false,
+          error: 'This domain is not authorized for password reset links. Please add it under Firebase Authentication > Settings > Authorized domains.',
+          offline: false
+        };
+      }
+
       if (error.code === 'auth/network-request-failed') {
         return { 
           success: false, 
