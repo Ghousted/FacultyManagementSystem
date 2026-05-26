@@ -2729,11 +2729,13 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
           {archiveSelectedModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center">
               <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setArchiveSelectedModalOpen(false)}></div>
-              <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
-                <div className="text-xl font-semibold mb-2">Archive  Students</div>
-                <p className=" text-gray-70 mb-4 text-justify">Choose an existing folder or create a new one to group the selected students.</p>
+              <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow ">
+                <div className="text-xl font-medium px-8 py-4 border-b border-slate-200 bg-slate-100 rounded-t-xl">Archive  Students</div>
 
-                <div className="space-y-4">
+                <div className="space-y-4 px-8 py-4">
+                                  <p className=" text-gray-70 mb-4 text-justify">Choose an existing folder or create a new one to group the selected students.</p>
+
+
                   <div>
                     <label className="block text-sm text-gray-600 mb-1">Existing folders</label>
                     <select 
@@ -2758,9 +2760,8 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                       className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     />
                   </div>
-                </div>
 
-                <div className="flex justify-end gap-2 mt-8">
+                    <div className="flex justify-end gap-2 mt-8">
                   <button 
                     onClick={() => setArchiveSelectedModalOpen(false)} 
                     className="px-4 py-2 cursor-pointer rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50">Cancel</button>
@@ -2775,11 +2776,15 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                       await archiveSelectedStudentsToFolder(folder);
                     }}
                     disabled={archiving}
-                    className="px-4 py-2 w-28 cursor-pointer rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                    className="px-4 py-2 w-24 text-sm cursor-pointer rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
                   >
                     {archiving ? 'Archiving...' : 'Archive'}
                   </button>
                 </div>
+
+                </div>
+
+              
               </div>
             </div>
           )}
@@ -2790,12 +2795,13 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
       {multiEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setMultiEditOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
-            <div className="text-lg mb-2 font-medium">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow ">
+            <div className="text-xl font-medium border-b px-8 py-4 border-slate-200 bg-slate-100 rounded-t-xl">
               {multiEditIsIrregular ? 'Update Year Level' : 'Update Year Level and Blocks'}
             </div>
             
-             {/* Info / Warning */}
+             <div className="px-8 py-4">
+                {/* Info / Warning */}
               <div className=" mb-4 text-gray-700 text-justify">
                 {multiEditIsIrregular
                   ? 'Updating the year level will affect all selected students.'
@@ -2805,40 +2811,41 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
 
             <div className={`flex flex-col gap-3 ${!multiEditIsIrregular ? 'sm:flex-row' : ''}`}>
               <div className={multiEditIsIrregular ? 'w-full' : 'sm:w-2/3'}>
-                <label className="block text-sm text-gray-600 mb-1">Year Level</label>
-                <div className="inline-flex w-full rounded-lg border border-slate-200 bg-slate-100 p-1">
-                  {[1, 2, 3, 4].map((y) => (
-                    <button
-                      key={y}
-                      type="button"
-                      onClick={() => setMultiEditYear(y)}
-                      className={`flex-1 rounded-md px-2 py-2 text-sm font-medium transition ${
-                        Number(multiEditYear) === y
-                          ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      {y === 1 ? '1st' : y === 2 ? '2nd' : y === 3 ? '3rd' : '4th'} Year
-                    </button>
-                  ))}
-                </div>
-              </div>
+  <label className="block text-sm text-gray-600 mb-1">Year Level</label>
+
+  <select
+    value={multiEditYear}
+    onChange={(e) => setMultiEditYear(Number(e.target.value))}
+    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+  >
+    <option value={1}>1st Year</option>
+    <option value={2}>2nd Year</option>
+    <option value={3}>3rd Year</option>
+    <option value={4}>4th Year</option>
+  </select>
+</div>
 
            
 
               {!multiEditIsIrregular && (
                 <div className="sm:w-1/3">
-                  <label className="block text-sm text-gray-600 mb-1">Block</label>
-                  <select
-                      className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
-                    value={multiEditBlock}
-                    onChange={(e) => setMultiEditBlock(e.target.value)}
-                  >
-                    {['A', 'B', 'C', 'D', 'E'].map((block) => (
-                      <option key={block} value={block}>{block}</option>
-                    ))}
-                  </select>
-                </div>
+  <label className="block text-sm text-gray-600 mb-1">Block</label>
+
+  <input
+    type="text"
+    maxLength={1}
+    value={multiEditBlock}
+    onChange={(e) => {
+      const value = e.target.value
+        .replace(/[^A-Za-z]/g, '')
+        .toUpperCase();
+
+      setMultiEditBlock(value);
+    }}
+    placeholder="Enter Block"
+    className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+  />
+</div>
               )}
             </div>
 
@@ -2883,6 +2890,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                 Save
               </button>
             </div>
+            </div>
           </div>
         </div>
       )}
@@ -2891,9 +2899,10 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
       {multiDeleteOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setMultiDeleteOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
-            <div className="text-xl font-semibold mb-4">Confirm Delete</div>
-            <div className="text-gray-700 mb-8">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow ">
+            <div className="text-xl font-medium border-b border-slate-200 px-8 py-4 bg-slate-100 rounded-t-xl">Confirm Delete</div>
+           <div className="px-8 py-4">
+               <div className="text-gray-700 mb-8">
               Are you sure you want to delete the selected students? This action cannot be undone.
             </div>
             <div className="flex justify-end gap-2">
@@ -2906,10 +2915,11 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
               <button 
                 onClick={handleConfirmMultiDelete}
                  disabled={loading} 
-                className="px-4 py-2 rounded-lg w-28 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2 rounded-lg w-24 text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
                   {loading ? 'Deleting...' : 'Delete'}
                 </button>
+            </div>
             </div>
           </div>
         </div>

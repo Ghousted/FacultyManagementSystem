@@ -370,7 +370,22 @@ useEffect(() => {
       const result = await getStudents();
       if (result.success) {
         setStudents((result.data || []).filter((student) => {
-          if (!student || student.enrolled === false) return false;
+          if (!student) return false;
+
+          if (student.active === false) {
+            if (!activeTerm?.semester || !activeTerm?.schoolYear) {
+              return true;
+            }
+
+            const studentTerm = student.enrolledTerm || student.createdTerm || null;
+            if (!studentTerm || (!studentTerm.semester && !studentTerm.schoolYear)) {
+              return true;
+            }
+
+            return isSameTerm(studentTerm, activeTerm);
+          }
+
+          if (student.enrolled === false) return false;
           if (!activeTerm?.semester || !activeTerm?.schoolYear) return student.enrolled !== false;
           const studentTerm = student.enrolledTerm || student.createdTerm || null;
           if (!studentTerm || (!studentTerm.semester && !studentTerm.schoolYear)) return student.enrolled === true;

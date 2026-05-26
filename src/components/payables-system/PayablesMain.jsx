@@ -43,7 +43,7 @@ const PayablesMain = ({ onBackToDashboard, initialDepartment = 'ccs' }) => {
     <div>
       {currentUser?.role === 'admin' && (
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-800 mb-1">
+          <h1 className="text-2xl font-medium text-gray-800 mb-1">
             Payables Management
           </h1>
           <p className="text-sm text-gray-600">

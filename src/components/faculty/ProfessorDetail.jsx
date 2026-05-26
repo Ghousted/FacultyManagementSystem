@@ -2081,32 +2081,29 @@ const ProfessorDetail = ({ professorId, activeTerm, onBack, onViewModeChange, vi
 
       {/* ── CONFIRM UNASSIGN ── */}
       {confirmUnassign && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]">
           <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
-            <div className="h-1.5 w-full bg-rose-500" />
-            <div className="px-6 py-5 border-b border-gray-100">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100">
-                  <Trash2 className="h-5 w-5 text-rose-600" />
-                </div>
-                <h6 className="text-lg font-bold text-gray-900">Unassign Subject</h6>
-              </div>
+            <div className="px-8 py-4 border-b border-slate-200 bg-slate-100">
+               
+                <h6 className="text-xl font-medium text-gray-900">Unassign Subject</h6>
             </div>
-            <div className="px-6 py-5">
-              <p className="mb-5 text-sm text-gray-600">
+            <div className="px-8 py-4">
+              <p className="mb-5 text-gray-600">
                 Are you sure you want to unassign{' '}
                 <span className="font-bold text-gray-900">{confirmUnassign.courseCode}</span>
                 {confirmUnassign.courseTitle ? (
                   <span className="text-gray-700"> — {confirmUnassign.courseTitle}</span>
                 ) : null}{' '}from this professor? This action cannot be undone.
               </p>
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 mt-8">
                 <button onClick={() => setConfirmUnassign(null)}
-                  className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition">
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
+                >
                   Cancel
                 </button>
                 <button onClick={handleUnassign}
-                  className="rounded-xl bg-rose-600 px-5 py-2 text-sm font-semibold text-white hover:bg-rose-700 transition shadow-sm">
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
+                >
                   Unassign
                 </button>
               </div>

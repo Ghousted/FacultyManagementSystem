@@ -834,7 +834,7 @@ const CurriculumMaker = ({ onBack, initialCurriculumId }) => {
       <div className="space-y-4">
 
         <div>
-            <h1 className="text-xl font-bold mb-1 text-gray-800">Curriculums</h1>
+            <h1 className="text-2xl font-medium mb-1 text-gray-800">Curriculum Maker</h1>
         <p className="text-gray-500 text-sm max-w-3xl">
           Manage your curriculums here. Click on a curriculum to view and edit its courses. Use the buttons on the right of each curriculum to edit or delete it.
         </p>
