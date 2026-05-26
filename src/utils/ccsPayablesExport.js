@@ -20,6 +20,42 @@ const formatDateLabel = (rawValue) => {
   return `${month}/${day}/${year}`;
 };
 
+const parseExportDate = (value) => {
+  if (!value) return null;
+
+  if (typeof value?.toDate === 'function') {
+    const converted = value.toDate();
+    return converted instanceof Date && !Number.isNaN(converted.getTime()) ? converted : null;
+  }
+
+  if (typeof value === 'object' && value?.seconds) {
+    const milliseconds = Number(value.seconds) * 1000 + Math.floor(Number(value.nanoseconds || 0) / 1000000);
+    const converted = new Date(milliseconds);
+    return Number.isNaN(converted.getTime()) ? null : converted;
+  }
+
+  const converted = new Date(value);
+  return Number.isNaN(converted.getTime()) ? null : converted;
+};
+
+const getStudentInactiveDate = (student) => parseExportDate(student?.inactiveAt || student?.inactiveDate || student?.deactivatedAt || null);
+
+const getPayableCreatedDate = (payable) => parseExportDate(payable?.createdAt || payable?.createdDate || payable?.dateCreated || null);
+
+const isPayableWithinStudentHistory = (student, payable) => {
+  if (!student || !payable || student.active !== false) return true;
+
+  const inactiveDate = getStudentInactiveDate(student);
+  if (!inactiveDate) return true;
+
+  const payableDate = getPayableCreatedDate(payable);
+  if (!payableDate) return true;
+
+  return payableDate.getTime() <= inactiveDate.getTime();
+};
+
+const hasStudentPaymentEntry = (payable, studentId) => Boolean(payable?.studentPayments && studentId && payable.studentPayments[studentId]);
+
 const getTermKey = (term) => `${term?.semester || 'na'}|${term?.schoolYear || ''}`;
 
 const getTermLabel = (term) => {
@@ -148,15 +184,17 @@ const getRelevantPayablesForStudent = (student, payablesByYear) => {
     if (!payable) return;
     const payableBlock = String(payable.block || 'all').trim().toUpperCase() || 'ALL';
     if (payableBlock !== 'ALL' && payableBlock !== studentBlock) return;
-    if (!payable.isIndividual || payable.studentId === student.id) {
-      merged.set(payable.id, payable);
-    }
+    if (!isPayableWithinStudentHistory(student, payable)) return;
+    if (!payable.isIndividual && !hasStudentPaymentEntry(payable, student.id)) return;
+    if (payable.isIndividual && payable.studentId !== student.id) return;
+    merged.set(payable.id, payable);
   });
 
   individualAcrossYears.forEach((payable) => {
     if (!payable) return;
     const payableBlock = String(payable.block || 'all').trim().toUpperCase() || 'ALL';
     if (payableBlock !== 'ALL' && payableBlock !== studentBlock) return;
+    if (!isPayableWithinStudentHistory(student, payable)) return;
     merged.set(payable.id, payable);
   });
 
