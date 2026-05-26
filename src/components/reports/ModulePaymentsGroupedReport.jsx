@@ -381,6 +381,111 @@ const flattenCourses = (professors = []) => professors.flatMap((professor) => (
   }))
 ));
 
+const mergeBlockGroups = (existingGroups = [], incomingGroups = []) => {
+  const mergedByBlock = new Map();
+
+  [...existingGroups, ...incomingGroups].forEach((group) => {
+    const blockKey = normalizeBlock(group?.block);
+    if (!mergedByBlock.has(blockKey)) {
+      mergedByBlock.set(blockKey, {
+        block: blockKey,
+        rows: [],
+        totalStudents: 0,
+        totalPaidAmount: 0,
+        totalRemainingBalance: 0,
+        paidStudents: 0,
+        fullyPaidStudents: 0,
+        accumulatedTotal: 0
+      });
+    }
+
+    const current = mergedByBlock.get(blockKey);
+    current.rows = [...current.rows, ...(group?.rows || [])].sort((left, right) => (left.name || '').localeCompare(right.name || ''));
+    current.totalStudents += Number(group?.totalStudents || 0);
+    current.totalPaidAmount += Number(group?.totalPaidAmount || 0);
+    current.totalRemainingBalance += Number(group?.totalRemainingBalance || 0);
+    current.paidStudents += Number(group?.paidStudents || 0);
+    current.fullyPaidStudents += Number(group?.fullyPaidStudents || 0);
+  });
+
+  let runningTotal = 0;
+  return Array.from(mergedByBlock.values())
+    .sort((left, right) => left.block.localeCompare(right.block))
+    .map((group) => {
+      runningTotal += Number(group.totalPaidAmount || 0);
+      return {
+        ...group,
+        accumulatedTotal: runningTotal
+      };
+    });
+};
+
+const groupCoursesByModule = (courses = []) => {
+  const grouped = new Map();
+
+  courses.forEach((course) => {
+    const moduleCode = normalizeCode(course?.courseCode || course?.courseTitle || course?.id);
+    const key = [
+      normalizeText(course?.source || 'ccs'),
+      normalizeText(course?.departmentId || course?.departmentCode || ''),
+      moduleCode
+    ].join('|');
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        ...course,
+        id: key,
+        professorNames: [],
+        blockGroups: course?.blockGroups || [],
+        totalStudents: Number(course?.totalStudents || 0),
+        totalCollected: Number(course?.totalCollected || 0),
+        totalRemainingBalance: Number(course?.totalRemainingBalance || 0),
+        paidStudents: Number(course?.paidStudents || 0),
+        fullyPaidStudents: Number(course?.fullyPaidStudents || 0),
+        matchingPayablesCount: Number(course?.matchingPayablesCount || 0),
+        hasPayable: !!course?.hasPayable,
+        students: course?.students || []
+      });
+    } else {
+      const current = grouped.get(key);
+      current.blockGroups = mergeBlockGroups(current.blockGroups, course?.blockGroups || []);
+      current.totalStudents += Number(course?.totalStudents || 0);
+      current.totalCollected += Number(course?.totalCollected || 0);
+      current.totalRemainingBalance += Number(course?.totalRemainingBalance || 0);
+      current.paidStudents += Number(course?.paidStudents || 0);
+      current.fullyPaidStudents += Number(course?.fullyPaidStudents || 0);
+      current.matchingPayablesCount += Number(course?.matchingPayablesCount || 0);
+      current.hasPayable = current.hasPayable || !!course?.hasPayable;
+
+      const studentMap = new Map((current.students || []).map((student) => [student.id, student]));
+      (course?.students || []).forEach((student) => {
+        if (student?.id && !studentMap.has(student.id)) studentMap.set(student.id, student);
+      });
+      current.students = Array.from(studentMap.values()).sort((left, right) => (left.name || '').localeCompare(right.name || ''));
+    }
+
+    const current = grouped.get(key);
+    const professorName = normalizeText(course?.professorName || course?.professor || '');
+    if (professorName && !current.professorNames.includes(professorName)) {
+      current.professorNames.push(professorName);
+      current.professorNames.sort((left, right) => left.localeCompare(right));
+      current.professorName = current.professorNames.join(', ');
+    }
+  });
+
+  return Array.from(grouped.values()).sort((left, right) => {
+    const codeDiff = normalizeCode(left.courseCode || left.courseTitle || '').localeCompare(
+      normalizeCode(right.courseCode || right.courseTitle || '')
+    );
+    if (codeDiff !== 0) return codeDiff;
+
+    const yearDiff = Number(left.yearLevel || 99) - Number(right.yearLevel || 99);
+    if (yearDiff !== 0) return yearDiff;
+
+    return normalizeText(left.courseTitle || '').localeCompare(normalizeText(right.courseTitle || ''));
+  });
+};
+
 const buildModulePaymentsWorkbook = async (courses, { filename, scopeLabel, termLabel, includeSummarySheet = true }) => {
   const workbook = XLSX.utils.book_new();
   const ccsCourses = [];
@@ -999,13 +1104,8 @@ const ModulePaymentsGroupedReport = ({ onBackToReportsMain }) => {
     })).filter((professor) => (professor.classes || []).length > 0);
   }, [scopedProfessors, search]);
 
-  const allCourses = useMemo(() => flattenCourses(scopedProfessors), [scopedProfessors]);
   const visibleCourses = useMemo(() => flattenCourses(rows), [rows]);
-  const moduleRows = useMemo(() => visibleCourses.slice().sort((left, right) => {
-    const yearDiff = Number(left.yearLevel || 99) - Number(right.yearLevel || 99);
-    if (yearDiff !== 0) return yearDiff;
-    return normalizeCode(left.courseCode || '').localeCompare(normalizeCode(right.courseCode || ''));
-  }), [visibleCourses]);
+  const moduleRows = useMemo(() => groupCoursesByModule(visibleCourses), [visibleCourses]);
 
   const grandTotals = useMemo(() => rows.reduce((totals, professor) => {
     professor.classes.forEach((course) => {
@@ -1068,7 +1168,7 @@ className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 t
           <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Search professor, subject, code, or course..."
+            placeholder="Search subject, code, or course..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
@@ -1238,7 +1338,7 @@ className="p-2.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 t
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Offered Module</p>
                     <h3 className="text-lg font-semibold text-slate-900">{course.courseCode || '—'} - {course.courseTitle || '—'}</h3>
                     <p className="text-sm text-slate-500">
-                      {course.professorName || course.professor || '—'} · {getYearLevelLabel(course.yearLevel)}
+                      Blocks: {(course.blockGroups || []).map((group) => normalizeBlock(group.block)).filter(Boolean).join(', ') || '—'}
                     </p>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-xs text-slate-600 sm:grid-cols-3">

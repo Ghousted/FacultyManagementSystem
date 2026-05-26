@@ -645,7 +645,9 @@ const handleAddIndividualPayable = () => {
       const targetYear = newPayableForm.yearLevel;
       if (editingMode) {
         const result = await updatePayable(newPayableForm.id, {
-          type: newPayableForm.type,
+          type: newPayableForm.category === 'module'
+            ? (newPayableForm.moduleCode || newPayableForm.type || newPayableForm.moduleTitle || 'Module')
+            : newPayableForm.type,
           amount: parseFloat(newPayableForm.amount),
           yearLevel: targetYear === 'irregular' || targetYear === 'all' ? targetYear : parseInt(targetYear),
           block: newPayableForm.block || 'all'
@@ -653,6 +655,7 @@ const handleAddIndividualPayable = () => {
         if (result.success) {
           setSuccess('Payable updated successfully!');
           await loadPayables();
+          setAddPayableDialogOpen(false);
         } else {
           setError(result.error);
         }
@@ -933,27 +936,37 @@ const handleAddIndividualPayable = () => {
   }, [stagedVouchers]);
 
   const handleStartEditPayables = (payableId) => {
-    const currentYear = tabValue + 1;
-    const payable = payables[currentYear]?.find(p => p.id === payableId) || Object.values(payables).flat().find(p => p.id === payableId);
-    if (payable) {
-      setNewPayableForm({
-        id: payable.id,
-        type: payable.type,
-        amount: payable.amount.toString(),
-        status: 'unpaid',
-        paidAmount: '0',
-        yearLevel: payable.yearLevel.toString() === 'irregular' ? 'irregular' : payable.yearLevel.toString(),
-        block: payable.block || 'all',
-        category: payable.category || 'general',
-        moduleId: payable.moduleId || '',
-        moduleCode: payable.moduleCode || '',
-        moduleTitle: payable.moduleTitle || '',
-        moduleCurriculumId: payable.moduleCurriculumId || '',
-        selectedModuleIds: payable.moduleId ? [payable.moduleId] : []
-      });
-      setEditingMode(true);
-      setAddPayableDialogOpen(true);
+    const payable = Object.values(payables).flat().find((p) => p.id === payableId);
+    if (!payable) {
+      setError('Payable not found. Please refresh and try again.');
+      return;
     }
+
+    const rawYearLevel = payable.yearLevel;
+    const yearLevel = rawYearLevel === 'irregular' || rawYearLevel === 'all'
+      ? String(rawYearLevel)
+      : String(Number(rawYearLevel) || 'all');
+    const amountValue = Number(payable.amount);
+
+    setNewPayableForm({
+      id: payable.id,
+      type: payable.type || payable.moduleCode || '',
+      amount: Number.isFinite(amountValue) ? String(amountValue) : '',
+      status: 'unpaid',
+      paidAmount: '0',
+      yearLevel,
+      block: payable.block || 'all',
+      category: payable.category || (payable.moduleId ? 'module' : 'general'),
+      moduleId: payable.moduleId || '',
+      moduleCode: payable.moduleCode || '',
+      moduleTitle: payable.moduleTitle || '',
+      moduleCurriculumId: payable.moduleCurriculumId || '',
+      selectedModuleIds: payable.moduleId ? [payable.moduleId] : []
+    });
+    setEditingMode(true);
+    setStudentModalOpen(false);
+    setModuleSelectorOpen(false);
+    setAddPayableDialogOpen(true);
   };
 
   const handleDeletePayable = async (payableId) => {
@@ -1994,7 +2007,7 @@ const handleAddIndividualPayable = () => {
 
       {/* Add Payable Dialog */}
       {addPayableDialogOpen && (
-        <div className="fixed inset-0 z-1000 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => {
             setAddPayableDialogOpen(false);
             setEditingMode(false);
@@ -2038,7 +2051,6 @@ const handleAddIndividualPayable = () => {
                       handleNewPayableInputChange('block', 'all');
                     }
                   }}
-                  disabled={editingMode}
                 >
                   <option value="all">All Students</option>
                   <option value="1">1st Year</option>
@@ -2057,7 +2069,6 @@ const handleAddIndividualPayable = () => {
                     className="w-full border text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow disabled:cursor-not-allowed disabled:bg-slate-100"
                     value={newPayableForm.block}
                     onChange={(e) => handleNewPayableInputChange('block', e.target.value)}
-                    disabled={editingMode}
                   >
                     <option value="all">All Blocks</option>
                     {(() => {
@@ -2091,7 +2102,6 @@ const handleAddIndividualPayable = () => {
                       name="newPayableCategory"
                       value="general"
                       checked={newPayableForm.category === 'general'}
-                      disabled={editingMode}
                       onChange={(e) => {
                         handleNewPayableInputChange('category', e.target.value);
                         setModuleSelectorOpen(false);
@@ -2106,7 +2116,6 @@ const handleAddIndividualPayable = () => {
                       name="newPayableCategory"
                       value="module"
                       checked={newPayableForm.category === 'module'}
-                      disabled={editingMode}
                       onChange={(e) => {
                         handleNewPayableInputChange('category', e.target.value);
                         setModuleSelectorContext('new');
@@ -2134,7 +2143,7 @@ const handleAddIndividualPayable = () => {
                             setModuleSelectorContext('new');
                             setModuleSelectorOpen(true);
                           }}
-                          className="rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
+                          className="rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           Change
                         </button>
@@ -2158,7 +2167,7 @@ const handleAddIndividualPayable = () => {
                           setModuleSelectorContext('new');
                           setModuleSelectorOpen(true);
                         }}
-                        className="inline-flex items-center rounded-lg bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition"
+                        className="inline-flex items-center rounded-lg bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600 cursor-pointer transition disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         Select Modules
                       </button>
@@ -2254,7 +2263,7 @@ const handleAddIndividualPayable = () => {
 
       {/* Module Selector Modal */}
      {moduleSelectorOpen && (
-  <div className="fixed inset-0 z-10000 flex items-center justify-center bg-black/30 px-4 py-6">
+  <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/30 px-4 py-6">
     <div
       className="absolute inset-0"
       onClick={() => setModuleSelectorOpen(false)}
@@ -3205,7 +3214,7 @@ className="w-fit border cursor-pointer text-sm border-slate-200 bg-white rounded
 
       {/* Individual Student Payable Dialog */}
      {individualPayableDialogOpen && (
-  <div className="fixed inset-0 z-1000 flex items-center justify-center p-4">
+  <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
     <div
       className="fixed inset-0 bg-black/30 backdrop-blur-[2px]"
       onClick={() => {
