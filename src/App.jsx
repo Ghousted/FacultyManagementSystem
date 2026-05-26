@@ -602,11 +602,17 @@ function App() {
   }
 
   return (
-    <Layout>
+    <>
       <Toaster position="top-right" />
-      {currentUser && renderAppBreadcrumbs && renderAppBreadcrumbs()}
-      {currentUser ? renderAuthenticatedRoute() : <AuthContainer />}
-    </Layout>
+      {currentUser ? (
+        <Layout>
+          {renderAppBreadcrumbs && renderAppBreadcrumbs()}
+          {renderAuthenticatedRoute()}
+        </Layout>
+      ) : (
+        <AuthContainer />
+      )}
+    </>
   );
 }
 

@@ -578,17 +578,10 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
       {!embedded && (
         <div className=" mb-6">
           <div className="flex items-center gap-6">
-            <button
-              onClick={onBackToDashboard}
-                        className="group flex cursor-pointer items-center gap-2 bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2 focus:ring-offset-white transition-transform"
-              aria-label="Back to dashboard"
-              title="Back to dashboard"
-            >
-                        <ArrowBigLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
-            </button>
+
             <div className="flex flex-col">
-              <h2 className="text-2xl font-medium text-blue-700">Reports</h2>
-              <p className="text-gray-600 text-sm">
+              <h2 className="text-2xl font-medium ">Reports</h2>
+              <p className="text-gray-600 text-sm max-w-3xl">
                 View detailed reports of students who have achieved academic excellence this semester, including GPA breakdowns and honors.
               </p>
             </div>
@@ -597,15 +590,15 @@ const ReportsModule = ({ onBackToDashboard, embedded = false }) => {
       )}
       <div className="mb-4 flex items-center gap-2 justify-between">
         <div className="flex flex-wrap items-center justify-between gapx-6 py-2">
-  <div className="flex gap-2 w-fit items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
+  <div className="flex flex-wrap gap-1.5">
             {yearTabs.map((tab, idx) => (
               <button
                 key={tab.value}
                 onClick={() => setTabYear(idx)}
-              className={`rounded-lg px-2.5 py-1 text-sm font-medium transition-all 
-                  ${ tabYear === idx
-                        ? 'bg-white text-blue-600 shadow-sm ring-1 ring-blue-100'
-                  : 'text-slate-600 hover:bg-white hover:text-slate-900 cursor-pointer'
+              className={`rounded-lg px-3 py-2 text-sm w-fit font-medium transition ${
+                   tabYear === idx
+                       ? 'bg-blue-500 text-white shadow-sm'
+                  : 'bg-slate-200 text-slate-600 hover:bg-slate-200 cursor-pointer'
                 }`}
                 title={tab.label}
               >

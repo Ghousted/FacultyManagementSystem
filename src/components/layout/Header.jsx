@@ -9,27 +9,34 @@ import { goToRoleDashboard } from '../common/Breadcrumbs';
 const Header = () => {
   const { currentUser, role, signout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [userName, setUserName] = useState("");
+  const [displayName, setDisplayName] = useState('');
   const menuRef = useRef(null);
 
-  // Fetch the username from Firestore
+  // Fetch the display name from Firestore.
   useEffect(() => {
-    const fetchUserName = async () => {
-      if (!currentUser?.uid) return;
+    const fetchDisplayName = async () => {
+      if (!currentUser?.uid) {
+        setDisplayName('');
+        return;
+      }
 
       try {
         const userRef = doc(db, "users", currentUser.uid);
         const userSnap = await getDoc(userRef);
 
         if (userSnap.exists()) {
-          setUserName(userSnap.data().userName);
+          const userData = userSnap.data();
+          setDisplayName(userData.fullName || userData.userName || currentUser.displayName || currentUser.email || '');
+        } else {
+          setDisplayName(currentUser.displayName || currentUser.email || '');
         }
       } catch (error) {
-        console.error("Error fetching username:", error);
+        console.error("Error fetching user display name:", error);
+        setDisplayName(currentUser.displayName || currentUser.email || '');
       }
     };
 
-    fetchUserName();
+    fetchDisplayName();
   }, [currentUser]);
 
   const handleSignOut = async () => {
@@ -89,7 +96,7 @@ const Header = () => {
             >
               <UserCircle className="text-blue-800" aria-hidden="true" />
               <span className="max-w-[220px] truncate text-gray-800">
-                {userName || currentUser.email}
+                {displayName || currentUser.email}
               </span>
               {menuOpen ? (
                 <ChevronUp className="text-gray-600 w-4 h-4" aria-hidden="true" />
@@ -98,9 +105,9 @@ const Header = () => {
               )}
             </button>
             {menuOpen && (
-              <div className="absolute -left-20 mt-2 w-56 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden transition-all duration-200">
+              <div className="absolute -left-14 mt-2 w-56 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden transition-all duration-200">
                 <div className="text-center pt-2 text-sm uppercase text-slate-600">
-                  {userName}
+                  {displayName || currentUser.email}
                 </div>
                 <div className="px-4 pb-2 text-xs text-center text-gray-500 border-b border-gray-300">
                   {currentUser.email}

@@ -372,9 +372,46 @@ const Dashboard = () => {
     </div>
   );
 
+  const CurriculumDashboardSkeleton = () => (
+    <div>
+      <DashboardHeroSkeleton />
+
+      <div className="mb-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <SkeletonLine className="h-4 w-20" />
+          <SkeletonLine className="h-4 w-4" />
+          <SkeletonLine className="h-4 w-36 bg-blue-50" />
+        </div>
+        <SkeletonLine className="h-7 w-56" />
+        <SkeletonLine className="h-4 w-full max-w-2xl" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[1, 2, 3, 4, 5, 6, 7, 8].map((item) => (
+          <div
+            key={item}
+            className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+          >
+            <div className="flex items-center gap-4">
+              <SkeletonLine className="h-10 w-10 bg-blue-50" />
+              <div className="flex-1">
+                <SkeletonLine className="mb-2 h-4 w-36" />
+                <SkeletonLine className="h-3 w-20" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   const UserDashboardSkeleton = () => {
     if (role === 'payables') {
       return <PayablesSkeleton />;
+    }
+
+    if (role === 'curriculum') {
+      return <CurriculumDashboardSkeleton />;
     }
 
     return (
@@ -421,7 +458,7 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
-        <Suspense fallback={<p className="p-4 text-sm text-gray-500">Loading Curriculum Checker...</p>}>
+        <Suspense fallback={<CurriculumDashboardSkeleton />}>
           <CurriculumCheckerMain />
         </Suspense>
       </div>
@@ -430,7 +467,7 @@ const Dashboard = () => {
 
   if (selectedSystem === 'Curriculum Checker') {
     return (
-      <Suspense fallback={<p className="p-4 text-sm text-gray-500">Loading Curriculum Checker...</p>}>
+      <Suspense fallback={<CurriculumDashboardSkeleton />}>
         <CurriculumCheckerMain onBackToDashboard={handleBackToDashboard} />
       </Suspense>
     );

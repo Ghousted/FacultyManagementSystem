@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
-import { RefreshCw, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { collection, getDocs, limit, orderBy, query, writeBatch, doc } from 'firebase/firestore';
+import { RefreshCw, Search, ChevronLeft, ChevronRight, Trash2, X } from 'lucide-react';
 import { db } from '../firebase';
 import Breadcrumbs from './common/Breadcrumbs';
 
@@ -118,6 +118,8 @@ const LogsPlaceholder = () => {
   const [search,      setSearch]      = useState('');
   const [error,       setError]       = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [resettingLogs, setResettingLogs] = useState(false);
 
   // Unified entity map: both students and professors keyed by Firestore doc ID
   const [entityMap, setEntityMap] = useState({});
@@ -207,6 +209,29 @@ const LogsPlaceholder = () => {
   const startLog = (currentPage - 1) * logsPerPage + 1;
   const endLog   = Math.min(currentPage * logsPerPage, filteredLogs.length);
 
+  const handleResetLogs = async () => {
+    setResettingLogs(true);
+    setError('');
+    try {
+      const snapshot = await getDocs(collection(db, 'systemLogs'));
+      for (let index = 0; index < snapshot.docs.length; index += 450) {
+        const batch = writeBatch(db);
+        snapshot.docs.slice(index, index + 450).forEach((docSnap) => {
+          batch.delete(doc(db, 'systemLogs', docSnap.id));
+        });
+        await batch.commit();
+      }
+      setLogs([]);
+      setCurrentPage(1);
+      setResetModalOpen(false);
+    } catch (resetError) {
+      console.error('Error resetting logs:', resetError);
+      setError(resetError.message || 'Failed to reset logs.');
+    } finally {
+      setResettingLogs(false);
+    }
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
@@ -214,7 +239,7 @@ const LogsPlaceholder = () => {
 
       {/* Header */}
       <div className="space-y-1">
-        <h5 className="text-2xl font-bold text-gray-900">System Activity Logs</h5>
+        <h5 className="text-2xl font-medium text-gray-900">System Activity Logs</h5>
         <p className="text-sm text-gray-600 max-w-2xl">
           Review recent system activities, including actions taken by professors and administrators
           across various modules. Click on any log entry to view more details or navigate to the
@@ -222,36 +247,12 @@ const LogsPlaceholder = () => {
         </p>
       </div>
 
-      {/* Logs Table */}
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        {/* Toolbar */}
-        <div className="border-b border-gray-200 bg-gray-50 px-4 py-3">
+       {/* Toolbar */}
+        <div className="">
           <div className="flex items-center justify-between">
            
 
-            {/* Pagination */}
-            <div className="flex items-center gap-2">
-              
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => goToPage(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className="p-1 rounded-full bg-gray-300 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={() => goToPage(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                  className="p-1 rounded-full bg-gray-300 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-              <span className="text-xs text-gray-500">
-                Showing {startLog}–{endLog} out of {filteredLogs.length} logs
-              </span>
-            </div>
+           
 
              {/* Search + refresh */}
             <div className="flex items-center gap-2">
@@ -275,13 +276,50 @@ className="p-2.5 rounded-lg bg-white border cursor-pointer border-slate-200 hove
 className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                 />
               </div>
+               <button
+                type="button"
+                onClick={() => setResetModalOpen(true)}
+                disabled={loading || logs.length === 0}
+                              className="p-2 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+
+             {/* Pagination */}
+            <div className="flex items-center gap-2">
+              
+            <div className="flex items-center gap-2">
+             
+              <button
+                onClick={() => goToPage(currentPage - 1)}
+                disabled={currentPage === 1}
+                  className="p-1 rounded-full bg-gray-300 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="p-1 rounded-full bg-gray-300 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+              <span className="text-xs text-gray-500">
+                Showing {startLog}–{endLog} out of {filteredLogs.length} logs
+              </span>
             </div>
 
           </div>
         </div>
 
+      {/* Logs Table */}
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+       
+
         {/* Table Header */}
-        <div className="hidden grid-cols-[1fr_1fr_0.8fr_1fr_1.5fr] gap-3 border-b border-gray-200 bg-gray-50 px-4 py-3 text-xs font-semibold uppercase text-gray-500 md:grid">
+        <div className="hidden grid-cols-[1fr_1fr_0.8fr_1fr_1.5fr] gap-3 border-b border-gray-200 bg-blue-500  px-4 py-3 text-xs font-semibold uppercase text-white md:grid">
           <span>Action</span>
           <span>Section</span>
           <span>User</span>
@@ -335,6 +373,44 @@ className="w-full border text-sm border-slate-200 bg-white rounded-lg pl-9 pr-3 
           </div>
         )}
       </div>
+
+      {resetModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-[2px]" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-slate-50 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Reset System Logs?</h3>
+              </div>
+            
+            </div>
+
+            <div className="px-6 py-5">
+              <div className="text-slate-500">
+                This will permanently delete all saved activity logs. This action cannot be undone. All log history in `System Logs` will be removed.
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setResetModalOpen(false)}
+                disabled={resettingLogs}
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleResetLogs}
+                disabled={resettingLogs}
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
+              >
+                {resettingLogs ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

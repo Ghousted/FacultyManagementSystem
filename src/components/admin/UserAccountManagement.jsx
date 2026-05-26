@@ -1,10 +1,15 @@
 import { useState, useEffect } from 'react';
+import { deleteApp, initializeApp } from 'firebase/app';
 import { 
   createUserWithEmailAndPassword,
-  sendPasswordResetEmail
+  deleteUser,
+  getAuth,
+  sendPasswordResetEmail,
+  signOut,
+  updateProfile
 } from 'firebase/auth';
-import { doc, setDoc, getDocs, collection, deleteDoc } from 'firebase/firestore';
-import { auth, db } from '../../firebase';
+import { doc, setDoc, getDocs, collection, deleteDoc, query, serverTimestamp, where } from 'firebase/firestore';
+import { auth, db, firebaseConfig } from '../../firebase';
 import { toast } from 'react-hot-toast';
 import { logSystemAction } from '../../utils/auditLogger';
 import { passwordResetActionCodeSettings } from '../../utils/authHelpers';
@@ -25,6 +30,18 @@ import {
   X
 } from 'lucide-react';
 
+const EMAIL_LOCK_MESSAGE = 'This email address is permanent and cannot be changed after account creation.';
+
+const normalizeEmail = (email) => (email || '').trim().toLowerCase();
+
+const getFriendlyFirebaseError = (error) => {
+  if (error?.code === 'auth/email-already-in-use') return 'An account with this email already exists.';
+  if (error?.code === 'auth/invalid-email') return 'Please enter a valid email address.';
+  if (error?.code === 'auth/weak-password') return 'Password must be at least 6 characters long.';
+  if (error?.code === 'permission-denied') return 'You do not have permission to save this user record.';
+  return error?.message || 'Something went wrong. Please try again.';
+};
+
 const UserAccountManagement = ({ onChangeTerm }) => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,11 +56,15 @@ const UserAccountManagement = ({ onChangeTerm }) => {
   const [updating, setUpdating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'role', direction: 'asc' });
+  const [formError, setFormError] = useState('');
+  const [editError, setEditError] = useState('');
   
   // Form state
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
+    password: '',
+    confirmPassword: '',
     role: 'admin'
   });
   const [editFormData, setEditFormData] = useState({
@@ -125,102 +146,121 @@ const UserAccountManagement = ({ onChangeTerm }) => {
     });
   };
 
-  const generateRandomPassword = () => {
-    const length = 16;
-    const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-    const nameParts = (formData.fullName || '')
-      .split(/\s+/)
-      .map((part) => part.toLowerCase().replace(/[^a-z]/g, ''))
-      .filter(Boolean);
-    const baseWords = ['tcc', 'ccs', 'currchecker', 'payables', 'curr', 'checker'];
-    const nameWord = nameParts.length ? nameParts[0] : '';
-    const chosenWords = [nameWord, baseWords[Math.floor(Math.random() * baseWords.length)], baseWords[Math.floor(Math.random() * baseWords.length)]].filter(Boolean);
-    let password = chosenWords.join('') + Math.floor(100 + Math.random() * 900);
-
-    const remaining = Math.max(0, length - password.length);
-    if (remaining > 0) {
-      const array = new Uint32Array(remaining);
-      crypto.getRandomValues(array);
-      for (let i = 0; i < remaining; i++) {
-        password += charset[array[i] % charset.length];
-      }
-    }
-
-    return password.slice(0, length);
-  };
-
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    setFormError('');
     setFormData({ ...formData, [name]: value });
   };
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    
-    if (!formData.fullName || !formData.email) {
-      toast.error('Please fill in full name and email');
+
+    const fullName = formData.fullName.trim();
+    const email = normalizeEmail(formData.email);
+    const password = formData.password || '';
+    const confirmPassword = formData.confirmPassword || '';
+    const role = formData.role || 'admin';
+
+    setFormError('');
+
+    if (!fullName || !email || !password || !confirmPassword || !role) {
+      const message = 'Please complete full name, email, password, confirmation, and role before creating the account.';
+      setFormError(message);
+      toast.error(message);
       return;
     }
 
-    if (!formData.email.includes('@')) {
-      toast.error('Please enter a valid email address');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      const message = 'Please enter a valid email address.';
+      setFormError(message);
+      toast.error(message);
       return;
     }
 
-    const generatedPassword = generateRandomPassword();
+    if (password.length < 6) {
+      const message = 'Password must be at least 6 characters long.';
+      setFormError(message);
+      toast.error(message);
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      const message = 'Password and confirm password do not match.';
+      setFormError(message);
+      toast.error(message);
+      return;
+    }
 
     setCreating(true);
+    let secondaryApp = null;
+    let secondaryAuth = null;
+    let createdAuthUser = null;
 
     try {
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        formData.email,
-        generatedPassword
-      );
+      const duplicateQuery = query(collection(db, 'users'), where('email', '==', email));
+      const duplicateSnapshot = await getDocs(duplicateQuery);
+      if (!duplicateSnapshot.empty) {
+        throw { code: 'auth/email-already-in-use' };
+      }
 
-      // Create user document in Firestore with role and additional info
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
-        email: formData.email,
-        fullName: formData.fullName,
-        userName: formData.email.split('@')[0], // Use email prefix as username
-        role: formData.role,
-        createdAt: new Date().toISOString(),
-        emailVerified: true, // Mark as verified since admin created it
-        createdBy: auth.currentUser?.uid || 'system'
-      });
+      secondaryApp = initializeApp(firebaseConfig, `create-user-${Date.now()}`);
+      secondaryAuth = getAuth(secondaryApp);
+
+      const userCredential = await createUserWithEmailAndPassword(
+        secondaryAuth,
+        email,
+        password
+      );
+      createdAuthUser = userCredential.user;
+
+      await updateProfile(createdAuthUser, { displayName: fullName });
+
+      const uid = createdAuthUser.uid;
+      const userRecord = {
+        uid,
+        fullName,
+        email,
+        role,
+        createdAt: serverTimestamp(),
+      };
 
       try {
-        await sendPasswordResetEmail(auth, formData.email, passwordResetActionCodeSettings);
-        toast.success('User created and password reset email sent!');
-      } catch (emailError) {
-        console.error('Password reset email failed after creation:', emailError);
-        toast.success('User created successfully. Reset email could not be sent automatically.');
+        await setDoc(doc(db, 'users', uid), userRecord);
+      } catch (firestoreError) {
+        await deleteUser(createdAuthUser).catch((rollbackError) => {
+          console.error('Failed to roll back created auth user:', rollbackError);
+        });
+        throw firestoreError;
       }
-      
-      // Reset form and close modal
+
+      toast.success('User created successfully. The account can now sign in with the assigned password.');
+
+      await logSystemAction({
+        action: 'Created user account',
+        module: 'Admin',
+        entityType: 'user',
+        entityId: uid,
+        description: `Created ${role} account for ${email}`,
+        details: { uid, email, role }
+      });
+
       setFormData({
         fullName: '',
         email: '',
+        password: '',
+        confirmPassword: '',
         role: 'admin'
       });
       setCreateModalOpen(false);
-
-      // Refresh user list
       await fetchUsers();
-
     } catch (error) {
       console.error('Error creating user:', error);
-      
-      if (error.code === 'auth/email-already-in-use') {
-        toast.error('An account with this email already exists');
-      } else if (error.code === 'auth/invalid-email') {
-        toast.error('Invalid email address');
-      } else if (error.code === 'auth/weak-password') {
-        toast.error('Password is too weak');
-      } else {
-        toast.error('Failed to create user account');
-      }
+      const message = getFriendlyFirebaseError(error);
+      setFormError(message);
+      toast.error(message);
     } finally {
+      if (secondaryAuth) await signOut(secondaryAuth).catch(() => {});
+      if (secondaryApp) await deleteApp(secondaryApp).catch(() => {});
       setCreating(false);
     }
   };
@@ -256,6 +296,7 @@ const UserAccountManagement = ({ onChangeTerm }) => {
   const handleEditClick = (user) => {
     setSelectedUser(user);
     setOriginalEmail(user.email || '');
+    setEditError('');
     setEditFormData({
       fullName: user.fullName || '',
       email: user.email || '',
@@ -267,6 +308,8 @@ const UserAccountManagement = ({ onChangeTerm }) => {
 
   const handleEditInputChange = (e) => {
     const { name, value } = e.target;
+    if (name === 'email') return;
+    setEditError('');
     setEditFormData({ ...editFormData, [name]: value });
   };
 
@@ -274,33 +317,31 @@ const UserAccountManagement = ({ onChangeTerm }) => {
     e.preventDefault();
     if (!selectedUser) return;
 
-    const { fullName, email, role, sendPasswordReset } = editFormData;
+    const { fullName, role, sendPasswordReset } = editFormData;
+    const lockedEmail = normalizeEmail(originalEmail || selectedUser.email);
+    setEditError('');
 
-    if (!fullName || !email || !role) {
-      toast.error('Please fill in name, email, and role');
-      return;
-    }
-
-    if (!email.includes('@')) {
-      toast.error('Please enter a valid email address');
+    if (!fullName.trim() || !lockedEmail || !role) {
+      const message = 'Please complete name, email, and role before saving.';
+      setEditError(message);
+      toast.error(message);
       return;
     }
 
     setUpdating(true);
     try {
       const updateData = {
-        fullName,
-        email,
-        userName: email.split('@')[0],
+        uid: selectedUser.id,
+        fullName: fullName.trim(),
         role,
-        updatedAt: new Date().toISOString()
+        updatedAt: serverTimestamp()
       };
 
       await setDoc(doc(db, 'users', selectedUser.id), updateData, { merge: true });
 
       if (sendPasswordReset) {
         try {
-          await sendPasswordResetEmail(auth, email, passwordResetActionCodeSettings);
+          await sendPasswordResetEmail(auth, lockedEmail, passwordResetActionCodeSettings);
           toast.success('User updated and password reset email sent!');
         } catch (emailError) {
           console.error('Password reset email failed:', emailError);
@@ -310,13 +351,22 @@ const UserAccountManagement = ({ onChangeTerm }) => {
         toast.success('User updated successfully!');
       }
 
-      logSystemAction('UPDATE_USER', `Updated user ${email}`);
+      await logSystemAction({
+        action: 'Updated user account',
+        module: 'Admin',
+        entityType: 'user',
+        entityId: selectedUser.id,
+        description: `Updated user account for ${lockedEmail}`,
+        details: { uid: selectedUser.id, email: lockedEmail, role }
+      });
       setEditModalOpen(false);
       setSelectedUser(null);
       await fetchUsers();
     } catch (error) {
       console.error('Error updating user:', error);
-      toast.error('Failed to update user');
+      const message = getFriendlyFirebaseError(error);
+      setEditError(message);
+      toast.error(message);
     } finally {
       setUpdating(false);
     }
@@ -325,6 +375,7 @@ const UserAccountManagement = ({ onChangeTerm }) => {
   const handleCancelEdit = () => {
     setEditModalOpen(false);
     setSelectedUser(null);
+    setEditError('');
     setEditFormData({
       fullName: '',
       email: '',
@@ -392,7 +443,11 @@ const UserAccountManagement = ({ onChangeTerm }) => {
           </button>
 
           <button
-            onClick={() => setCreateModalOpen(true)}
+            onClick={() => {
+              setFormError('');
+              setFormData({ fullName: '', email: '', password: '', confirmPassword: '', role: 'admin' });
+              setCreateModalOpen(true);
+            }}
             className="inline-flex items-center gap-2   px-4 py-2 text-sm font-medium bg-green-500 cursor-pointer text-white rounded-xl hover:bg-green-600 transition-colors"
           >
             <UserPlus size={16} />
@@ -404,17 +459,24 @@ const UserAccountManagement = ({ onChangeTerm }) => {
       {/* Create User Modal */}
       {createModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl ring-1 ring-gray-200 max-w-lg w-full overflow-hidden">
-            <div className="px-8 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div className="bg-white rounded-2xl shadow-2xl ring-1 ring-gray-200 max-w-md w-full overflow-hidden">
+            <div className="px-8 py-4 border-b border-slate-200 flex items-start justify-between gap-4 bg-slate-100">
               <div>
-                <h2 className="text-lg font-medium text-slate-800">Add New User Account</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Create User Account</h2>
               </div>
-             
+            
             </div>
 
             <div className="px-8 py-4">
-              <form onSubmit={handleCreateUser} className="space-y-4">
+              <form onSubmit={handleCreateUser} className="space-y-5">
+                {formError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {formError}
+                  </div>
+                )}
+
                 {/* Full Name */}
+                <div className="flex flex-col gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">
                     Full Name
@@ -425,7 +487,7 @@ const UserAccountManagement = ({ onChangeTerm }) => {
                     value={formData.fullName}
                     onChange={handleInputChange}
                     placeholder="John Doe"
-                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-gray-200 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     required
                   />
                 </div>
@@ -441,13 +503,48 @@ const UserAccountManagement = ({ onChangeTerm }) => {
                     value={formData.email}
                     onChange={handleInputChange}
                     placeholder="john@example.com"
-                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-gray-200 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition"
+className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                     required
                   />
+                  <p className="mt-1 text-xs text-slate-500">{EMAIL_LOCK_MESSAGE}</p>
+                </div>
                 </div>
 
-                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700">
-                  A temporary password will be generated automatically and a password reset email will be sent to the user after account creation.
+                <div className="flex flex-col gap-2">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      name="password"
+                      value={formData.password}
+                      onChange={handleInputChange}
+                      placeholder="Set password"
+                      className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                      required
+                      minLength={6}
+                      autoComplete="new-password"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">Minimum 6 characters.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      Confirm Password
+                    </label>
+                    <input
+                      type="password"
+                      name="confirmPassword"
+                      value={formData.confirmPassword}
+                      onChange={handleInputChange}
+                      placeholder="Re-enter password"
+                      className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+                      required
+                      minLength={6}
+                      autoComplete="new-password"
+                    />
+                  </div>
                 </div>
 
                 {/* Role */}
@@ -461,14 +558,16 @@ const UserAccountManagement = ({ onChangeTerm }) => {
                     onChange={handleInputChange}
                     className="w-full px-3.5 py-2.5 text-sm bg-white border border-gray-200 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition appearance-none cursor-pointer"
                   >
-                    <option value="admin">Admin — Full Access</option>
-                    <option value="curriculum">Curriculum Checker — Curriculum Module Only</option>
-                    <option value="payables">Payables — Payables Module Only</option>
+                    <option value="admin">Admin</option>
+                    <option value="curriculum">Curriculum Checker</option>
+                    <option value="payables">Payables</option>
                   </select>
                 </div>
 
+              
+
                 {/* Submit Button */}
-                <div className="flex justify-end gap-2 pt-8">
+                <div className="flex justify-end gap-2 border-t border-slate-100 pt-5">
                   <button
                     type="button"
                     onClick={() => setCreateModalOpen(false)}
@@ -480,10 +579,11 @@ const UserAccountManagement = ({ onChangeTerm }) => {
                   <button
                     type="submit"
                     disabled={creating}
-                  className="px-4 py-1.5 w-28 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-1.5 min-w-32 rounded-lg text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                   >
                     {creating ? (
                       <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
                         Creating...
                       </>
                     ) : (
@@ -502,15 +602,22 @@ const UserAccountManagement = ({ onChangeTerm }) => {
       {/* Edit User Modal */}
       {editModalOpen && selectedUser && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl ring-1 ring-gray-200 max-w-lg w-full overflow-hidden">
-            <div className="px-8 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div className="bg-white rounded-2xl shadow-2xl ring-1 ring-gray-200 max-w-md w-full overflow-hidden">
+            <div className="px-8 py-4 border-b border-slate-200 flex items-start justify-between gap-4 bg-slate-100">
               <div>
-                <h2 className="text-lg font-medium text-slate-800">Edit User Account</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Edit User Account</h2>
               </div>
+           
             </div>
 
-            <div className="p-8">
+            <div className="px-8 py-4">
               <form onSubmit={handleUpdateUser} className="space-y-4">
+                {editError && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {editError}
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Full Name</label>
                   <input
@@ -531,11 +638,13 @@ const UserAccountManagement = ({ onChangeTerm }) => {
                     type="email"
                     name="email"
                     value={editFormData.email}
-                    onChange={handleEditInputChange}
                     placeholder="john@example.com"
-                    className="w-full px-3.5 py-2.5 text-sm bg-white border border-gray-200 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition"
+                    disabled
+                    readOnly
+                    className="w-full px-3.5 py-2.5 text-sm bg-slate-100 border border-slate-200 rounded-xl text-slate-500 cursor-not-allowed"
                     required
                   />
+                  <p className="mt-1.5 text-xs text-slate-500">{EMAIL_LOCK_MESSAGE}</p>
                 </div>
 
                 <div>
@@ -578,10 +687,11 @@ const UserAccountManagement = ({ onChangeTerm }) => {
                   <button
                     type="submit"
                     disabled={updating}
-                className="px-4 py-1.5 w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="inline-flex items-center justify-center gap-2 px-4 py-1.5 min-w-28 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                   >
                     {updating ? (
                       <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
                         Saving...
                       </>
                     ) : (

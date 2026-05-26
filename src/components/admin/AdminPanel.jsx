@@ -129,6 +129,15 @@ const AdminPanel = () => {
 
       <Breadcrumbs items={[{ label: 'Settings' }]} className="" />
 
+      <div>
+          <h1 className="text-2xl font-medium">
+        System Administration
+      </h1>
+      <p className="mt-1 max-w-3xl text-gray-600 text-sm">
+        Manage user accounts, roles, and system settings. Use the panels below to oversee term enrollments and user permissions.
+      </p>
+      </div>
+
       {/* Term Enrollment Panel */}
       <div className="w-full xl:w-auto">
         <TermEnrollmentPanel headerOnly />
