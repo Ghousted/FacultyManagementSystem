@@ -3270,16 +3270,17 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
               {/* Reactivate modal: choose year & block when re-activating an inactive student */}
               {reactivateModalOpen && reactivateTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-                  <div className="bg-white rounded-xl p-8 max-w-md">
-                    <h3 className="text-xl font-medium mb-4">Reactivate student</h3>
-                    <div className="text-sm text-gray-800 mb-4">
+                  <div className="bg-white rounded-xl  max-w-md">
+                    <h3 className="text-xl font-medium px-8 py-4 border-b border-slate-200 bg-slate-100 rounded-t-xl">Reactivate student</h3>
+                    <div className="px-8 py-4">
+                        <div className="text-sm text-gray-800 mb-4">
                         Reactivating <strong>{reactivateTarget.name}</strong>. Choose new year level and block before reactivating.
                       </div>
                     <div className="flex gap-2 mb-3 items-center">
                       <select 
                         value={reactivateYear} 
                         onChange={(e) => setReactivateYear(Number(e.target.value))} 
-                        className="flex-1 border border-slate-300 rounded-xl p-2 text-sm"
+className="flex-4 border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
                       >
                         {[1,2,3,4].map(y => 
                           <option 
@@ -3293,16 +3294,23 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                             }
                           </option>)}
                       </select>
-                      <select 
-                        value={reactivateBlock} 
-                        onChange={(e) => setReactivateBlock(e.target.value)} 
-                        className={`w-24 border border-slate-300 rounded-xl p-2 text-sm ${reactivateIsIrregular ? 'opacity-50 cursor-not-allowed' : ''}`} 
-                        disabled={reactivateIsIrregular}
-                      >
-                        {getBlocksForYear(reactivateYear, reactivateIsIrregular).map((block) => (
-                          <option key={block} value={block}>{block}</option>
-                        ))}
-                      </select>
+                     <input
+  type="text"
+  value={reactivateBlock}
+  onChange={(e) => {
+    const value = e.target.value
+      .replace(/[^A-Za-z]/g, '') // letters only
+      .slice(0, 1) // one character only
+      .toUpperCase(); // auto uppercase
+
+    setReactivateBlock(value);
+  }}
+  placeholder="A"
+  maxLength={1}
+  disabled={reactivateIsIrregular}
+className="flex-1 border cursor-pointer text-sm border-slate-200 bg-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-500 transition-shadow"
+
+/>
                     
                     </div>
                       <label className="inline-flex items-center gap-2 text-sm">
@@ -3313,7 +3321,7 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                     <div className="flex justify-end gap-2 mt-8">
                       <button 
                         onClick={() => { setReactivateModalOpen(false); setReactivateTarget(null); setReactivateIsIrregular(false); }} 
-                        className="px-4 py-2 text-sm rounded-full border cursor-pointer hover:bg-blue-50 text-blue-600"
+                className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-600 bg-white hover:bg-gray-50 cursor-pointer"
                       >
                         Cancel
                       </button>
@@ -3355,7 +3363,9 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                         }
                         setLoading(false);
                       }} 
-                      className="px-4 py-2 text-sm rounded-full bg-blue-500 cursor-pointer hover:bg-blue-600 text-white">Reactivate</button>
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
+                      >Reactivate</button>
+                    </div>
                     </div>
                   </div>
                 </div>
@@ -4649,9 +4659,10 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
       {inactiveConfirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={() => setInactiveConfirmOpen(false)}></div>
-          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow p-8">
-            <div className="text-xl font-semibold mb-4">Confirm Inactivate</div>
-            <div className="text-gray-700 mb-8 text-justify">
+          <div className="relative z-10 w-full max-w-md border border-gray-300 bg-white rounded-xl shadow">
+            <div className="text-xl font-medium border-b border-slate-200 bg-slate-100 rounded-t-xl px-8 py-4">Confirm Inactivate</div>
+            <div className="px-8 py-4">
+                <div className="text-gray-700 mb-8 text-justify">
               Are you sure you want to mark <span className="font-semibold">{studentToInactivate?.name || 'this student'}</span> as inactive? This will move the student to  Inactive folder.
             </div>
             <div className="flex justify-end gap-2">
@@ -4669,10 +4680,11 @@ const StudentManagement = ({ onBack, initialSection = 'students', onBreadcrumbCh
                 type="button"
                 onClick={handleConfirmInactivate}
                 disabled={loading}
-                className="px-4 py-1.5 w-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
               >
-                {loading ? 'Inactivating...' : 'Inactivate'}
+                Inactivate
               </button>
+            </div>
             </div>
           </div>
         </div>

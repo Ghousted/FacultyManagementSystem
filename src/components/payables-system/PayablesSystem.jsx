@@ -31,6 +31,20 @@ const formatPeso = (value) => {
 
 const sanitizeExportText = (value) => String(value || '').replace(/[\\/?*\[\]:]/g, '-').trim() || 'payables';
 
+const isInactivePayablesStudent = (student) => {
+  if (!student) return false;
+
+  const activeValue = typeof student.active === 'string'
+    ? student.active.trim().toLowerCase()
+    : student.active;
+
+  const statusValue = typeof student.status === 'string'
+    ? student.status.trim().toLowerCase()
+    : '';
+
+  return activeValue === false || activeValue === 'false' || student.enrolled === false || statusValue === 'inactive';
+};
+
 import { generateReceiptNumber, createReceiptRecord } from '../../utils/receiptService';
 import toast from 'react-hot-toast';
 
@@ -650,23 +664,23 @@ const handleAddIndividualPayable = () => {
           targetStudents = students.filter(s => s.isIrregular);
         } else if (targetYear === 'all') {
           if (targetBlock === 'all') {
-            targetStudents = students.filter(s => s.active !== false);
+            targetStudents = students.filter(s => !isInactivePayablesStudent(s));
           } else {
             // All year levels but specific block
             targetStudents = students.filter(s => {
               const studentBlock = (s.block || '').toUpperCase() || 'A';
-              return studentBlock === targetBlock.toUpperCase() && !s.isIrregular && s.active !== false;
+              return studentBlock === targetBlock.toUpperCase() && !s.isIrregular && !isInactivePayablesStudent(s);
             });
           }
         } else {
           // Specific year level
           if (targetBlock === 'all') {
-            targetStudents = students.filter(s => getStudentYearLevel(s) === parseInt(targetYear) && !s.isIrregular && s.active !== false);
+            targetStudents = students.filter(s => getStudentYearLevel(s) === parseInt(targetYear) && !s.isIrregular && !isInactivePayablesStudent(s));
           } else {
             // Specific year level and specific block
             targetStudents = students.filter(s => {
               const studentBlock = (s.block || '').toUpperCase() || 'A';
-              return getStudentYearLevel(s) === parseInt(targetYear) && !s.isIrregular && studentBlock === targetBlock.toUpperCase() && s.active !== false;
+              return getStudentYearLevel(s) === parseInt(targetYear) && !s.isIrregular && studentBlock === targetBlock.toUpperCase() && !isInactivePayablesStudent(s);
             });
           }
         }
@@ -769,7 +783,7 @@ const handleAddIndividualPayable = () => {
       setError('No student selected');
       return;
     }
-    if (selectedStudentModal.active === false) {
+    if (isInactivePayablesStudent(selectedStudentModal)) {
       setError('Inactive students cannot receive new charges.');
       return;
     }
@@ -1244,7 +1258,6 @@ const handleAddIndividualPayable = () => {
 
   const getStudentPayables = useCallback((student) => {
     if (!student || !payables) return [];
-    if (student.active === false) return [];
     const studentBlock = (student.block || 'A').toString().trim().toUpperCase() || 'A';
     let basePayables = [];
     if (student.isIrregular) {
@@ -1258,10 +1271,11 @@ const handleAddIndividualPayable = () => {
     const merged = {};
     basePayables.forEach(p => {
       const payableBlock = (p.block || 'all').toString().trim().toUpperCase() || 'ALL';
+      const hasStudentEntry = Boolean(p.studentPayments && p.studentPayments[student.id]);
       if (payableBlock !== 'ALL' && payableBlock !== studentBlock) {
         return;
       }
-      if (!p.isIndividual) {
+      if (!p.isIndividual && hasStudentEntry) {
         merged[p.id] = p;
       } else if (p.studentId === student.id) {
         merged[p.id] = p;
@@ -1517,7 +1531,6 @@ const handleAddIndividualPayable = () => {
     if (!studentId || !payables) return 0;
     const student = students.find(s => s.id === studentId);
     if (!student) return 0;
-    if (student.active === false) return 0;
     const studentPayables = getStudentPayables(student);
     return studentPayables.reduce((total, payable) => {
       const studentPayment = payable.studentPayments?.[studentId] || { status: 'unpaid', paidAmount: 0 };
@@ -3451,19 +3464,17 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
       {deleteDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/20 backdrop-blur-[2px] bg-opacity-50" onClick={() => { setDeleteDialogOpen(false); setDeleteTarget(null); }}></div>
-          <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full relative z-10">
-            <div className="flex items-start gap-3">
-              <div className="flex-1">
-                <h2 className="text-xl font-bold mb-2">Delete Payable</h2>
+          <div className="bg-white rounded-2xl shadow-lg  max-w-md w-full relative z-10">
+
+             <h2 className="text-xl font-medium border-b border-slate-200 px-8 py-4 bg-slate-100 rounded-t-2xl">Delete Payable</h2>
+
+              <div className="px-8 py-4">
+               
                 <p className=" text-gray-700 ">
                   Are you sure you want to delete
                   {` "${deleteTarget?.type || ''}"`} payable? This cannot be undone.
                 </p>
-              
-                
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-8">
+                 <div className="flex justify-end gap-2 mt-8">
               <button
                 className="px-4 py-1.5 rounded-lg text-sm border text-blue-600 border-blue-500 bg-white hover:bg-gray-50 cursor-pointer"
                 onClick={() => { setDeleteDialogOpen(false); setDeleteTarget(null); }}
@@ -3472,13 +3483,16 @@ className="w-full border cursor-pointer text-sm border-slate-200 bg-white rounde
                 Cancel
               </button>
               <button
-                className="px-4 py-1.5 w-28 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-1.5 w-24 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 onClick={() => deleteTarget && handleDeletePayable(deleteTarget.id)}
                 disabled={loading}
               >
                 {loading ? 'Deleting...' : 'Delete'}
               </button>
             </div>
+                
+              </div>
+           
           </div>
         </div>
       )}
